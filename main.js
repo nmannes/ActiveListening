@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
+const WebSocket = require('ws');
 
 async function test() {
     console.log("Launching browser...");
@@ -19,12 +20,28 @@ async function test() {
         console.log("Navigating to YouTube...");
         await page.goto("https://www.youtube.com/watch?v=Z33nVLZ5NbI", { waitUntil: "networkidle2" });
 
-        const file = fs.createWriteStream(__dirname + "/test.webm");
+        const localFile = fs.createWriteStream(__dirname + "/test.webm");
+
+        console.log("Connecting to WebSocket server...");
+        const ws = new WebSocket('ws://localhost:7654');
+
+        await new Promise((resolve, reject) => {
+            ws.on('open', resolve);
+            ws.on('error', reject);
+        });
+        console.log("Connected to WebSocket server.");
 
         // Expose a function to the page to receive audio chunks
         await page.exposeFunction('sendChunk', (data) => {
             const buffer = Buffer.from(data);
-            file.write(buffer);
+
+            // Forward to WebSocket
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(buffer);
+            }
+
+            // Still save locally for backup/verification
+            localFile.write(buffer);
         });
 
         console.log("Injecting capture script...");
@@ -64,10 +81,10 @@ async function test() {
             window._recorder = recorder;
         });
 
-        console.log("Recording for 10 seconds...");
+        console.log("Streaming for 10 seconds...");
         await new Promise(r => setTimeout(r, 10000));
 
-        console.log("Stopping recording...");
+        console.log("Stopping stream...");
         await page.evaluate(() => {
             if (window._recorder) {
                 window._recorder.stop();
@@ -77,11 +94,12 @@ async function test() {
         // Wait a bit for final chunks
         await new Promise(r => setTimeout(r, 1000));
 
-        file.end();
-        console.log("Finished. Audio saved to test.webm");
+        localFile.end();
+        ws.close();
+        console.log("Finished. Streaming complete.");
 
     } catch (e) {
-        console.error("Capture failed:", e);
+        console.error("Streaming failed:", e);
     } finally {
         await browser.close();
     }
