@@ -1,8 +1,15 @@
 {
+  "scripts": {
+    "test": "jest"
+  },
   "dependencies": {
     "puppeteer": "^24.37.3",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
-    "puppeteer-stream": "^3.0.22"
+    "puppeteer-stream": "^3.0.22",
+    "ws": "^8.17.1"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }
