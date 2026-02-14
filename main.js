@@ -2,8 +2,25 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const WebSocket = require('ws');
 
+// Simple argument parsing
+const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
+    if (val.startsWith('--')) {
+        const key = val.slice(2);
+        const next = arr[i + 1];
+        if (next && !next.startsWith('--')) {
+            acc[key] = next;
+        } else {
+            acc[key] = true;
+        }
+    }
+    return acc;
+}, {});
+
+const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
+const durationMs = parseInt(args.duration) * 1000 || 10000;
+
 async function test() {
-    console.log("Launching browser...");
+    console.log(`Launching browser for ${targetUrl} (${durationMs / 1000}s)...`);
     const browser = await puppeteer.launch({
         executablePath: '/usr/bin/google-chrome',
         headless: "new", // "new" is recommended for modern Puppeteer
@@ -17,8 +34,8 @@ async function test() {
 
     try {
         const page = await browser.newPage();
-        console.log("Navigating to YouTube...");
-        await page.goto("https://www.youtube.com/watch?v=Z33nVLZ5NbI", { waitUntil: "networkidle2" });
+        console.log(`Navigating to ${targetUrl}...`);
+        await page.goto(targetUrl, { waitUntil: "networkidle2" });
 
         const localFile = fs.createWriteStream(__dirname + "/test.webm");
 
@@ -81,8 +98,8 @@ async function test() {
             window._recorder = recorder;
         });
 
-        console.log("Streaming for 10 seconds...");
-        await new Promise(r => setTimeout(r, 10000));
+        console.log(`Streaming for ${durationMs / 1000} seconds...`);
+        await new Promise(r => setTimeout(r, durationMs));
 
         console.log("Stopping stream...");
         await page.evaluate(() => {
