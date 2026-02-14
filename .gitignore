@@ -1,4 +1,5 @@
 node_modules
+streams/
 *.webm
 test.webm
 received_stream.webm

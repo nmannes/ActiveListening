@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const WebSocket = require('ws');
+const path = require('path');
 
 // Simple argument parsing
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -18,9 +19,10 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 
 const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
 const durationMs = parseInt(args.duration) * 1000 || 10000;
+const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}`;
 
 async function test() {
-    console.log(`Launching browser for ${targetUrl} (${durationMs / 1000}s)...`);
+    console.log(`[${sessionId}] Launching browser for ${targetUrl} (${durationMs / 1000}s)...`);
     const browser = await puppeteer.launch({
         executablePath: '/usr/bin/google-chrome',
         headless: "new", // "new" is recommended for modern Puppeteer
@@ -34,13 +36,21 @@ async function test() {
 
     try {
         const page = await browser.newPage();
+
+        // Forward browser console logs to Node.js console
+        page.on('console', msg => {
+            console.log(`[Browser] ${msg.type().toUpperCase()}: ${msg.text()}`);
+        });
+
         console.log(`Navigating to ${targetUrl}...`);
         await page.goto(targetUrl, { waitUntil: "networkidle2" });
 
-        const localFile = fs.createWriteStream(__dirname + "/test.webm");
+        const streamsDir = path.join(__dirname, 'streams');
+        if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
+        const localFile = fs.createWriteStream(path.join(streamsDir, `test_${sessionId}.webm`));
 
-        console.log("Connecting to WebSocket server...");
-        const ws = new WebSocket('ws://localhost:7654');
+        console.log(`[${sessionId}] Connecting to WebSocket server...`);
+        const ws = new WebSocket(`ws://localhost:7654?id=${sessionId}`);
 
         await new Promise((resolve, reject) => {
             ws.on('open', resolve);

@@ -2,12 +2,29 @@ const WebSocket = require('ws');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { pipeline } = require('@xenova/transformers');
+const path = require('path');
+
+// Simple argument parsing
+const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
+    if (val.startsWith('--')) {
+        const key = val.slice(2);
+        const next = arr[i + 1];
+        if (next && !next.startsWith('--')) {
+            acc[key] = next;
+        } else {
+            acc[key] = true;
+        }
+    }
+    return acc;
+}, {});
+
+const modelName = args.model || 'Xenova/whisper-base.en';
 
 // Initialize the transcription pipeline
 let transcriber;
 const initTranscriber = async () => {
-    console.log('Loading transcription model (Whisper base.en)...');
-    transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en', {
+    console.log(`Loading transcription model (${modelName})...`);
+    transcriber = await pipeline('automatic-speech-recognition', modelName, {
         cache_dir: './models',
     });
     console.log('Model loaded.');
@@ -16,12 +33,18 @@ const initTranscriber = async () => {
 initTranscriber();
 
 const wss = new WebSocket.Server({ port: 7654 });
-const outputFile = fs.createWriteStream('received_stream.webm');
 
 console.log('WebSocket server listening on ws://localhost:7654');
 
-wss.on('connection', (ws) => {
-    console.log('Client connected');
+wss.on('connection', (ws, req) => {
+    const urlParams = new URLSearchParams(req.url.split('?')[1]);
+    const sessionId = urlParams.get('id') || 'unknown';
+
+    console.log(`[${sessionId}] Client connected`);
+
+    const streamsDir = path.join(__dirname, 'streams');
+    if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
+    const outputFile = fs.createWriteStream(path.join(streamsDir, `received_${sessionId}.webm`));
 
     // Spawn ffmpeg to convert WebM/Opus to PCM 16kHz Mono
     const ffmpeg = spawn('ffmpeg', [
@@ -54,9 +77,9 @@ wss.on('connection', (ws) => {
             if (transcriber) {
                 try {
                     const result = await transcriber(float32Array);
-                    console.log('Transcribed:', result.text);
+                    console.log(`[${sessionId}] Transcribed:`, result.text);
                 } catch (e) {
-                    console.error('Transcription error:', e);
+                    console.error(`[${sessionId}] Transcription error:`, e);
                 }
             }
         }
@@ -78,18 +101,19 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('close', () => {
-        console.log('Client disconnected');
+        console.log(`[${sessionId}] Client disconnected`);
         ffmpeg.stdin.end();
+        outputFile.end();
     });
 
     ws.on('error', (error) => {
-        console.error('WebSocket error:', error);
+        console.error(`[${sessionId}] WebSocket error:`, error);
         ffmpeg.stdin.end();
+        outputFile.end();
     });
 });
 
 process.on('SIGINT', () => {
-    outputFile.end();
     wss.close();
     process.exit();
 });
