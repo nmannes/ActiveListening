@@ -1,17 +1,8 @@
-
-
-
-// puppeteer-extra is a drop-in replacement for puppeteer,
-// it augments the installed puppeteer with plugin functionality
 const puppeteer = require('puppeteer-extra')
-
-// add stealth plugin and use defaults (all evasion techniques)
 const StealthPlugin = require('puppeteer-extra-plugin-stealth')
 puppeteer.use(StealthPlugin())
 
-const fs = require('fs');
 const WebSocket = require('ws');
-const path = require('path');
 const logger = require('./lib/logger');
 
 // Simple argument parsing
