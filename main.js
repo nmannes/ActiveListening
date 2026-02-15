@@ -23,6 +23,7 @@ const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
 const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}`;
 const wsUrl = process.env.WS_URL || `ws://localhost:7654?id=${sessionId}`;
 const retries = args.retries || 3;
+const headless = args.headless || true;
 async function runCapture(maxRetries = 3) {
     let browser;
     let ws;
@@ -42,7 +43,7 @@ async function runCapture(maxRetries = 3) {
         try {
             browser = await puppeteer.launch({
                 executablePath: '/usr/bin/google-chrome',
-                headless: false,
+                headless,
                 args: [
                     '--mute-audio',
                     "--no-sandbox",

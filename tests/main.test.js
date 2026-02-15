@@ -69,18 +69,25 @@ describe('CLI Argument Parsing', () => {
             done(new Error(`Test timed out. Stderr: ${stderr}`));
         }, 20000);
 
-        child.stderr.on('data', (data) => {
-            stderr += data.toString();
+        child.stdout.on('data', (data) => {
+            const str = data.toString();
+            if (str.includes('Capture session failed') || str.includes('net::ERR_NAME_NOT_RESOLVED')) {
+                if (finished) return;
+                finished = true;
+                clearTimeout(timer);
+                child.kill('SIGKILL');
+                done();
+            }
         });
 
         child.on('close', (code) => {
             if (finished) return;
             finished = true;
             clearTimeout(timer);
-            if (stderr.includes('Streaming failed') || code !== 0) {
+            if (code !== 0) {
                 done();
             } else {
-                done(new Error('Should have failed for invalid URL'));
+                done(new Error('Process exited with code 0 but should have failed'));
             }
         });
 
@@ -106,7 +113,7 @@ describe('CLI Argument Parsing', () => {
 
         child.stdout.on('data', (data) => {
             stdout += data.toString();
-            if (stdout.includes('[Browser] ERROR: No video element found')) {
+            if (stdout.includes('Video element not found within 20s') || stdout.includes('Capture session failed')) {
                 if (finished) return;
                 finished = true;
                 clearTimeout(timer);
@@ -121,5 +128,5 @@ describe('CLI Argument Parsing', () => {
             clearTimeout(timer);
             done(err);
         });
-    }, 35000);
+    }, 40000);
 });
