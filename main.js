@@ -52,10 +52,35 @@ async function runCapture(maxRetries = 3) {
             browser = await puppeteer.launch({
                 executablePath: '/usr/bin/google-chrome',
                 headless: false,
+                args: [
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--use-fake-ui-for-media-stream",
+                    "--autoplay-policy=no-user-gesture-required",
+                ],
             });
 
             const page = await browser.newPage();
+            // Forward console logs to pino
+            page.on('console', msg => {
+                const type = msg.type();
+                const text = msg.text();
+                if (type === 'error') logger.error(`[Browser] ${text}`);
+                else if (type === 'warning') logger.warn(`[Browser] ${text}`);
+                else if (type === 'info') logger.info(`[Browser] ${text}`);
+                else logger.debug(`[Browser] ${text}`);
+            });
+
+            logger.info(`Navigating to ${targetUrl}...`);
             await page.goto(targetUrl);
+
+            // Explicitly wait for video element
+            try {
+                logger.info("Waiting for video element...");
+                await page.waitForSelector('video', { timeout: 20000 });
+            } catch (e) {
+                throw new Error("Video element not found within 20s");
+            }
 
             ws = await connectWS();
 
@@ -105,8 +130,14 @@ async function runCapture(maxRetries = 3) {
                 }
             });
 
+            // Success case - clean up and exit loop
+            if (browser) await browser.close();
+            if (ws) ws.close();
+            break;
+
+
         } catch (err) {
-            logger.error(`Capture session failed (Attempt ${retryCount + 1}):`, err.message);
+            logger.error(`Capture session failed (Attempt ${retryCount + 1}):`, err);
             retryCount++;
             if (browser) await browser.close();
             if (ws) ws.close();
@@ -115,5 +146,14 @@ async function runCapture(maxRetries = 3) {
     }
     logger.fatal("Max retries reached. Exiting capture.");
 }
+
+// Handle Ctrl+C
+process.on('SIGINT', async () => {
+    logger.info("Received SIGINT. Cleaning up...");
+    // We can't easily access the localized 'browser' variable here without refactoring,
+    // but Puppeteer usually handles child process cleanup. 
+    // For better safety, we could move 'browser' to outer scope, but for now just exit.
+    process.exit();
+});
 
 runCapture(retries);
