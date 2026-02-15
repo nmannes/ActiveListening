@@ -184,11 +184,26 @@ async function handleSignal(sessionId, signal) {
     db.run(`INSERT INTO signals (session_id, keyword, confidence, transcript, action_taken, trade_id) 
           VALUES (?, ?, ?, ?, ?, ?)`,
         [sessionId, signal.word, signal.confidence, signal.matchedText, actionTaken, tradeId]);
-}
+    // }
 
-process.on('SIGINT', () => {
-    wss.close();
-    db.close();
-    process.exit();
-});
+    // // Start visual market scanner
+    // const scanner = spawn('node', ['discover_markets.js'], {
+    //     stdio: 'inherit',
+    //     detached: false
+    // });
+    // scanner.on('error', (err) => {
+    //     logger.error('Failed to start market scanner:', err);
+    // });
+    // logger.info('Visual market scanner started.');
 
+    process.on('SIGINT', () => {
+        logger.info('Shutting down server...');
+        if (wss) wss.close();
+        if (scanner) scanner.kill();
+        // db.close() isn't a function on the sqlite3 db object directly usually, 
+        // but if it is wrapped in lib/db.js it might be. 
+        // Checking lib/db.js usage in server.js: const db = require('./lib/db');
+        // Usually standardized to process.exit()
+        process.exit();
+    });
+};
