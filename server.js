@@ -1,81 +1,94 @@
+require('dotenv').config();
 const WebSocket = require('ws');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { pipeline } = require('@xenova/transformers');
 const path = require('path');
+const logger = require('./lib/logger');
+const db = require('./lib/db');
+const KalshiClient = require('./lib/kalshi');
+const SignalMatcher = require('./lib/signals');
 
-// Simple argument parsing
-const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
-    if (val.startsWith('--')) {
-        const key = val.slice(2);
-        const next = arr[i + 1];
-        if (next && !next.startsWith('--')) {
-            acc[key] = next;
-        } else {
-            acc[key] = true;
-        }
-    }
-    return acc;
-}, {});
+const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
+const port = process.env.WS_PORT || 7654;
+const isDryRun = process.env.DRY_RUN === 'true';
 
-const modelName = args.model || 'Xenova/whisper-base.en';
-
-// Initialize the transcription pipeline
+// Initialize Components
 let transcriber;
-const initTranscriber = async () => {
-    console.log(`Loading transcription model (${modelName})...`);
-    transcriber = await pipeline('automatic-speech-recognition', modelName, {
-        cache_dir: './models',
-    });
-    console.log('Model loaded.');
+const kalshi = new KalshiClient(
+    process.env.KALSHI_KEY_ID,
+    process.env.KALSHI_PRIVATE_KEY_PATH,
+    process.env.KALSHI_ENV
+);
+
+// Mock set of keywords for demonstration - in production these would come from the DB/API
+const matcher = new SignalMatcher({
+    keywords: [
+        { word: 'Injury', ticker: 'INJURY-2024', side: 'yes' },
+        { word: 'All-Star', ticker: 'ALLSTAR-2024', side: 'yes' }
+    ]
+});
+
+const init = async () => {
+    try {
+        logger.info(`Loading transcription model (${modelName})...`);
+        transcriber = await pipeline('automatic-speech-recognition', modelName, {
+            cache_dir: './models',
+        });
+        logger.info('Model loaded.');
+
+        if (!isDryRun) {
+            logger.info('Authentication initialized via RSA keys.');
+        } else {
+            logger.info('Running in DRY RUN mode. No trades will be placed.');
+        }
+    } catch (err) {
+        logger.error('Initialization failed', err);
+        process.exit(1);
+    }
 };
 
-initTranscriber();
+init();
 
-const wss = new WebSocket.Server({ port: 7654 });
+const wss = new WebSocket.Server({ port });
+logger.info(`WebSocket server listening on ws://localhost:${port}`);
 
-console.log('WebSocket server listening on ws://localhost:7654');
-
-const transcriberTranscripts = new Map();
+const sessionState = new Map();
 
 wss.on('connection', (ws, req) => {
     const urlParams = new URLSearchParams(req.url.split('?')[1]);
     const sessionId = urlParams.get('id') || 'unknown';
 
-    console.log(`[${sessionId}] Client connected`);
+    logger.info(`[${sessionId}] Client connected`);
 
-    // Initialize transcript state for this session
-    if (!transcriberTranscripts.has(sessionId)) {
-        transcriberTranscripts.set(sessionId, "");
+    if (!sessionState.has(sessionId)) {
+        sessionState.set(sessionId, { transcript: "", audioChunks: [] });
     }
 
     const streamsDir = path.join(__dirname, 'streams');
     if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
     const outputFile = fs.createWriteStream(path.join(streamsDir, `received_${sessionId}.webm`));
 
-    // Spawn ffmpeg to convert WebM/Opus to PCM 16kHz Mono
     const ffmpeg = spawn('ffmpeg', [
-        '-i', 'pipe:0',          // Input from stdin
-        '-f', 's16le',           // Output format: 16-bit PCM little-endian
+        '-i', 'pipe:0',
+        '-f', 's16le',
         '-acodec', 'pcm_s16le',
-        '-ar', '16000',          // 16kHz
-        '-ac', '1',              // Mono
-        'pipe:1'                 // Output to stdout
+        '-ar', '16000',
+        '-ac', '1',
+        'pipe:1'
     ]);
 
-    let audioBuffer = [];
-    const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds of audio (16k samples * 2 bytes/sample * 2s)
+    let pcmBuffer = [];
+    const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds
 
     ffmpeg.stdout.on('data', async (chunk) => {
-        // Collect PCM data
-        audioBuffer.push(chunk);
+        pcmBuffer.push(chunk);
+        const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
 
-        const totalLength = audioBuffer.reduce((acc, c) => acc + c.length, 0);
         if (totalLength >= CHUNK_THRESHOLD) {
-            const fullBuffer = Buffer.concat(audioBuffer);
-            audioBuffer = []; // Clear for next batch
+            const fullBuffer = Buffer.concat(pcmBuffer);
+            pcmBuffer = [];
 
-            // Convert to Float32Array for Transformers.js
             const float32Array = new Float32Array(fullBuffer.length / 2);
             for (let i = 0; i < float32Array.length; i++) {
                 float32Array[i] = fullBuffer.readInt16LE(i * 2) / 32768.0;
@@ -84,65 +97,98 @@ wss.on('connection', (ws, req) => {
             if (transcriber) {
                 try {
                     const result = await transcriber(float32Array);
-                    console.log(`[${sessionId}] Transcribed:`, result.text);
+                    const text = result.text.trim();
+                    if (!text) return;
 
-                    // Update and store full transcript
-                    const currentTranscript = transcriberTranscripts.get(sessionId) || "";
-                    transcriberTranscripts.set(sessionId, (currentTranscript + " " + result.text).trim());
+                    logger.debug(`[${sessionId}] Transcribed: ${text}`);
+
+                    // Record in session
+                    const state = sessionState.get(sessionId);
+                    state.transcript += " " + text;
+
+                    // Match Signals
+                    const signals = matcher.match(text);
+                    for (const signal of signals) {
+                        await handleSignal(sessionId, signal);
+                    }
+
                 } catch (e) {
-                    console.error(`[${sessionId}] Transcription error:`, e);
+                    logger.error(`[${sessionId}] Transcription error:`, e);
                 }
             }
         }
     });
 
-    ffmpeg.stderr.on('data', (data) => {
-        // console.log(`ffmpeg debug: ${data}`);
-    });
-
     ws.on('message', (message) => {
-        // Handle control messages (JSON)
         if (typeof message === 'string' || Buffer.isBuffer(message)) {
             try {
                 const text = message.toString();
                 if (text.startsWith('{') && text.endsWith('}')) {
                     const data = JSON.parse(text);
                     if (data.type === 'get_transcript') {
-                        const fullTranscript = transcriberTranscripts.get(sessionId) || "";
                         ws.send(JSON.stringify({
                             type: 'transcript',
-                            sessionId: sessionId,
-                            text: fullTranscript
+                            sessionId,
+                            text: sessionState.get(sessionId).transcript
                         }));
                         return;
                     }
                 }
-            } catch (err) {
-                // Not a JSON message, handle as audio data
-            }
+            } catch (err) { }
         }
-
-        // Save binary audio to file
         outputFile.write(message);
-
-        // Pipe binary audio to ffmpeg for transcription
         ffmpeg.stdin.write(message);
     });
 
     ws.on('close', () => {
-        console.log(`[${sessionId}] Client disconnected`);
+        logger.info(`[${sessionId}] Client disconnected`);
         ffmpeg.stdin.end();
         outputFile.end();
     });
 
     ws.on('error', (error) => {
-        console.error(`[${sessionId}] WebSocket error:`, error);
+        logger.error(`[${sessionId}] WebSocket error:`, error);
         ffmpeg.stdin.end();
         outputFile.end();
     });
 });
 
+async function handleSignal(sessionId, signal) {
+    logger.info(`[${sessionId}] Handling signal for ${signal.ticker}...`);
+
+    let actionTaken = isDryRun ? 'DRY_RUN_LOGGED' : 'TRADE_PLACED';
+    let tradeId = null;
+
+    if (!isDryRun) {
+        try {
+            // Logic for price/size would go here (e.g. fetch order book first)
+            const order = await kalshi.placeOrder({
+                ticker: signal.ticker,
+                side: signal.side,
+                count: 1, // Start small
+                price: 90, // $0.90 limit as per strategy
+            });
+            tradeId = order.order_id;
+
+            // Save to DB
+            db.run(`INSERT INTO trades (id, ticker, side, price, size, status) VALUES (?, ?, ?, ?, ?, ?)`,
+                [tradeId, signal.ticker, signal.side, 90, 1, 'placed']);
+
+        } catch (err) {
+            logger.error(`Failed to place trade for ${signal.ticker}`, err);
+            actionTaken = 'TRADE_FAILED';
+        }
+    }
+
+    // Log signal to DB
+    db.run(`INSERT INTO signals (session_id, keyword, confidence, transcript, action_taken, trade_id) 
+          VALUES (?, ?, ?, ?, ?, ?)`,
+        [sessionId, signal.word, signal.confidence, signal.matchedText, actionTaken, tradeId]);
+}
+
 process.on('SIGINT', () => {
     wss.close();
+    db.close();
     process.exit();
 });
+
