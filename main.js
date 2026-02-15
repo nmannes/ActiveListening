@@ -1,4 +1,14 @@
-const puppeteer = require('puppeteer');
+
+
+
+// puppeteer-extra is a drop-in replacement for puppeteer,
+// it augments the installed puppeteer with plugin functionality
+const puppeteer = require('puppeteer-extra')
+
+// add stealth plugin and use defaults (all evasion techniques)
+const StealthPlugin = require('puppeteer-extra-plugin-stealth')
+puppeteer.use(StealthPlugin())
+
 const fs = require('fs');
 const WebSocket = require('ws');
 const path = require('path');
@@ -21,12 +31,11 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
 const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}`;
 const wsUrl = process.env.WS_URL || `ws://localhost:7654?id=${sessionId}`;
-
-async function runCapture() {
+const retries = args.retries || 3;
+async function runCapture(maxRetries = 3) {
     let browser;
     let ws;
     let retryCount = 0;
-    const maxRetries = 10;
 
     const connectWS = () => new Promise((resolve, reject) => {
         logger.info(`[${sessionId}] Connecting to WebSocket server: ${wsUrl}...`);
@@ -43,12 +52,6 @@ async function runCapture() {
             browser = await puppeteer.launch({
                 executablePath: '/usr/bin/google-chrome',
                 headless: false,
-                args: [
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--use-fake-ui-for-media-stream",
-                    "--autoplay-policy=no-user-gesture-required",
-                ],
             });
 
             const page = await browser.newPage();
@@ -113,4 +116,4 @@ async function runCapture() {
     logger.fatal("Max retries reached. Exiting capture.");
 }
 
-runCapture();
+runCapture(retries);
