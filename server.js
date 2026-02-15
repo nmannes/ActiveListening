@@ -100,7 +100,7 @@ wss.on('connection', (ws, req) => {
                     const text = result.text.trim();
                     if (!text) return;
 
-                    logger.debug(`[${sessionId}] Transcribed: ${text}`);
+                    logger.info(`[${sessionId}] Transcribed: ${text}`);
 
                     // Record in session
                     const state = sessionState.get(sessionId);

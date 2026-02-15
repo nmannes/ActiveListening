@@ -79,6 +79,7 @@ async function runCapture() {
                         const reader = new FileReader();
                         reader.onload = async () => {
                             window.sendChunk(Array.from(new Uint8Array(reader.result)));
+                            logger.info("Sent chunk");
                         };
                         reader.readAsArrayBuffer(event.data);
                     }
@@ -91,6 +92,14 @@ async function runCapture() {
             await new Promise((resolve, reject) => {
                 ws.on('close', () => reject(new Error('WebSocket closed')));
                 browser.on('disconnected', () => reject(new Error('Browser disconnected')));
+
+                if (args.duration) {
+                    logger.info(`Running for ${args.duration} seconds...`);
+                    setTimeout(() => {
+                        logger.info("Duration reached. Closing capture session.");
+                        resolve();
+                    }, parseInt(args.duration) * 1000);
+                }
             });
 
         } catch (err) {
