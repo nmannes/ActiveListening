@@ -39,7 +39,8 @@ describe('CLI Argument Parsing', () => {
 
         child.stdout.on('data', (data) => {
             output += data;
-            if (output.includes('Launching browser for https://example.com (2s)...')) {
+            // main.js logs "Navigating to <url>..." via logger
+            if (output.includes('Navigating to https://example.com...')) {
                 if (finished) return;
                 finished = true;
                 clearTimeout(timer);

@@ -23,7 +23,7 @@ describe('WebSocket Server', () => {
         });
 
         serverProcess.stderr.on('data', (data) => {
-            console.error(`Server stderr: ${data}`);
+            process.stderr.write(`Server stderr: ${data}\n`);
         });
 
         serverProcess.on('error', (err) => {
