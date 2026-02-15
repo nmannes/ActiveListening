@@ -42,7 +42,7 @@ async function runCapture() {
         try {
             browser = await puppeteer.launch({
                 executablePath: '/usr/bin/google-chrome',
-                headless: "new",
+                headless: false,
                 args: [
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
@@ -52,19 +52,7 @@ async function runCapture() {
             });
 
             const page = await browser.newPage();
-            page.on('console', msg => {
-                const type = msg.type();
-                const text = msg.text();
-                // Map browser console levels to pino levels
-                if (type === 'error') logger.error(`[Browser] ${text}`);
-                else if (type === 'warning') logger.warn(`[Browser] ${text}`);
-                else if (type === 'info') logger.info(`[Browser] ${text}`);
-                else logger.debug(`[Browser] ${text}`);
-            });
-            page.on('error', err => logger.error(`[Browser] Page error:`, err));
-
-            logger.info(`Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl, { waitUntil: "networkidle2" });
+            await page.goto(targetUrl);
 
             ws = await connectWS();
 
