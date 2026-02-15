@@ -53,6 +53,7 @@ async function runCapture(maxRetries = 3) {
                 executablePath: '/usr/bin/google-chrome',
                 headless: false,
                 args: [
+                    '--mute-audio',
                     "--no-sandbox",
                     "--disable-setuid-sandbox",
                     "--use-fake-ui-for-media-stream",
@@ -144,7 +145,6 @@ async function runCapture(maxRetries = 3) {
             await new Promise(r => setTimeout(r, 5000)); // Wait before retry
         }
     }
-    logger.fatal("Max retries reached. Exiting capture.");
 }
 
 // Handle Ctrl+C
