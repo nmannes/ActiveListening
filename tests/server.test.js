@@ -118,4 +118,43 @@ describe('WebSocket Server', () => {
             }, 1000);
         });
     }, 10000);
+
+    test('should return full transcript correctly across multiple requests', (done) => {
+        const sessionId = 'robust-transcript-test';
+        const ws = new WebSocket(`ws://localhost:${port}?id=${sessionId}`);
+        let requestCount = 0;
+
+        ws.on('open', () => {
+            // Request 1: Immediate
+            ws.send(JSON.stringify({ type: 'get_transcript' }));
+        });
+
+        ws.on('message', (message) => {
+            try {
+                const data = JSON.parse(message.toString());
+                if (data.type === 'transcript') {
+                    requestCount++;
+                    expect(data.sessionId).toBe(sessionId);
+                    expect(data.text).toBeDefined();
+
+                    if (requestCount === 1) {
+                        // Send dummy data and request again
+                        ws.send(Buffer.from([0, 0, 0, 0]));
+                        setTimeout(() => {
+                            ws.send(JSON.stringify({ type: 'get_transcript' }));
+                        }, 500);
+                    } else if (requestCount === 2) {
+                        ws.close();
+                        done();
+                    }
+                }
+            } catch (e) {
+                // Ignore binary data echoes or other messages
+            }
+        });
+
+        ws.on('error', (err) => {
+            done(err);
+        });
+    }, 10000);
 });

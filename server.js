@@ -36,11 +36,18 @@ const wss = new WebSocket.Server({ port: 7654 });
 
 console.log('WebSocket server listening on ws://localhost:7654');
 
+const transcriberTranscripts = new Map();
+
 wss.on('connection', (ws, req) => {
     const urlParams = new URLSearchParams(req.url.split('?')[1]);
     const sessionId = urlParams.get('id') || 'unknown';
 
     console.log(`[${sessionId}] Client connected`);
+
+    // Initialize transcript state for this session
+    if (!transcriberTranscripts.has(sessionId)) {
+        transcriberTranscripts.set(sessionId, "");
+    }
 
     const streamsDir = path.join(__dirname, 'streams');
     if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
@@ -78,6 +85,10 @@ wss.on('connection', (ws, req) => {
                 try {
                     const result = await transcriber(float32Array);
                     console.log(`[${sessionId}] Transcribed:`, result.text);
+
+                    // Update and store full transcript
+                    const currentTranscript = transcriberTranscripts.get(sessionId) || "";
+                    transcriberTranscripts.set(sessionId, (currentTranscript + " " + result.text).trim());
                 } catch (e) {
                     console.error(`[${sessionId}] Transcription error:`, e);
                 }
@@ -90,13 +101,31 @@ wss.on('connection', (ws, req) => {
     });
 
     ws.on('message', (message) => {
-        // Log chunk metadata
-        // console.log(`Received chunk of size: ${message.length} bytes`);
+        // Handle control messages (JSON)
+        if (typeof message === 'string' || Buffer.isBuffer(message)) {
+            try {
+                const text = message.toString();
+                if (text.startsWith('{') && text.endsWith('}')) {
+                    const data = JSON.parse(text);
+                    if (data.type === 'get_transcript') {
+                        const fullTranscript = transcriberTranscripts.get(sessionId) || "";
+                        ws.send(JSON.stringify({
+                            type: 'transcript',
+                            sessionId: sessionId,
+                            text: fullTranscript
+                        }));
+                        return;
+                    }
+                }
+            } catch (err) {
+                // Not a JSON message, handle as audio data
+            }
+        }
 
-        // Save to file for verification
+        // Save binary audio to file
         outputFile.write(message);
 
-        // Pipe to ffmpeg
+        // Pipe binary audio to ffmpeg for transcription
         ffmpeg.stdin.write(message);
     });
 
