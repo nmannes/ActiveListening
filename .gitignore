@@ -5,5 +5,5 @@ test.webm
 received_stream.webm
 models/
 
-cursor.txt
+*.txt
 *.json
