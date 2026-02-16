@@ -1,6 +1,5 @@
 const puppeteer = require('puppeteer-extra')
-const StealthPlugin = require('puppeteer-extra-plugin-stealth')
-puppeteer.use(StealthPlugin())
+
 
 const WebSocket = require('ws');
 const logger = require('./lib/logger');
@@ -23,7 +22,6 @@ const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
 const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}`;
 const wsUrl = process.env.WS_URL || `ws://localhost:7654?id=${sessionId}`;
 const retries = args.retries || 3;
-const headless = args.headless || true;
 
 async function runCapture(maxRetries = 3) {
     let browser;
@@ -47,17 +45,18 @@ async function runCapture(maxRetries = 3) {
         try {
             browser = await puppeteer.launch({
                 executablePath: '/usr/bin/google-chrome',
-                headless,
+                headless: false,
                 args: [
-                    '--mute-audio',
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--use-fake-ui-for-media-stream",
                     "--autoplay-policy=no-user-gesture-required",
-                ],
+                    "--mute-audio"
+                ]
             });
 
             const page = await browser.newPage();
+
+            logger.info(`Navigating to ${targetUrl}...`);
+            await page.goto(targetUrl, { waitUntil: 'networkidle2', });
+
             // Forward console logs to pino
             page.on('console', msg => {
                 const type = msg.type();
@@ -68,8 +67,6 @@ async function runCapture(maxRetries = 3) {
                 else logger.debug(`[Browser] ${text}`);
             });
 
-            logger.info(`Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl);
 
             // Explicitly wait for video element
             try {

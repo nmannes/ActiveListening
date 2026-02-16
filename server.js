@@ -16,7 +16,7 @@ async function initListeningSession(market) {
         "node", [
         "./main.js",
         "--id", market.slug,
-        "--url", market.mediaStreamURL
+        "--url", market.mediaStreamURL,
     ])
 }
 
@@ -54,7 +54,7 @@ async function init() {
 };
 
 async function handleSignal(word, sessionId, market) {
-    logger.fatal(`[${sessionId}] Handling signal: ${word} for ${market.ticker}...`);
+    logger.fatal(`[${sessionId}] Handling signal: ${word} for ${market.link}...`);
 };
 
 
