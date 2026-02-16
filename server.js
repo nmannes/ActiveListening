@@ -7,7 +7,8 @@ const path = require('path');
 const logger = require('./lib/logger');
 const db = require('./lib/db');
 const KalshiClient = require('./lib/kalshi');
-const SignalMatcher = require('./lib/signals');
+const { frontPageMarkets } = require('./lib/discover_markets');
+
 
 const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
 const port = process.env.WS_PORT || 7654;
@@ -21,13 +22,7 @@ const kalshi = new KalshiClient(
     process.env.KALSHI_ENV
 );
 
-// Mock set of keywords for demonstration - in production these would come from the DB/API
-const matcher = new SignalMatcher({
-    keywords: [
-        { word: 'Injury', ticker: 'INJURY-2024', side: 'yes' },
-        { word: 'All-Star', ticker: 'ALLSTAR-2024', side: 'yes' }
-    ]
-});
+let markets;
 
 const init = async () => {
     try {
@@ -42,6 +37,25 @@ const init = async () => {
         } else {
             logger.info('Running in DRY RUN mode. No trades will be placed.');
         }
+
+        markets = await frontPageMarkets();
+        logger.info(`Markets loaded: ${markets.length}`);
+
+        const newKeywords = markets.map(market => {
+            const title = market.title;
+            // Extract stuff in quotes or fallback to first part of title
+            const match = title.match(/'([^']+)'/) || title.match(/"([^"]+)"/);
+            let keyword = match ? match[1] : title.split(' mentions ')[0];
+
+            return {
+                word: keyword,
+                ticker: market.slug.toUpperCase(),
+                side: 'yes'
+            };
+        }).filter(k => k.word);
+
+        matcher.setKeywords(newKeywords);
+        logger.debug(markets);
     } catch (err) {
         logger.error('Initialization failed', err);
         process.exit(1);
@@ -49,6 +63,8 @@ const init = async () => {
 };
 
 init();
+
+
 
 const wss = new WebSocket.Server({ port });
 logger.info(`WebSocket server listening on ws://localhost:${port}`);
@@ -186,15 +202,15 @@ async function handleSignal(sessionId, signal) {
         [sessionId, signal.word, signal.confidence, signal.matchedText, actionTaken, tradeId]);
     // }
 
-    // // Start visual market scanner
-    // const scanner = spawn('node', ['discover_markets.js'], {
-    //     stdio: 'inherit',
-    //     detached: false
-    // });
-    // scanner.on('error', (err) => {
-    //     logger.error('Failed to start market scanner:', err);
-    // });
-    // logger.info('Visual market scanner started.');
+    // Start visual market scanner
+    const scanner = spawn('node', ['discover_markets.js'], {
+        stdio: 'inherit',
+        detached: false
+    });
+    scanner.on('error', (err) => {
+        logger.error('Failed to start market scanner:', err);
+    });
+    logger.info('Visual market scanner started.');
 
     process.on('SIGINT', () => {
         logger.info('Shutting down server...');
