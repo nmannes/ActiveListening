@@ -24,6 +24,7 @@ const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}
 const wsUrl = process.env.WS_URL || `ws://localhost:7654?id=${sessionId}`;
 const retries = args.retries || 3;
 const headless = args.headless || true;
+
 async function runCapture(maxRetries = 3) {
     let browser;
     let ws;
@@ -37,6 +38,9 @@ async function runCapture(maxRetries = 3) {
             resolve(socket);
         });
         socket.on('error', reject);
+        socket.on('message', () => {
+            process.exit(0);
+        });
     });
 
     while (retryCount < maxRetries) {
@@ -111,7 +115,11 @@ async function runCapture(maxRetries = 3) {
 
             // Keep alive and monitor
             await new Promise((resolve, reject) => {
-                ws.on('close', () => reject(new Error('WebSocket closed')));
+                ws.on('close', async () => {
+                    logger.info("Upstream WebSocket closed. Exiting process.");
+                    if (browser) await browser.close();
+                    process.exit(0);
+                });
                 browser.on('disconnected', () => reject(new Error('Browser disconnected')));
 
                 if (args.duration) {
