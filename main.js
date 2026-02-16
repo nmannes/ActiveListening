@@ -44,7 +44,7 @@ async function runCapture(maxRetries = 3) {
     while (retryCount < maxRetries) {
         try {
             browser = await puppeteer.launch({
-                executablePath: '/opt/google/chrome/google-chrome',
+                executablePath: '/usr/bin/google-chrome',
                 headless: false,
                 args: [
                     "--autoplay-policy=no-user-gesture-required",
