@@ -1,8 +1,8 @@
-const puppeteer = require('puppeteer-extra')
-
-
-const WebSocket = require('ws');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
+
+puppeteer.use(StealthPlugin());
 
 // Simple argument parsing
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -20,127 +20,140 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 
 const targetUrl = args.url || "https://www.youtube.com/watch?v=Z33nVLZ5NbI";
 const sessionId = args.id || `session_${Math.random().toString(36).substring(7)}`;
-const wsUrl = process.env.WS_URL || `ws://localhost:7654?id=${sessionId}`;
-const retries = args.retries || 3;
 
 async function runCapture(maxRetries = 3) {
     let browser;
-    let ws;
     let retryCount = 0;
-
-    const connectWS = () => new Promise((resolve, reject) => {
-        logger.info(`[${sessionId}] Connecting to WebSocket server: ${wsUrl}...`);
-        const socket = new WebSocket(wsUrl);
-        socket.on('open', () => {
-            logger.info("Connected to WebSocket server.");
-            resolve(socket);
-        });
-        socket.on('error', reject);
-        socket.on('message', () => {
-            process.exit(0);
-        });
-    });
 
     while (retryCount < maxRetries) {
         try {
+            logger.info(`[${sessionId}] Launching browser...`);
+
             browser = await puppeteer.launch({
-                executablePath: '/usr/bin/google-chrome',
                 headless: false,
+                defaultViewport: null,
                 args: [
+                    "--start-maximized",
                     "--autoplay-policy=no-user-gesture-required",
-                    "--mute-audio",
-                    "--use-fake-ui-for-media-stream"
-                ]
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--use-fake-ui-for-media-stream",
+                ],
             });
 
             const page = await browser.newPage();
 
-            logger.info(`Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl, { waitUntil: 'networkidle2' });
-
-            // Forward console logs to pino
+            // Forward console logs to pino via stderr
             page.on('console', msg => {
                 const type = msg.type();
                 const text = msg.text();
                 if (type === 'error') logger.error(`[Browser] ${text}`);
                 else if (type === 'warning') logger.warn(`[Browser] ${text}`);
-                else if (type === 'info') logger.info(`[Browser] ${text}`);
-                else logger.debug(`[Browser] ${text}`);
+                else logger.info(`[Browser] ${text}`);
             });
 
+            // Expose a function so the browser can send audio chunks back to Node.js
+            await page.exposeFunction('sendAudioChunk', (base64Data) => {
+                const buffer = Buffer.from(base64Data, 'base64');
+                process.stdout.write(buffer);
+            });
 
-            // Explicitly wait for video element
+            logger.info(`[${sessionId}] Navigating to ${targetUrl}...`);
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+
+            // Wait for the video element to load
             try {
-                logger.info("Waiting for video element...");
+                logger.info(`[${sessionId}] Waiting for video element...`);
                 await page.waitForSelector('video', { timeout: 20000 });
             } catch (e) {
                 throw new Error("Video element not found within 20s");
             }
 
-            ws = await connectWS();
+            // Small delay to let the video start playing
+            await new Promise(r => setTimeout(r, 2000));
 
-            await page.exposeFunction('sendChunk', (data) => {
-                const buffer = Buffer.from(data);
-                if (ws.readyState === WebSocket.OPEN) {
-                    ws.send(buffer);
-                }
-            });
+            logger.info(`[${sessionId}] Starting audio capture via MediaRecorder...`);
 
-            logger.info("Injecting capture script...");
-            await page.evaluate(async () => {
+            // Inject the capture script into the browser context
+            await page.evaluate(() => {
                 const video = document.querySelector('video');
                 if (!video) {
                     console.error("No video element found");
                     return;
                 }
-                const fullStream = video.captureStream();
-                const audioStream = new MediaStream(fullStream.getAudioTracks());
-                const recorder = new MediaRecorder(audioStream, { mimeType: 'audio/webm;codecs=opus' });
+
+                // Capture the media stream from the video element
+                const stream = video.captureStream();
+                const audioTracks = stream.getAudioTracks();
+                if (audioTracks.length === 0) {
+                    console.error("No audio tracks found on video element");
+                    return;
+                }
+
+                console.log(`Found ${audioTracks.length} audio track(s)`);
+                const audioStream = new MediaStream(audioTracks);
+
+                const recorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 128000
+                });
 
                 recorder.ondataavailable = async (event) => {
                     if (event.data.size > 0) {
+                        // Convert Blob to base64 and send to Node.js via exposed function
                         const reader = new FileReader();
-                        reader.onload = async () => {
-                            window.sendChunk(Array.from(new Uint8Array(reader.result)));
-                            logger.info("Sent chunk");
+                        reader.onload = () => {
+                            // reader.result is a data URL like "data:audio/webm;base64,..."
+                            const base64 = reader.result.split(',')[1];
+                            if (base64) {
+                                window.sendAudioChunk(base64);
+                            }
                         };
-                        reader.readAsArrayBuffer(event.data);
+                        reader.readAsDataURL(event.data);
                     }
                 };
-                recorder.start(100);
+
+                recorder.onerror = (e) => {
+                    console.error("MediaRecorder error:", e.error?.message || e);
+                };
+
+                recorder.onstart = () => {
+                    console.log("MediaRecorder started");
+                };
+
+                recorder.onstop = () => {
+                    console.log("MediaRecorder stopped");
+                };
+
+                recorder.start(100); // Emit data every 100ms
                 window._recorder = recorder;
+                console.log("MediaRecorder initialized and started");
             });
 
-            // Keep alive and monitor
+            logger.info(`[${sessionId}] Audio capture running. Streaming to stdout...`);
+
+            // Keep alive
             await new Promise((resolve, reject) => {
-                ws.on('close', async () => {
-                    logger.info("Upstream WebSocket closed. Exiting process.");
-                    if (browser) await browser.close();
-                    process.exit(0);
-                });
                 browser.on('disconnected', () => reject(new Error('Browser disconnected')));
 
                 if (args.duration) {
-                    logger.info(`Running for ${args.duration} seconds...`);
                     setTimeout(() => {
-                        logger.info("Duration reached. Closing capture session.");
+                        logger.info(`[${sessionId}] Duration reached.`);
                         resolve();
                     }, parseInt(args.duration) * 1000);
                 }
             });
 
-            // Success case - clean up and exit loop
             if (browser) await browser.close();
-            if (ws) ws.close();
             break;
 
-
         } catch (err) {
-            logger.error(`Capture session failed (Attempt ${retryCount + 1}):`, err);
+            const errMsg = err instanceof Error ? `${err.message}\n${err.stack}` : JSON.stringify(err);
+            logger.error(`[${sessionId}] Capture session failed (Attempt ${retryCount + 1}): ${errMsg}`);
             retryCount++;
             if (browser) await browser.close();
-            if (ws) ws.close();
-            await new Promise(r => setTimeout(r, 5000)); // Wait before retry
+            await new Promise(r => setTimeout(r, 5000));
         }
     }
 }
@@ -148,10 +161,12 @@ async function runCapture(maxRetries = 3) {
 // Handle Ctrl+C
 process.on('SIGINT', async () => {
     logger.info("Received SIGINT. Cleaning up...");
-    // We can't easily access the localized 'browser' variable here without refactoring,
-    // but Puppeteer usually handles child process cleanup. 
-    // For better safety, we could move 'browser' to outer scope, but for now just exit.
     process.exit();
 });
 
-runCapture(retries);
+// Suppress max listeners warning
+process.stdout.setMaxListeners(5);
+
+(async () => {
+    await runCapture(1);
+})();

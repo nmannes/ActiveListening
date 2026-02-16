@@ -1,30 +1,14 @@
 require('dotenv').config();
-const WebSocket = require('ws');
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { pipeline } = require('@xenova/transformers');
 const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
-const { frontPageMarkets } = require('./lib/discover_markets');
-
-
-
-
-async function initListeningSession(market) {
-    spawn(
-        "node", [
-        "./main.js",
-        "--id", market.slug,
-        "--url", market.mediaStreamURL,
-    ])
-}
-
 
 async function init() {
     try {
         const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
-        const port = process.env.WS_PORT || 7654;
         const isDryRun = process.env.DRY_RUN === 'true';
         logger.info(`Loading transcription model (${modelName})...`);
         const transcriber = await pipeline('automatic-speech-recognition', modelName, {
@@ -33,7 +17,7 @@ async function init() {
         logger.info('Model loaded.');
 
 
-        const markets = []; //await frontPageMarkets();
+        const markets = [];
 
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
@@ -42,7 +26,6 @@ async function init() {
         );
 
         return {
-            port,
             kalshi,
             markets,
             isDryRun,
@@ -62,20 +45,20 @@ async function handleSignal(word, sessionId, market, isDryRun) {
 
 };
 
-
+function calculateRMS(buffer) {
+    let sum = 0;
+    // buffer is 16-bit integers
+    for (let i = 0; i < buffer.length; i += 2) {
+        const sample = buffer.readInt16LE(i) / 32768.0;
+        sum += sample * sample;
+    }
+    return Math.sqrt(sum / (buffer.length / 2));
+}
 
 (async () => {
-
-
-    const { port, kalshi, markets, isDryRun, transcriber } = await init();
-
+    const { kalshi, markets, isDryRun, transcriber } = await init();
     const sessionState = new Map();
     const marketMap = new Map();
-
-
-    for (const market of markets) {
-        marketMap.set(market.slug, market);
-    }
 
     const exampleMarket = {
         "link": "https://kalshi.com/markets/kxwomention/winter-olympics/kxwomention-26feb17",
@@ -87,113 +70,119 @@ async function handleSignal(word, sessionId, market, isDryRun) {
             "job": "hello"
         }
     }
-    if (exampleMarket) {
-        marketMap.set(exampleMarket.slug, exampleMarket);
-    }
 
-    const wss = new WebSocket.Server({ port });
-    logger.info(`WebSocket server listening on ws://localhost:${port}`);
+    // Single session for the example
+    const market = exampleMarket;
+    const sessionId = market.slug;
+    marketMap.set(sessionId, market);
+    sessionState.set(sessionId, { transcript: [], audioChunks: [] });
 
-    wss.on('connection', (ws, req) => {
-        const urlParams = new URLSearchParams(req.url.split('?')[1]);
-        const sessionId = urlParams.get('id') || 'unknown';
+    logger.info(`[${sessionId}] Starting capture process...`);
 
-        logger.info(`[${sessionId}] Client connected`);
+    const streamsDir = path.join(__dirname, 'streams');
+    if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
+    const outputFile = fs.createWriteStream(path.join(streamsDir, `${(new Date()).getTime()}-${sessionId}.webm`));
 
-        if (!sessionState.has(sessionId)) {
-            sessionState.set(sessionId, { transcript: [], audioChunks: [] });
-        }
+    // Spawn main.js
 
-        const streamsDir = path.join(__dirname, 'streams');
-        if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
-        const outputFile = fs.createWriteStream(path.join(streamsDir, `${(new Date()).getTime()}-${sessionId}.webm`));
+    logger.info(`[${sessionId}] Spawning main.js...`);
+    const child = spawn("node", [
+        "./main.js",
+        "--url", market.mediaStreamURL,
+    ]);
 
-        const ffmpeg = spawn('ffmpeg', [
-            '-i', 'pipe:0',
-            '-f', 's16le',
-            '-acodec', 'pcm_s16le',
-            '-ar', '16000',
-            '-ac', '1',
-            'pipe:1'
-        ]);
+    // Cleanup on exit
+    process.on('SIGINT', () => {
+        child.kill();
+        process.exit();
+    });
 
-        let pcmBuffer = [];
-        const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds
-
-        ffmpeg.stdout.on('data', async (chunk) => {
-            pcmBuffer.push(chunk);
-            const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
-
-            if (totalLength >= CHUNK_THRESHOLD) {
-                const fullBuffer = Buffer.concat(pcmBuffer);
-                pcmBuffer = [];
-
-                const float32Array = new Float32Array(fullBuffer.length / 2);
-                for (let i = 0; i < float32Array.length; i++) {
-                    float32Array[i] = fullBuffer.readInt16LE(i * 2) / 32768.0;
-                }
-
-                if (transcriber) {
-                    try {
-                        const result = await transcriber(float32Array);
-                        const text = result.text;
-                        if (!text) return;
-
-                        const state = sessionState.get(sessionId);
-                        const keywords = marketMap.get(sessionId)['keywords'];
-
-                        const words = text.split(' ');
-                        for (const word of words) {
-                            logger.debug(`[${sessionId}] Transcribed: ${word}`);
-                            if (Object.hasOwn(keywords, word)) {
-                                await handleSignal(word, sessionId, marketMap.get(sessionId), isDryRun);
-                            }
-                            state.transcript.push(word);
-                        }
-
-
-
-                    } catch (e) {
-                        logger.error(`[${sessionId}] Transcription error:`, e);
-                    }
-                }
-            }
-        });
-
-        ws.on('message', (message) => {
-            if (typeof message === 'string' || Buffer.isBuffer(message)) {
-                try {
-                    const text = message.toString();
-                    if (text.startsWith('{') && text.endsWith('}')) {
-                        const data = JSON.parse(text);
-                        if (data.type === 'get_transcript') {
-                            ws.send(JSON.stringify({
-                                type: 'transcript',
-                                sessionId,
-                                text: sessionState.get(sessionId).transcript
-                            }));
-                            return;
-                        }
-                    }
-                } catch (err) { }
-            }
-            outputFile.write(message);
-            ffmpeg.stdin.write(message);
-        });
-
-        ws.on('close', () => {
-            logger.info(`[${sessionId}] Client disconnected`);
-            ffmpeg.stdin.end();
-            outputFile.end();
-        });
-
-        ws.on('error', (error) => {
-            logger.error(`[${sessionId}] WebSocket error:`, error);
-            ffmpeg.stdin.end();
-            outputFile.end();
+    // Handle logs from child
+    child.stderr.on('data', (data) => {
+        const lines = data.toString().split('\n').filter(l => l.trim());
+        lines.forEach(line => {
+            // Directly log child logs without adding extra prefixes if they are already formatted
+            if (line.includes('[Browser]')) logger.info(line);
+            else logger.info(`[${sessionId}] [Child] ${line}`);
         });
     });
 
+    // Setup FFmpeg
+    // Reading from child.stdout (main.js stdout) -> Pipe to ffmpeg stdin
+    const ffmpeg = spawn('ffmpeg', [
+        '-i', 'pipe:0',      // Input from stdin
+        '-f', 's16le',       // Output format PCM 16-bit Little Endian
+        '-acodec', 'pcm_s16le',
+        '-ar', '16000',      // Sample rate 16k
+        '-ac', '1',          // Mono
+        'pipe:1'             // Output to stdout
+    ]);
 
-    initListeningSession(exampleMarket);
+    // Pipe audio: main.js -> ffmpeg
+    child.stdout.on('data', (chunk) => {
+        logger.debug(`[${sessionId}] Received ${chunk.length} bytes from child`);
+    });
+    child.stdout.pipe(ffmpeg.stdin);
+    // Also save raw stream for debugging if needed, but ffmpeg expects webm/opus usually. 
+    // Since main.js sends webm/opus via stdout, we can also pipe it to file:
+    child.stdout.pipe(outputFile);
+
+    ffmpeg.stderr.on('data', (data) => {
+        // logger.debug(`[${sessionId}] [ffmpeg] ${data.toString()}`);
+    });
+
+    let pcmBuffer = [];
+    const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds of 16-bit audio (2 bytes/sample)
+    const VAD_THRESHOLD = 0.01; // Adjust based on noise levels
+
+    ffmpeg.stdout.on('data', async (chunk) => {
+        pcmBuffer.push(chunk);
+        const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
+
+        if (totalLength >= CHUNK_THRESHOLD) {
+            const fullBuffer = Buffer.concat(pcmBuffer);
+            pcmBuffer = [];
+
+            // VAD Check
+            const rms = calculateRMS(fullBuffer);
+            if (rms < VAD_THRESHOLD) {
+                // logger.debug(`[${sessionId}] Silence detected (RMS: ${rms.toFixed(4)}), skipping...`);
+                return;
+            }
+
+            // Convert to Float32 for model
+            const float32Array = new Float32Array(fullBuffer.length / 2);
+            for (let i = 0; i < float32Array.length; i++) {
+                float32Array[i] = fullBuffer.readInt16LE(i * 2) / 32768.0;
+            }
+
+            if (transcriber) {
+                try {
+                    const result = await transcriber(float32Array);
+                    const text = result.text.trim();
+                    if (!text) return;
+
+                    const state = sessionState.get(sessionId);
+                    const keywords = marketMap.get(sessionId)['keywords'];
+
+                    const words = text.split(' ');
+                    for (const word of words) {
+                        logger.info(`[${sessionId}] Transcribed: ${word}`);
+                        if (Object.hasOwn(keywords, word)) {
+                            await handleSignal(word, sessionId, market, isDryRun);
+                        }
+                        state.transcript.push(word);
+                    }
+                } catch (e) {
+                    logger.error(`[${sessionId}] Transcription error:`, e);
+                }
+            }
+        }
+    });
+
+    child.on('close', (code) => {
+        logger.info(`[${sessionId}] Child process exited with code ${code}`);
+        process.exit(0);
+    });
+
 })();
