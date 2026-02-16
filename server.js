@@ -36,6 +36,8 @@ async function init() {
         });
         logger.info('Model loaded.');
 
+        if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
+        if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
         const markets = [];
 
@@ -48,11 +50,12 @@ async function init() {
         return {
             kalshi,
             markets,
-            isDryRun,
+            isDryRun: args.dryRun || false, // Use args.dryRun if available or default to false
             transcriber,
         }
     } catch (err) {
         logger.fatal('Initialization failed', err);
+        process.exit(1);
     }
 };
 
@@ -85,7 +88,7 @@ function calculateRMS(buffer) {
         "slug": "hello-world",
         "eventStartTimeTS": 1771266600000,
         "eventStartTime": "2/16/2026, 1:30:00 PM",
-        "mediaStreamURL": "https://www.youtube.com/watch?v=AxxVM_Vfcck",
+        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e",
         "keywords": {
             "job": "hello"
         }
