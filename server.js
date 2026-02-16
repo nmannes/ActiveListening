@@ -5,26 +5,7 @@ const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
 
-// CLI argument parsing
-const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
-    if (val.startsWith('--')) {
-        const key = val.slice(2);
-        const next = arr[i + 1];
-        if (next && !next.startsWith('--')) {
-            acc[key] = next;
-        } else {
-            acc[key] = true;
-        }
-    }
-    return acc;
-}, {});
-
-const KALSHI_ENV = args.env || 'demo';
-
-
-require('dotenv').config({
-    path: `.env.${KALSHI_ENV}`
-});
+const { args, KALSHI_ENV } = require('./lib/args');
 
 
 async function init() {
@@ -39,7 +20,7 @@ async function init() {
         if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
-        const markets = [];
+        const markets = []//await frontPageMarkets();
 
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
@@ -62,9 +43,9 @@ async function init() {
 async function handleSignal(word, sessionId, market, isDryRun) {
     if (isDryRun) {
         logger.info('Dry run, not placing bet');
-        logger.fatal(`[${sessionId}] Handling signal: ${word} for ${market.link}...`);
         return;
     }
+
 
 };
 
@@ -84,14 +65,34 @@ function calculateRMS(buffer) {
     const marketMap = new Map();
 
     const exampleMarket = {
-        "link": "https://kalshi.com/markets/kxwomention/winter-olympics/kxwomention-26feb17",
-        "slug": "hello-world",
-        "eventStartTimeTS": 1771266600000,
-        "eventStartTime": "2/16/2026, 1:30:00 PM",
-        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e",
+        "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
+        "slug": "kxncaabmention-26feb16syrduke",
+        "eventStartTimeTS": 1771286400000,
+        "eventStartTime": "2/16/2026, 7:00:00 PM",
         "keywords": {
-            "job": "hello"
-        }
+            "Overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
+            "Transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+            "Transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+            "Walk On": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
+            "Ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
+            "March Madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
+            "Alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
+            "Airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "Airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "Airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "Recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "Recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "Recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "Draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
+            "Schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
+            "NIL": "KXNCAABMENTION-26FEB16SYRDUKE-NIL",
+            "Double Double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
+            "Record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
+            "All American": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
+            "Elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
+            "Cameron Indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
+        },
+        mediaStreamURL: 'https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e'
     }
 
     // Single session for the example
@@ -113,6 +114,7 @@ function calculateRMS(buffer) {
         "./main.js",
         "--url", market.mediaStreamURL,
     ]);
+
 
     // Cleanup on exit
     process.on('SIGINT', () => {
