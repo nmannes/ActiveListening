@@ -30,7 +30,6 @@ require('dotenv').config({
 async function init() {
     try {
         const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
-        const isDryRun = process.env.DRY_RUN === 'true';
         logger.info(`Loading transcription model (${modelName})...`);
         const transcriber = await pipeline('automatic-speech-recognition', modelName, {
             cache_dir: './models',
