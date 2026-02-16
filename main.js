@@ -48,14 +48,15 @@ async function runCapture(maxRetries = 3) {
                 headless: false,
                 args: [
                     "--autoplay-policy=no-user-gesture-required",
-                    "--mute-audio"
+                    "--mute-audio",
+                    "--use-fake-ui-for-media-stream"
                 ]
             });
 
             const page = await browser.newPage();
 
             logger.info(`Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl, { waitUntil: 'networkidle2', });
+            await page.goto(targetUrl, { waitUntil: 'networkidle2' });
 
             // Forward console logs to pino
             page.on('console', msg => {

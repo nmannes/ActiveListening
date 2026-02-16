@@ -79,24 +79,15 @@ async function handleSignal(word, sessionId, market) {
         "eventStartTime": "2/16/2026, 1:30:00 PM",
         "mediaStreamURL": "https://www.youtube.com/watch?v=AxxVM_Vfcck",
         "keywords": {
-            "tonight": "hello"
+            "job": "hello"
         }
     }
     if (exampleMarket) {
         marketMap.set(exampleMarket.slug, exampleMarket);
     }
 
-
-
-
-    // Initialize Components
-
-
     const wss = new WebSocket.Server({ port });
     logger.info(`WebSocket server listening on ws://localhost:${port}`);
-
-
-
 
     wss.on('connection', (ws, req) => {
         const urlParams = new URLSearchParams(req.url.split('?')[1]);
@@ -110,7 +101,7 @@ async function handleSignal(word, sessionId, market) {
 
         const streamsDir = path.join(__dirname, 'streams');
         if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
-        const outputFile = fs.createWriteStream(path.join(streamsDir, `received_${sessionId}.webm`));
+        const outputFile = fs.createWriteStream(path.join(streamsDir, `${(new Date()).getTime()}-${sessionId}.webm`));
 
         const ffmpeg = spawn('ffmpeg', [
             '-i', 'pipe:0',
