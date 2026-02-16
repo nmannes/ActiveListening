@@ -11,3 +11,7 @@ models/
 *.db
 *.log
 transcripts/
+
+
+.env.demo
+.env.prod

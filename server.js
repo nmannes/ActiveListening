@@ -1,10 +1,31 @@
-require('dotenv').config();
 const fs = require('fs');
 const { spawn } = require('child_process');
 const { pipeline } = require('@xenova/transformers');
 const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
+
+// CLI argument parsing
+const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
+    if (val.startsWith('--')) {
+        const key = val.slice(2);
+        const next = arr[i + 1];
+        if (next && !next.startsWith('--')) {
+            acc[key] = next;
+        } else {
+            acc[key] = true;
+        }
+    }
+    return acc;
+}, {});
+
+const KALSHI_ENV = args.env || 'demo';
+
+
+require('dotenv').config({
+    path: `.env.${KALSHI_ENV}`
+});
+
 
 async function init() {
     try {
@@ -22,7 +43,7 @@ async function init() {
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
             process.env.KALSHI_PRIVATE_KEY_PATH,
-            process.env.KALSHI_ENV
+            KALSHI_ENV
         );
 
         return {

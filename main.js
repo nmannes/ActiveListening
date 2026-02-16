@@ -31,6 +31,7 @@ async function runCapture(maxRetries = 3) {
 
             browser = await puppeteer.launch({
                 defaultViewport: null,
+                headless: false,
                 args: [
                     "--start-maximized",
                     "--autoplay-policy=no-user-gesture-required",
@@ -49,7 +50,7 @@ async function runCapture(maxRetries = 3) {
                 const text = msg.text();
                 if (type === 'error') logger.error(`[Browser] ${text}`);
                 else if (type === 'warning') logger.warn(`[Browser] ${text}`);
-                else logger.info(`[Browser] ${text}`);
+                else logger.debug(`[Browser] ${text}`);
             });
 
             // Expose a function so the browser can send audio chunks back to Node.js
@@ -59,11 +60,11 @@ async function runCapture(maxRetries = 3) {
             });
 
             logger.info(`[${sessionId}] Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded' });
+            await page.goto(targetUrl, { waitUntil: 'networkidle2' });
 
             // Wait for the video element to load
             try {
-                logger.info(`[${sessionId}] Waiting for video element...`);
+                logger.debug(`[${sessionId}] Waiting for video element...`);
                 await page.waitForSelector('video', { timeout: 20000 });
             } catch (e) {
                 throw new Error("Video element not found within 20s");
