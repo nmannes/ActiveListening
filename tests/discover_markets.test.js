@@ -110,7 +110,7 @@ describe('Market Discovery', () => {
         expect(result[1].eventCloseTime).toBe(new Date('2026-03-02T16:00:00Z').getTime());
     });
 
-    test('enrichMarketWithEventTime should handle API errors gracefully', async () => {
+    test('getEventMetadata should handle API errors gracefully', async () => {
         // Mock scraping result
         const scrapedMarkets = [{ title: 'Bad Market', link: '...', slug: 'badticker' }];
         mockPage.evaluate.mockResolvedValue(scrapedMarkets);
@@ -122,7 +122,7 @@ describe('Market Discovery', () => {
 
         // Should return empty array or filtered result? 
         // Logic says: if (enriched) { enrichedMarkets.push(enriched); }
-        // enrichMarketWithEventTime returns null on error.
+        // getEventMetadata returns null on error.
         // So result should be empty.
         expect(result).toHaveLength(0);
     });

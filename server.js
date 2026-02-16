@@ -203,7 +203,11 @@ async function handleSignal(sessionId, signal) {
     // }
 
     // Start visual market scanner
-    const scanner = spawn('node', ['discover_markets.js'], {
+    const scannerArgs = ['discover_markets.js'];
+    if (logger.level) {
+        scannerArgs.push(`--log-level=${logger.level}`);
+    }
+    const scanner = spawn('node', scannerArgs, {
         stdio: 'inherit',
         detached: false
     });
