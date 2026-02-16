@@ -53,8 +53,13 @@ async function init() {
     }
 };
 
-async function handleSignal(word, sessionId, market) {
-    logger.fatal(`[${sessionId}] Handling signal: ${word} for ${market.link}...`);
+async function handleSignal(word, sessionId, market, isDryRun) {
+    if (isDryRun) {
+        logger.info('Dry run, not placing bet');
+        logger.fatal(`[${sessionId}] Handling signal: ${word} for ${market.link}...`);
+        return;
+    }
+
 };
 
 
@@ -139,9 +144,9 @@ async function handleSignal(word, sessionId, market) {
 
                         const words = text.split(' ');
                         for (const word of words) {
-                            logger.debug(`[${sessionId}] Transcribed: ${text}`);
+                            logger.debug(`[${sessionId}] Transcribed: ${word}`);
                             if (Object.hasOwn(keywords, word)) {
-                                await handleSignal(word, sessionId, marketMap.get(sessionId));
+                                await handleSignal(word, sessionId, marketMap.get(sessionId), isDryRun);
                             }
                             state.transcript.push(word);
                         }
