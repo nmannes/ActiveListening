@@ -30,7 +30,6 @@ async function runCapture(maxRetries = 3) {
             logger.info(`[${sessionId}] Launching browser...`);
 
             browser = await puppeteer.launch({
-                headless: false,
                 defaultViewport: null,
                 args: [
                     "--start-maximized",
