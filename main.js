@@ -56,17 +56,36 @@ async function runCapture(maxRetries = 3) {
             });
 
             logger.info(`[${sessionId}] Navigating to ${targetUrl}...`);
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-            // Wait for the media player to load
             const isESPN = targetUrl.includes('espn.com');
+            const isYouTube = targetUrl.includes('youtube.com');
 
-            if (isESPN) {
-                // Give ESPN time to bootstrap its player
+            // Use different navigation strategies
+            if (isYouTube) {
+                // YouTube works best with networkidle2
+                await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+            } else {
+                // ESPN needs domcontentloaded
+                await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            }
+
+            // Wait for video element using URL-specific logic
+            if (isYouTube) {
+                // YouTube: simple selector wait
+                try {
+                    logger.debug(`[${sessionId}] Waiting for video element...`);
+                    await page.waitForSelector('video', { timeout: 20000 });
+                    logger.debug(`[${sessionId}] Video element found.`);
+                } catch (e) {
+                    throw new Error("Video element not found within 20s");
+                }
+                // Small delay for video to start
+                await new Promise(r => setTimeout(r, 2000));
+            } else if (isESPN) {
+                // ESPN: complex shadow DOM search
                 logger.debug(`[${sessionId}] Waiting for ESPN page to load...`);
                 await new Promise(r => setTimeout(r, 5000));
 
-                // Debug: log what's actually on the page
                 const pageDebug = await page.evaluate(() => {
                     const body = document.body;
                     const allTags = [...new Set([...body.querySelectorAll('*')].map(e => e.tagName.toLowerCase()))];
@@ -84,29 +103,27 @@ async function runCapture(maxRetries = 3) {
                     };
                 });
                 logger.info(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
-            }
 
-            const waitTimeout = isESPN ? 60000 : 20000;
-            try {
-                logger.debug(`[${sessionId}] Waiting for video element (timeout: ${waitTimeout}ms)...`);
-                // Poll for video in DOM, shadow roots, and iframes
-                await page.waitForFunction(() => {
-                    // Check main document
-                    if (document.querySelector('video')) return true;
-                    // Check all shadow roots
-                    const allEls = document.querySelectorAll('*');
-                    for (const el of allEls) {
-                        if (el.shadowRoot && el.shadowRoot.querySelector('video')) return true;
-                    }
-                    return false;
-                }, { timeout: waitTimeout });
-                logger.debug(`[${sessionId}] Video element found.`);
-            } catch (e) {
-                throw new Error(`Video element not found within ${waitTimeout}ms`);
+                try {
+                    logger.debug(`[${sessionId}] Waiting for video element (timeout: 60000ms)...`);
+                    await page.waitForFunction(() => {
+                        if (document.querySelector('video')) return true;
+                        const allEls = document.querySelectorAll('*');
+                        for (const el of allEls) {
+                            if (el.shadowRoot && el.shadowRoot.querySelector('video')) return true;
+                        }
+                        return false;
+                    }, { timeout: 60000 });
+                    logger.debug(`[${sessionId}] Video element found.`);
+                } catch (e) {
+                    throw new Error(`Video element not found within 60s`);
+                }
+                await new Promise(r => setTimeout(r, 3000));
+            } else {
+                // Generic fallback
+                await page.waitForSelector('video', { timeout: 20000 });
+                await new Promise(r => setTimeout(r, 2000));
             }
-
-            // Give the video time to start playing
-            await new Promise(r => setTimeout(r, 3000));
 
             // Try to play all video elements
             await page.evaluate(() => {
@@ -124,105 +141,143 @@ async function runCapture(maxRetries = 3) {
 
             logger.info(`[${sessionId}] Starting audio capture via MediaRecorder...`);
 
-            // Inject the capture script into the browser context
-            await page.evaluate((isESPNStream) => {
-                // Find the best video element (prefer one with audio/src)
-                const allVideos = [...document.querySelectorAll('video')];
-                let video = null;
-
-                for (const v of allVideos) {
-                    console.log(`Checking video: src=${v.currentSrc || v.src}, readyState=${v.readyState}, paused=${v.paused}`);
-                    if (v.readyState >= 2 && (v.currentSrc || v.src)) {
-                        video = v;
-                        break;
-                    }
-                }
-                if (!video && allVideos.length > 0) {
-                    video = allVideos[0]; // fallback to first
-                }
-
-                if (!video) {
-                    console.error('No video element found');
-                    return;
-                }
-
-                console.log('Using video element:', video.currentSrc || video.src || '(no src)');
-
-                // Try captureStream first
-                let stream = null;
-                try {
-                    stream = video.captureStream();
-                    const audioTracks = stream.getAudioTracks();
-                    if (audioTracks.length > 0) {
-                        console.log(`captureStream() has ${audioTracks.length} audio track(s) — using direct capture`);
-                    } else {
-                        console.log('captureStream() returned 0 audio tracks (likely DRM). Falling back to AudioContext...');
-                        stream = null;
-                    }
-                } catch (e) {
-                    console.log('captureStream() failed:', e.message, '— falling back to AudioContext...');
-                    stream = null;
-                }
-
-                // Fallback: intercept audio via AudioContext
-                if (!stream) {
-                    try {
-                        const audioCtx = new AudioContext();
-                        const source = audioCtx.createMediaElementSource(video);
-                        const dest = audioCtx.createMediaStreamDestination();
-                        // Connect to both destination (so we can hear it) and the stream destination
-                        source.connect(audioCtx.destination);
-                        source.connect(dest);
-                        stream = dest.stream;
-                        const audioTracks = stream.getAudioTracks();
-                        console.log(`AudioContext fallback: ${audioTracks.length} audio track(s)`);
-                        if (audioTracks.length === 0) {
-                            console.error('AudioContext fallback also has no audio tracks');
-                            return;
-                        }
-                    } catch (e) {
-                        console.error('AudioContext fallback failed:', e.message);
+            // Inject URL-specific capture script
+            if (isYouTube) {
+                // YouTube: simple captureStream (works reliably)
+                await page.evaluate(() => {
+                    const video = document.querySelector('video');
+                    if (!video) {
+                        console.error("No video element found");
                         return;
                     }
-                }
 
-                const audioTracks = stream.getAudioTracks();
-                const audioStream = new MediaStream(audioTracks);
-
-                const recorder = new MediaRecorder(audioStream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                    audioBitsPerSecond: 128000
-                });
-
-                recorder.ondataavailable = async (event) => {
-                    if (event.data.size > 0) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            const base64 = reader.result.split(',')[1];
-                            if (base64) {
-                                window.sendAudioChunk(base64);
-                            }
-                        };
-                        reader.readAsDataURL(event.data);
+                    const stream = video.captureStream();
+                    const audioTracks = stream.getAudioTracks();
+                    if (audioTracks.length === 0) {
+                        console.error("No audio tracks found on video element");
+                        return;
                     }
-                };
 
-                recorder.onerror = (e) => {
-                    console.error("MediaRecorder error:", e.error?.message || e);
-                };
+                    console.log(`Found ${audioTracks.length} audio track(s)`);
+                    const audioStream = new MediaStream(audioTracks);
 
-                recorder.onstart = () => {
-                    console.log("MediaRecorder started");
-                };
+                    const recorder = new MediaRecorder(audioStream, {
+                        mimeType: 'audio/webm;codecs=opus',
+                        audioBitsPerSecond: 128000
+                    });
 
-                recorder.onstop = () => {
-                    console.log("MediaRecorder stopped");
-                };
+                    recorder.ondataavailable = async (event) => {
+                        if (event.data.size > 0) {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                const base64 = reader.result.split(',')[1];
+                                if (base64) {
+                                    window.sendAudioChunk(base64);
+                                }
+                            };
+                            reader.readAsDataURL(event.data);
+                        }
+                    };
 
-                recorder.start(100); // Emit data every 100ms
-                window._recorder = recorder;
-                console.log("MediaRecorder initialized and started");
-            }, isESPN);
+                    recorder.onerror = (e) => {
+                        console.error("MediaRecorder error:", e.error?.message || e);
+                    };
+
+                    recorder.start(100);
+                    window._recorder = recorder;
+                    console.log("MediaRecorder initialized and started");
+                });
+            } else {
+                // ESPN/Other: complex logic with AudioContext fallback for DRM
+                await page.evaluate(() => {
+                    const allVideos = [...document.querySelectorAll('video')];
+                    let video = null;
+
+                    for (const v of allVideos) {
+                        console.log(`Checking video: src=${v.currentSrc || v.src}, readyState=${v.readyState}, paused=${v.paused}`);
+                        if (v.readyState >= 2 && (v.currentSrc || v.src)) {
+                            video = v;
+                            break;
+                        }
+                    }
+                    if (!video && allVideos.length > 0) {
+                        video = allVideos[0];
+                    }
+
+                    if (!video) {
+                        console.error('No video element found');
+                        return;
+                    }
+
+                    console.log('Using video element:', video.currentSrc || video.src || '(no src)');
+
+                    // Try captureStream first
+                    let stream = null;
+                    try {
+                        stream = video.captureStream();
+                        const audioTracks = stream.getAudioTracks();
+                        if (audioTracks.length > 0) {
+                            console.log(`captureStream() has ${audioTracks.length} audio track(s) — using direct capture`);
+                        } else {
+                            console.log('captureStream() returned 0 audio tracks (likely DRM). Falling back to AudioContext...');
+                            stream = null;
+                        }
+                    } catch (e) {
+                        console.log('captureStream() failed:', e.message, '— falling back to AudioContext...');
+                        stream = null;
+                    }
+
+                    // Fallback: intercept audio via AudioContext
+                    if (!stream) {
+                        try {
+                            const audioCtx = new AudioContext();
+                            const source = audioCtx.createMediaElementSource(video);
+                            const dest = audioCtx.createMediaStreamDestination();
+                            source.connect(audioCtx.destination);
+                            source.connect(dest);
+                            stream = dest.stream;
+                            const audioTracks = stream.getAudioTracks();
+                            console.log(`AudioContext fallback: ${audioTracks.length} audio track(s)`);
+                            if (audioTracks.length === 0) {
+                                console.error('AudioContext fallback also has no audio tracks');
+                                return;
+                            }
+                        } catch (e) {
+                            console.error('AudioContext fallback failed:', e.message);
+                            return;
+                        }
+                    }
+
+                    const audioTracks = stream.getAudioTracks();
+                    const audioStream = new MediaStream(audioTracks);
+
+                    const recorder = new MediaRecorder(audioStream, {
+                        mimeType: 'audio/webm;codecs=opus',
+                        audioBitsPerSecond: 128000
+                    });
+
+                    recorder.ondataavailable = async (event) => {
+                        if (event.data.size > 0) {
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                                const base64 = reader.result.split(',')[1];
+                                if (base64) {
+                                    window.sendAudioChunk(base64);
+                                }
+                            };
+                            reader.readAsDataURL(event.data);
+                        }
+                    };
+
+                    recorder.onerror = (e) => {
+                        console.error("MediaRecorder error:", e.error?.message || e);
+                    };
+
+                    recorder.start(100);
+                    window._recorder = recorder;
+                    console.log("MediaRecorder initialized and started");
+                });
+            }
 
             logger.info(`[${sessionId}] Audio capture running. Streaming to stdout...`);
 

@@ -164,7 +164,7 @@ function calculateRMS(buffer) {
     child.stdout.pipe(outputFile);
 
     ffmpeg.stderr.on('data', (data) => {
-        // logger.debug(`[${sessionId}] [ffmpeg] ${data.toString()}`);
+        logger.debug(`[${sessionId}] [ffmpeg] ${data.toString()}`);
     });
 
     let pcmBuffer = [];
