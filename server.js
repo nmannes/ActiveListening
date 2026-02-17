@@ -20,7 +20,10 @@ async function init() {
         if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
-        const markets = []//await frontPageMarkets();
+        const markets = require('./prod_markets_with_event_times.json')
+
+        const market = markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
+        if (!market) throw new Error(`no market available rn`);
 
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
@@ -30,8 +33,8 @@ async function init() {
 
         return {
             kalshi,
-            markets,
-            isDryRun: args.dryRun || false, // Use args.dryRun if available or default to false
+            market,
+            enableTrading: process.env.TRADE_FOR_REAL,
             transcriber,
         }
     } catch (err) {
@@ -40,20 +43,19 @@ async function init() {
     }
 };
 
-async function handleSignal(word, ticker, isDryRun) {
-    if (isDryRun) {
-        logger.info(ticker)
-        logger.info('Dry run, not placing bet');
+async function handleSignal(word, ticker, enableTrading) {
+    if (!enableTrading) {
+        logger.info(`In this scenario I would bet on: ${word}`);
         return;
     }
 
 
-    await kalshi.placeOrder({
-        ticker,
-        count: 10,
-    });
+    // await kalshi.placeOrder({
+    //     ticker,
+    //     count: 1,
+    // });
 
-    logger.info(`Placed bet for word: ${word}`);
+    //logger.info(`BET ON WORD: ${word}`);
 };
 
 function calculateRMS(buffer) {
@@ -67,75 +69,10 @@ function calculateRMS(buffer) {
 }
 
 (async () => {
-    const { kalshi, markets, isDryRun, transcriber } = await init();
+    const { kalshi, market, enableTrading, transcriber } = await init();
     const sessionState = new Map();
-    const marketMap = new Map();
 
-
-    const exampleMarket = {
-        "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
-        "slug": "kxncaabmention-26feb16syrduke",
-        "eventStartTimeTS": 1771286400000,
-        "eventStartTime": "2/16/2026, 7:00:00 PM",
-        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/0fab2731-3518-41e2-b33e-5349b26bed08#bucketId=1",
-        "keywords": {
-            "overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
-            "transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-            "transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-            "walk on": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
-            "ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
-            "march madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
-            "alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
-            "airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
-            "schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
-            "double double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
-            "record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
-            "all american": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
-            "elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
-            "cameron indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
-        }
-    }
-    // const exampleMarket = {
-    //     "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
-    //     "slug": "kxncaabmention-26feb16syrduke",
-    //     "eventStartTimeTS": 1771286400000,
-    //     "eventStartTime": "2/16/2026, 7:00:00 PM",
-    //     "keywords": {
-    //         "Overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
-    //         "Transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-    //         "Transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-    //         "Walk On": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
-    //         "Ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
-    //         "March Madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
-    //         "Alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
-    //         "Airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-    //         "Airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-    //         "Airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-    //         "Recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-    //         "Recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-    //         "Recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-    //         "Draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
-    //         "Schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
-    //         "NIL": "KXNCAABMENTION-26FEB16SYRDUKE-NIL",
-    //         "Double Double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
-    //         "Record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
-    //         "All American": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
-    //         "Elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
-    //         "Cameron Indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
-    //     },
-    //     mediaStreamURL: 'https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e'
-    // }
-
-    // Single session for the example
-    const market = exampleMarket;
     const sessionId = market.slug;
-    marketMap.set(sessionId, market);
     sessionState.set(sessionId, { transcript: [], audioChunks: [] });
 
     logger.info(`[${sessionId}] Starting capture process...`);
@@ -225,7 +162,7 @@ function calculateRMS(buffer) {
                     if (!text) return;
 
                     const state = sessionState.get(sessionId);
-                    const keywords = marketMap.get(sessionId)['keywords'];
+                    const keywords = market['keywords'];
 
                     const words = text.split(' ');
                     for (const word of words) {
@@ -234,9 +171,9 @@ function calculateRMS(buffer) {
                         logger.info(`[${sessionId}] Transcribed: ${token}`);
                         const lastTwo = [keywords.at(-1), word].join(' ')
                         if (keywords[token]) {
-                            await handleSignal(token, keywords[token], isDryRun);
+                            await handleSignal(token, keywords[token], enableTrading);
                         } else if (keywords[lastTwo]) {
-                            await handleSignal(lastTwo, keywords[lastTwo], isDryRun);
+                            await handleSignal(lastTwo, keywords[lastTwo], enableTrading);
                         }
                         state.transcript.push(token);
                     }
