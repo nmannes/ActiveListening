@@ -73,12 +73,11 @@ function calculateRMS(buffer) {
 
 
     const exampleMarket = {
-        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/0fab2731-3518-41e2-b33e-5349b26bed08#bucketId=1",
         "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
         "slug": "kxncaabmention-26feb16syrduke",
         "eventStartTimeTS": 1771286400000,
         "eventStartTime": "2/16/2026, 7:00:00 PM",
-        "mediaStreamURL": "https://www.youtube.com/watch?v=OfczGzr4zmA",
+        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/0fab2731-3518-41e2-b33e-5349b26bed08#bucketId=1",
         "keywords": {
             "overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
             "transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
@@ -230,11 +229,16 @@ function calculateRMS(buffer) {
 
                     const words = text.split(' ');
                     for (const word of words) {
-                        logger.info(`[${sessionId}] Transcribed: ${word}`);
-                        if (Object.hasOwn(keywords, word)) {
-                            await handleSignal(word, keywords[word], isDryRun);
+
+                        const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
+                        logger.info(`[${sessionId}] Transcribed: ${token}`);
+                        const lastTwo = [keywords.at(-1), word].join(' ')
+                        if (keywords[token]) {
+                            await handleSignal(token, keywords[token], isDryRun);
+                        } else if (keywords[lastTwo]) {
+                            await handleSignal(lastTwo, keywords[lastTwo], isDryRun);
                         }
-                        state.transcript.push(word);
+                        state.transcript.push(token);
                     }
                 } catch (e) {
                     logger.error(`[${sessionId}] Transcription error:`, e);

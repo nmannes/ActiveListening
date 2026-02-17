@@ -1,4 +1,4 @@
-const discoverMarkets = require('../lib/discover_markets');
+const discoverMarkets = require('../lib/w');
 const api = require('../lib/api');
 
 // Mock puppeteer-extra
