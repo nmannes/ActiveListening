@@ -6,22 +6,10 @@ const cookies = require('./espn_cookies.json');
 
 puppeteer.use(StealthPlugin());
 
-// Simple argument parsing
-const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
-    if (val.startsWith('--')) {
-        const key = val.slice(2);
-        const next = arr[i + 1];
-        if (next && !next.startsWith('--')) {
-            acc[key] = next;
-        } else {
-            acc[key] = true;
-        }
-    }
-    return acc;
-}, {});
+const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
-const targetUrl = args.url
+const targetUrl = args.url || 'https://www.youtube.com/watch?v=AxxVM_Vfcck'
 
 async function runCapture(maxRetries = 3) {
     let browser;
@@ -41,6 +29,8 @@ async function runCapture(maxRetries = 3) {
                     "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
                     "--use-fake-ui-for-media-stream",
+                    "--disable-features=StorageAccessAPI,ThirdPartyCookieDeprecation",
+                    "--disable-web-security",
                 ],
             });
 
@@ -118,20 +108,19 @@ async function runCapture(maxRetries = 3) {
             // Give the video time to start playing
             await new Promise(r => setTimeout(r, 3000));
 
-            // For ESPN, try to click play if video isn't playing
-            if (isESPN) {
-                await page.evaluate(() => {
-                    const videos = document.querySelectorAll('video');
-                    for (const v of videos) {
-                        console.log(`Video state: readyState=${v.readyState}, paused=${v.paused}, src=${v.currentSrc || v.src || '(none)'}`);
-                        if (v.paused) {
-                            v.play().catch(e => console.log('play() rejected:', e.message));
-                        }
+            // Try to play all video elements
+            await page.evaluate(() => {
+                const videos = document.querySelectorAll('video');
+                for (const v of videos) {
+                    console.log(`Video state: readyState=${v.readyState}, paused=${v.paused}, src=${v.currentSrc || v.src || '(none)'}`);
+                    if (v.paused) {
+                        v.muted = false;
+                        v.play().catch(e => console.log('play() rejected:', e.message));
                     }
-                });
-                // Extra wait for play to begin
-                await new Promise(r => setTimeout(r, 3000));
-            }
+                }
+            });
+            // Wait for playback to begin
+            await new Promise(r => setTimeout(r, 3000));
 
             logger.info(`[${sessionId}] Starting audio capture via MediaRecorder...`);
 
@@ -198,7 +187,6 @@ async function runCapture(maxRetries = 3) {
                 }
 
                 const audioTracks = stream.getAudioTracks();
-                console.log(`Recording with ${audioTracks.length} audio track(s)`);
                 const audioStream = new MediaStream(audioTracks);
 
                 const recorder = new MediaRecorder(audioStream, {

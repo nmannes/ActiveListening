@@ -64,36 +64,47 @@ function calculateRMS(buffer) {
     const sessionState = new Map();
     const marketMap = new Map();
 
+
     const exampleMarket = {
-        "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
-        "slug": "kxncaabmention-26feb16syrduke",
-        "eventStartTimeTS": 1771286400000,
-        "eventStartTime": "2/16/2026, 7:00:00 PM",
+        "link": "https://demo.kalshi.co/markets/kxstarmermentionb/kier-starmer/kxstarmermentionb-26feb19",
+        "slug": "kxstarmermentionb-26feb19",
+        "eventStartTimeTS": 1771415100000,
+        "eventStartTime": "2/18/2026, 6:45:00 AM",
+        "mediaStreamURL": "https://www.youtube.com/watch?v=AxxVM_Vfcck",
         "keywords": {
-            "Overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
-            "Transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-            "Transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
-            "Walk On": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
-            "Ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
-            "March Madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
-            "Alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
-            "Airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "Airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "Airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
-            "Recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "Recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "Recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
-            "Draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
-            "Schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
-            "NIL": "KXNCAABMENTION-26FEB16SYRDUKE-NIL",
-            "Double Double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
-            "Record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
-            "All American": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
-            "Elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
-            "Cameron Indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
-        },
-        mediaStreamURL: 'https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e'
+            "introduce": "KXSTARMERMENTIONB-26FEB19-ELEC"
+        }
     }
+    // const exampleMarket = {
+    //     "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
+    //     "slug": "kxncaabmention-26feb16syrduke",
+    //     "eventStartTimeTS": 1771286400000,
+    //     "eventStartTime": "2/16/2026, 7:00:00 PM",
+    //     "keywords": {
+    //         "Overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
+    //         "Transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+    //         "Transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+    //         "Walk On": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
+    //         "Ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
+    //         "March Madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
+    //         "Alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
+    //         "Airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+    //         "Airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+    //         "Airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+    //         "Recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+    //         "Recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+    //         "Recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+    //         "Draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
+    //         "Schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
+    //         "NIL": "KXNCAABMENTION-26FEB16SYRDUKE-NIL",
+    //         "Double Double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
+    //         "Record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
+    //         "All American": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
+    //         "Elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
+    //         "Cameron Indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
+    //     },
+    //     mediaStreamURL: 'https://www.espn.com/watch/player/_/id/03609cd5-1180-4a1c-9c6c-2b743405846e'
+    // }
 
     // Single session for the example
     const market = exampleMarket;
