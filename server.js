@@ -40,13 +40,20 @@ async function init() {
     }
 };
 
-async function handleSignal(word, sessionId, market, isDryRun) {
+async function handleSignal(word, ticker, isDryRun) {
     if (isDryRun) {
+        logger.info(ticker)
         logger.info('Dry run, not placing bet');
         return;
     }
 
 
+    await kalshi.placeOrder({
+        ticker,
+        count: 10,
+    });
+
+    logger.info(`Placed bet for word: ${word}`);
 };
 
 function calculateRMS(buffer) {
@@ -66,13 +73,33 @@ function calculateRMS(buffer) {
 
 
     const exampleMarket = {
-        "link": "https://demo.kalshi.co/markets/kxstarmermentionb/kier-starmer/kxstarmermentionb-26feb19",
-        "slug": "kxstarmermentionb-26feb19",
-        "eventStartTimeTS": 1771415100000,
-        "eventStartTime": "2/18/2026, 6:45:00 AM",
-        "mediaStreamURL": "https://www.youtube.com/watch?v=AxxVM_Vfcck",
+        "mediaStreamURL": "https://www.espn.com/watch/player/_/id/0fab2731-3518-41e2-b33e-5349b26bed08#bucketId=1",
+        "link": "https://kalshi.com/markets/kxncaabmention/college-basketball/kxncaabmention-26feb16syrduke",
+        "slug": "kxncaabmention-26feb16syrduke",
+        "eventStartTimeTS": 1771286400000,
+        "eventStartTime": "2/16/2026, 7:00:00 PM",
+        "mediaStreamURL": "https://www.youtube.com/watch?v=OfczGzr4zmA",
         "keywords": {
-            "introduce": "KXSTARMERMENTIONB-26FEB19-ELEC"
+            "overtime": "KXNCAABMENTION-26FEB16SYRDUKE-OVER",
+            "transfer": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+            "transferred": "KXNCAABMENTION-26FEB16SYRDUKE-TRAN",
+            "walk on": "KXNCAABMENTION-26FEB16SYRDUKE-WALK",
+            "ankle": "KXNCAABMENTION-26FEB16SYRDUKE-ANKL",
+            "march madness": "KXNCAABMENTION-26FEB16SYRDUKE-MARC",
+            "alley-oop": "KXNCAABMENTION-26FEB16SYRDUKE-ALLE",
+            "airball": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "airballs": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "airballed": "KXNCAABMENTION-26FEB16SYRDUKE-AIRB",
+            "recruit": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "recruited": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "recruitment": "KXNCAABMENTION-26FEB16SYRDUKE-RECR",
+            "draft": "KXNCAABMENTION-26FEB16SYRDUKE-DRAF",
+            "schedule": "KXNCAABMENTION-26FEB16SYRDUKE-SCHE",
+            "double double": "KXNCAABMENTION-26FEB16SYRDUKE-DOUB",
+            "record": "KXNCAABMENTION-26FEB16SYRDUKE-RECO",
+            "all american": "KXNCAABMENTION-26FEB16SYRDUKE-ALL",
+            "elbow": "KXNCAABMENTION-26FEB16SYRDUKE-ELBO",
+            "cameron indoor": "KXNCAABMENTION-26FEB16SYRDUKE-CAME"
         }
     }
     // const exampleMarket = {
@@ -205,7 +232,7 @@ function calculateRMS(buffer) {
                     for (const word of words) {
                         logger.info(`[${sessionId}] Transcribed: ${word}`);
                         if (Object.hasOwn(keywords, word)) {
-                            await handleSignal(word, sessionId, market, isDryRun);
+                            await handleSignal(word, keywords[word], isDryRun);
                         }
                         state.transcript.push(word);
                     }
