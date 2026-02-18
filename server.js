@@ -60,7 +60,7 @@ async function handleSignal(kalshi, word, ticker) {
         for (let i = 0; i < 20; i++) {
             try {
                 const val = await kalshi.getOrderbookValue(ticker);
-                logger.info(`[SIGNAL][${word}][${i + 1}/20] Ticker: ${ticker}, Orderbook: ${JSON.stringify(val)}`);
+                logger.info(`[SIGNAL][${word}][${i + 1}/20] Ticker: ${ticker}, Orderbook: ${JSON.stringify(val, null, 2)}`);
             } catch (e) {
                 logger.error(`[SIGNAL][${word}] Error fetching orderbook: ${e.message}`);
             }
@@ -119,7 +119,11 @@ function calculateRMS(buffer) {
     child.stderr.on('data', (data) => {
         const lines = data.toString().split('\n').filter(l => l.trim());
         lines.forEach(line => {
-            logger.debug(`[${sessionId}] [Child] ${line}`);
+            if (line.includes('Ad state changed:')) {
+                logger.info(`[${sessionId}] [Child] ${line}`);
+            } else {
+                logger.debug(`[${sessionId}] [Child] ${line}`);
+            }
         });
     });
 
