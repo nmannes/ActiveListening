@@ -216,7 +216,7 @@ async function runCapture(maxRetries = 3) {
                                 return null;
                             }
                             // YouTube specific ad containers
-                            const ytAd = document.querySelector('.video-ads.ytp-ad-module, .ytp-ad-player-overlay');
+                            const ytAd = document.querySelector('.video-ads.ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout');
                             if (ytAd && ytAd.children.length > 0) return true;
 
                             // Generic ad badge search (as requested)
