@@ -55,6 +55,8 @@ async function runCapture(maxRetries = 3) {
                 process.stdout.write(buffer);
             });
 
+
+
             logger.info(`[${sessionId}] Navigating to ${targetUrl}...`);
 
             const isESPN = targetUrl.includes('espn.com');
@@ -102,6 +104,7 @@ async function runCapture(maxRetries = 3) {
                         title: document.title,
                     };
                 });
+
                 logger.info(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
 
                 try {
@@ -161,12 +164,16 @@ async function runCapture(maxRetries = 3) {
                     console.log(`Found ${audioTracks.length} audio track(s)`);
                     const audioStream = new MediaStream(audioTracks);
 
+                    // Commercial flag — set from Node.js side via page.evaluate
+                    window._isCommercial = false;
+
                     const recorder = new MediaRecorder(audioStream, {
                         mimeType: 'audio/webm;codecs=opus',
                         audioBitsPerSecond: 128000
                     });
 
                     recorder.ondataavailable = async (event) => {
+                        if (window._isCommercial) return; // skip audio during commercials
                         if (event.data.size > 0) {
                             const reader = new FileReader();
                             reader.onload = () => {
@@ -186,7 +193,51 @@ async function runCapture(maxRetries = 3) {
                     recorder.start(100);
                     window._recorder = recorder;
                     console.log("MediaRecorder initialized and started");
+
                 });
+
+                // Commercial detection via DOM search (for "Ad" badge)
+                let isCommercial = false;
+                const commercialCheckInterval = setInterval(async () => {
+                    try {
+                        const isNowCommercial = await page.evaluate(() => {
+                            function findDeep(root, selector) {
+                                let found = root.querySelector(selector);
+                                if (found) return found;
+                                const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                                let node = walkers.nextNode();
+                                while (node) {
+                                    if (node.shadowRoot) {
+                                        found = findDeep(node.shadowRoot, selector);
+                                        if (found) return found;
+                                    }
+                                    node = walkers.nextNode();
+                                }
+                                return null;
+                            }
+                            // YouTube specific ad containers
+                            const ytAd = document.querySelector('.video-ads.ytp-ad-module, .ytp-ad-player-overlay');
+                            if (ytAd && ytAd.children.length > 0) return true;
+
+                            // Generic ad badge search (as requested)
+                            const badge = findDeep(document, '.ad-badge-overlay--badge');
+                            if (badge && badge.textContent.toLowerCase().includes('ad')) return true;
+
+                            return false;
+                        });
+
+                        if (isNowCommercial !== isCommercial) {
+                            isCommercial = isNowCommercial;
+                            await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
+                            logger.info(`[${sessionId}] YouTube Ad state changed: ${isCommercial}`);
+                        }
+                    } catch (e) {
+                        // Ignore transient errors
+                    }
+                }, 2000);
+
+                browser.on('disconnected', () => clearInterval(commercialCheckInterval));
+
             } else {
                 // ESPN/Other: complex logic with AudioContext fallback for DRM
                 await page.evaluate(() => {
@@ -248,6 +299,9 @@ async function runCapture(maxRetries = 3) {
                         }
                     }
 
+                    // Commercial flag — set from Node.js side via page.evaluate
+                    window._isCommercial = false;
+
                     const audioTracks = stream.getAudioTracks();
                     const audioStream = new MediaStream(audioTracks);
 
@@ -257,6 +311,7 @@ async function runCapture(maxRetries = 3) {
                     });
 
                     recorder.ondataavailable = async (event) => {
+                        if (window._isCommercial) return; // skip audio during commercials
                         if (event.data.size > 0) {
                             const reader = new FileReader();
                             reader.onload = () => {
@@ -277,6 +332,41 @@ async function runCapture(maxRetries = 3) {
                     window._recorder = recorder;
                     console.log("MediaRecorder initialized and started");
                 });
+
+                // Commercial detection via DOM search (for "Ad" badge)
+                let isCommercial = false;
+                const commercialCheckInterval = setInterval(async () => {
+                    try {
+                        const isNowCommercial = await page.evaluate(() => {
+                            function findDeep(root, selector) {
+                                let found = root.querySelector(selector);
+                                if (found) return found;
+                                const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                                let node = walkers.nextNode();
+                                while (node) {
+                                    if (node.shadowRoot) {
+                                        found = findDeep(node.shadowRoot, selector);
+                                        if (found) return found;
+                                    }
+                                    node = walkers.nextNode();
+                                }
+                                return null;
+                            }
+                            const el = findDeep(document, '.ad-badge-overlay--badge');
+                            return el !== null && el.textContent.toLowerCase().includes('ad');
+                        });
+
+                        if (isNowCommercial !== isCommercial) {
+                            isCommercial = isNowCommercial;
+                            await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
+                            logger.info(`[${sessionId}] ESPN Ad state changed: ${isCommercial}`);
+                        }
+                    } catch (e) {
+                        // Ignore transient errors
+                    }
+                }, 2000);
+
+                browser.on('disconnected', () => clearInterval(commercialCheckInterval));
             }
 
             logger.info(`[${sessionId}] Audio capture running. Streaming to stdout...`);

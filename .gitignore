@@ -15,3 +15,5 @@ transcripts/
 
 .env.demo
 .env.prod
+
+debug_frames/
