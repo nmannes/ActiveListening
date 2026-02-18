@@ -41,13 +41,7 @@ async function runCapture(maxRetries = 3) {
             }
 
             // Forward console logs to pino via stderr
-            page.on('console', msg => {
-                const type = msg.type();
-                const text = msg.text();
-                if (type === 'error') logger.error(`[Browser] ${text}`);
-                else if (type === 'warning') logger.warn(`[Browser] ${text}`);
-                else logger.trace(`[Browser] ${text}`);
-            });
+            page.on('console', msg => logger.trace(`[Browser] ${msg.text()}`));
 
             // Expose a function so the browser can send audio chunks back to Node.js
             await page.exposeFunction('sendAudioChunk', (base64Data) => {
@@ -105,7 +99,7 @@ async function runCapture(maxRetries = 3) {
                     };
                 });
 
-                logger.info(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
+                logger.debug(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
 
                 try {
                     logger.debug(`[${sessionId}] Waiting for video element (timeout: 60000ms)...`);

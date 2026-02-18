@@ -119,9 +119,7 @@ function calculateRMS(buffer) {
     child.stderr.on('data', (data) => {
         const lines = data.toString().split('\n').filter(l => l.trim());
         lines.forEach(line => {
-            // Directly log child logs without adding extra prefixes if they are already formatted
-            if (line.includes('[Browser]')) logger.info(line);
-            else logger.info(`[${sessionId}] [Child] ${line}`);
+            logger.debug(`[${sessionId}] [Child] ${line}`);
         });
     });
 
@@ -201,6 +199,9 @@ function calculateRMS(buffer) {
                         }
 
                         session.transcript.push(token);
+                        if (session.transcript.length % 20 === 0) {
+                            logger.info(`[${sessionId}] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
+                        }
                     }
                 } catch (e) {
                     logger.error({ err: e }, `[${sessionId}] Transcription error`);
