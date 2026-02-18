@@ -68,13 +68,16 @@ async function handleSignal(kalshi, word, ticker) {
         }
     })();
 
+    const delay = 6000 + Math.floor(Math.random() * 1000);
+    logger.info(`[TRADE][${word}] Waiting ${delay}ms before placing order...`);
+    await new Promise(r => setTimeout(r, delay));
 
-    // await kalshi.placeOrder({
-    //     ticker,
-    //     count: 1,
-    // });
+    const result = await kalshi.placeOrder({
+        ticker,
+        count: 10,
+    });
 
-    //logger.info(`BET ON WORD: ${word}`);
+    logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
 };
 
 function calculateRMS(buffer) {
