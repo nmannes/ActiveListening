@@ -10,6 +10,9 @@ const { args, KALSHI_ENV } = require('./lib/args');
 
 async function init() {
     try {
+
+        logger.info(`LOG_LEVEL: INFO`);
+        logger.debug(`LOG_LEVEL: DEBUG`);
         logger.info(`Environment: ${KALSHI_ENV}`);
         const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
         logger.info(`Loading transcription model (${modelName})...`);
@@ -51,12 +54,10 @@ async function init() {
 };
 
 async function handleSignal(kalshi, word, ticker, enableTrading) {
-    if (!enableTrading) {
-        logger.info(`In this scenario I would bet on: ${word}`);
+    logger.info(`In this scenario I would bet on: ${word}`);
 
-        logger.info("^^^")
-        logger.info(await kalshi.getOrderbookValue(ticker))
-    }
+    logger.info("^^^")
+    logger.info(await kalshi.getOrderbookValue(ticker))
 
 
     // await kalshi.placeOrder({
@@ -128,7 +129,7 @@ function calculateRMS(buffer) {
 
     // Pipe audio: main.js -> ffmpeg
     child.stdout.on('data', (chunk) => {
-        logger.debug(`[${sessionId}] Received ${chunk.length} bytes from child`);
+        logger.trace(`[${sessionId}] Received ${chunk.length} bytes from child`);
     });
     child.stdout.pipe(ffmpeg.stdin);
     // Also save raw stream for debugging if needed, but ffmpeg expects webm/opus usually. 
@@ -136,7 +137,7 @@ function calculateRMS(buffer) {
     child.stdout.pipe(outputFile);
 
     ffmpeg.stderr.on('data', (data) => {
-        logger.debug(`[${sessionId}] [ffmpeg] ${data.toString()}`);
+        logger.trace(`[${sessionId}] [ffmpeg] ${data.toString()}`);
     });
 
     let pcmBuffer = [];
@@ -166,36 +167,36 @@ function calculateRMS(buffer) {
 
             if (transcriber) {
                 try {
+                    const result = await transcriber(float32Array, { sampling_rate: 16000 });
                     if (result.text) {
                         logger.debug(`[${sessionId}] Raw text: "${result.text}"`);
                     }
                     const text = result.text.trim();
                     if (!text) return;
 
-                    const state = state.get(sessionId);
+                    const session = state.get(sessionId);
                     const keywords = market['keywords'];
 
                     const words = text.split(' ');
                     for (const word of words) {
-
-                        logger.debug(`[${sessionId}] word: ${word}`);
                         const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
-                        logger.debug(`[${sessionId}] token: ${token}`);
 
                         // Fix: Check the *previous word in the transcript*, not keywords
-                        const previousToken = state.transcript.at(-1);
+                        const previousToken = session.transcript.at(-1);
                         const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
 
-                        if (keywords[token]) {
+                        logger.debug(`[${sessionId}] token: ${token}, lastTwo: ${lastTwo}`)
+
+                        if (token in keywords) {
                             await handleSignal(kalshi, token, keywords[token], enableTrading);
-                        } else if (lastTwo && keywords[lastTwo]) {
+                        } else if (lastTwo in keywords) {
                             await handleSignal(kalshi, lastTwo, keywords[lastTwo], enableTrading);
                         }
 
-                        state.transcript.push(token);
+                        session.transcript.push(token);
                     }
                 } catch (e) {
-                    logger.error(`[${sessionId}] Transcription error:`, e.message || e);
+                    logger.error({ err: e }, `[${sessionId}] Transcription error`);
                 }
             }
         }
@@ -203,6 +204,7 @@ function calculateRMS(buffer) {
 
     child.on('close', (code) => {
         logger.info(`[${sessionId}] Child process exited with code ${code}`);
+
         process.exit(0);
     });
 
