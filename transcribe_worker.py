@@ -17,16 +17,20 @@ import os
 import json
 import numpy as np
 from faster_whisper import WhisperModel
+import argparse
 
+# Load environment variables from .env file
 def main():
-    model_size = os.environ.get("WHISPER_MODEL", "base.en")
 
-    # Map old Xenova/transformers.js model names to faster-whisper equivalents
-    if model_size.startswith("Xenova/whisper-"):
-        model_size = model_size.replace("Xenova/whisper-", "")
-        sys.stderr.write(f"[transcribe_worker] Mapped Xenova model name to '{model_size}'\n")
-        sys.stderr.flush()
-    device = os.environ.get("WHISPER_DEVICE", "cpu")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="base.en")
+    parser.add_argument("--device", type=str, default="cpu")
+
+    args = parser.parse_args()
+
+    model_size = args.model
+    device = args.device
+    
     compute_type = "float16" if device == "cuda" else "int8"
 
     sys.stderr.write(f"[transcribe_worker] Loading model '{model_size}' on {device} ({compute_type})...\n")

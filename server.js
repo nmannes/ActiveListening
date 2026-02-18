@@ -41,7 +41,6 @@ async function init() {
         return {
             kalshi,
             market,
-            enableTrading: process.env.TRADE_FOR_REAL,
             transcriber,
         }
     } catch (err) {
@@ -52,7 +51,14 @@ async function init() {
 
 function spawnTranscriber() {
     return new Promise((resolve, reject) => {
-        const proc = spawn('python3', [path.join(__dirname, 'transcribe_worker.py')], {
+        const proc = spawn('python', [
+            path.join(__dirname,
+                'transcribe_worker.py'),
+            '--model',
+            process.env.WHISPER_MODEL,
+            '--device',
+            process.env.TRANSCRIPTION_HARDWARE
+        ], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env },
         });
@@ -153,7 +159,7 @@ function calculateRMS(buffer) {
 }
 
 (async () => {
-    const { kalshi, market, enableTrading, transcriber } = await init();
+    const { kalshi, market, transcriber } = await init();
     const state = new Map();
 
     const sessionId = market.slug;
@@ -256,10 +262,10 @@ function calculateRMS(buffer) {
                         const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
 
                         if (token in keywords) {
-                            await handleSignal(kalshi, token, keywords[token], enableTrading);
+                            await handleSignal(kalshi, token, keywords[token]);
                             logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
                         } else if (lastTwo in keywords) {
-                            await handleSignal(kalshi, lastTwo, keywords[lastTwo], enableTrading);
+                            await handleSignal(kalshi, lastTwo, keywords[lastTwo]);
                             logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
                         }
 
