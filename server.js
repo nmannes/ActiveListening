@@ -10,6 +10,7 @@ const { args, KALSHI_ENV } = require('./lib/args');
 
 async function init() {
     try {
+        logger.info(`Environment: ${KALSHI_ENV}`);
         const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
         logger.info(`Loading transcription model (${modelName})...`);
         const transcriber = await pipeline('automatic-speech-recognition', modelName, {
@@ -20,16 +21,22 @@ async function init() {
         if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
-        const markets = require('./prod_markets_with_event_times.json')
+        logger.info(`Loading markets for ${KALSHI_ENV}...`);
+        const rawData = fs.readFileSync(`${__dirname}/${KALSHI_ENV}_markets_with_event_times.json`);
+
+        const markets = JSON.parse(rawData);
 
         const market = markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
-        if (!market) throw new Error(`no market available rn`);
+        if (!market) throw new Error(`no market available rn :(`);
 
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
             process.env.KALSHI_PRIVATE_KEY_PATH,
             KALSHI_ENV
         );
+
+        logger.info(`Market: ${market.title}`);
+        logger.info(`Trading enabled: ${process.env.TRADE_FOR_REAL}`);
 
         return {
             kalshi,
@@ -38,15 +45,17 @@ async function init() {
             transcriber,
         }
     } catch (err) {
-        logger.fatal('Initialization failed', err);
+        logger.fatal({ err }, 'Initialization failed: ' + err.message);
         process.exit(1);
     }
 };
 
-async function handleSignal(word, ticker, enableTrading) {
+async function handleSignal(kalshi, word, ticker, enableTrading) {
     if (!enableTrading) {
         logger.info(`In this scenario I would bet on: ${word}`);
-        return;
+
+        logger.info("^^^")
+        logger.info(await kalshi.getOrderbookValue(ticker))
     }
 
 
@@ -70,10 +79,10 @@ function calculateRMS(buffer) {
 
 (async () => {
     const { kalshi, market, enableTrading, transcriber } = await init();
-    const sessionState = new Map();
+    const state = new Map();
 
     const sessionId = market.slug;
-    sessionState.set(sessionId, { transcript: [], audioChunks: [] });
+    state.set(sessionId, { transcript: [], audioChunks: [] });
 
     logger.info(`[${sessionId}] Starting capture process...`);
 
@@ -157,28 +166,36 @@ function calculateRMS(buffer) {
 
             if (transcriber) {
                 try {
-                    const result = await transcriber(float32Array);
+                    if (result.text) {
+                        logger.debug(`[${sessionId}] Raw text: "${result.text}"`);
+                    }
                     const text = result.text.trim();
                     if (!text) return;
 
-                    const state = sessionState.get(sessionId);
+                    const state = state.get(sessionId);
                     const keywords = market['keywords'];
 
                     const words = text.split(' ');
                     for (const word of words) {
 
+                        logger.debug(`[${sessionId}] word: ${word}`);
                         const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
-                        logger.info(`[${sessionId}] Transcribed: ${token}`);
-                        const lastTwo = [keywords.at(-1), word].join(' ')
+                        logger.debug(`[${sessionId}] token: ${token}`);
+
+                        // Fix: Check the *previous word in the transcript*, not keywords
+                        const previousToken = state.transcript.at(-1);
+                        const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
+
                         if (keywords[token]) {
-                            await handleSignal(token, keywords[token], enableTrading);
-                        } else if (keywords[lastTwo]) {
-                            await handleSignal(lastTwo, keywords[lastTwo], enableTrading);
+                            await handleSignal(kalshi, token, keywords[token], enableTrading);
+                        } else if (lastTwo && keywords[lastTwo]) {
+                            await handleSignal(kalshi, lastTwo, keywords[lastTwo], enableTrading);
                         }
+
                         state.transcript.push(token);
                     }
                 } catch (e) {
-                    logger.error(`[${sessionId}] Transcription error:`, e);
+                    logger.error(`[${sessionId}] Transcription error:`, e.message || e);
                 }
             }
         }
