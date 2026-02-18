@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { spawn } = require('child_process');
-const { pipeline } = require('@xenova/transformers');
+const readline = require('readline');
 const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
@@ -14,12 +14,9 @@ async function init() {
         logger.info(`LOG_LEVEL: INFO`);
         logger.debug(`LOG_LEVEL: DEBUG`);
         logger.info(`Environment: ${KALSHI_ENV}`);
-        const modelName = process.env.WHISPER_MODEL || 'Xenova/whisper-base.en';
-        logger.info(`Loading transcription model (${modelName})...`);
-        const transcriber = await pipeline('automatic-speech-recognition', modelName, {
-            cache_dir: './models',
-        });
-        logger.info('Model loaded.');
+        logger.info('Spawning Python transcription worker...');
+        const transcriber = await spawnTranscriber();
+        logger.info('Python transcriber ready.');
 
         if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
@@ -52,6 +49,71 @@ async function init() {
         process.exit(1);
     }
 };
+
+function spawnTranscriber() {
+    return new Promise((resolve, reject) => {
+        const proc = spawn('python3', [path.join(__dirname, 'transcribe_worker.py')], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            env: { ...process.env },
+        });
+
+        proc.stderr.on('data', (data) => {
+            data.toString().split('\n').filter(l => l.trim()).forEach(line => {
+                logger.info(`[transcribe_worker] ${line}`);
+            });
+        });
+
+        proc.on('error', (err) => reject(new Error(`Failed to spawn transcribe_worker: ${err.message}`)));
+        proc.on('close', (code) => logger.warn(`[transcribe_worker] exited with code ${code}`));
+
+        // Wait for the READY signal
+        const rl = readline.createInterface({ input: proc.stdout });
+        const lineHandler = (line) => {
+            if (line.trim() === 'READY') {
+                rl.removeListener('line', lineHandler);
+                // Set up the persistent line reader for transcription responses
+                const responseLines = [];
+                let responseResolve = null;
+                rl.on('line', (responseLine) => {
+                    if (responseResolve) {
+                        const cb = responseResolve;
+                        responseResolve = null;
+                        cb(responseLine);
+                    } else {
+                        responseLines.push(responseLine);
+                    }
+                });
+                const transcribe = (pcmBuffer) => {
+                    return new Promise((res, rej) => {
+                        try {
+                            const header = `AUDIO ${pcmBuffer.length}\n`;
+                            proc.stdin.write(header);
+                            proc.stdin.write(pcmBuffer);
+                            // Wait for the JSON response line
+                            if (responseLines.length > 0) {
+                                const line = responseLines.shift();
+                                res(JSON.parse(line));
+                            } else {
+                                responseResolve = (line) => {
+                                    try { res(JSON.parse(line)); } catch (e) { rej(e); }
+                                };
+                            }
+                        } catch (e) {
+                            rej(e);
+                        }
+                    });
+                };
+                transcribe.kill = () => proc.kill();
+                transcribe.process = proc;
+                resolve(transcribe);
+            }
+        };
+        rl.on('line', lineHandler);
+
+        // Timeout if worker doesn't become ready
+        setTimeout(() => reject(new Error('Transcription worker did not become ready in 60s')), 60000);
+    });
+}
 
 async function handleSignal(kalshi, word, ticker) {
     // Log the orderbook value every second for 20 seconds
@@ -115,6 +177,7 @@ function calculateRMS(buffer) {
     // Cleanup on exit
     process.on('SIGINT', () => {
         child.kill();
+        if (transcriber && transcriber.kill) transcriber.kill();
         process.exit();
     });
 
@@ -173,16 +236,11 @@ function calculateRMS(buffer) {
                 return;
             }
 
-            // Convert to Float32 for model
-            const float32Array = new Float32Array(fullBuffer.length / 2);
-            for (let i = 0; i < float32Array.length; i++) {
-                float32Array[i] = fullBuffer.readInt16LE(i * 2) / 32768.0;
-            }
-
             if (transcriber) {
                 try {
-                    const result = await transcriber(float32Array, { sampling_rate: 16000 });
-                    const text = result.text.trim();
+                    // Send raw PCM buffer to Python worker
+                    const result = await transcriber(fullBuffer);
+                    const text = (result.text || '').trim();
 
                     if (!text) return;
 
