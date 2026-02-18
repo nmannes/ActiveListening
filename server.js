@@ -54,10 +54,19 @@ async function init() {
 };
 
 async function handleSignal(kalshi, word, ticker) {
-    logger.info(`In this scenario I would bet on: ${word}`);
-
-    logger.info("^^^")
-    logger.info(await kalshi.getOrderbookValue(ticker))
+    // Log the orderbook value every second for 20 seconds
+    logger.info(`[SIGNAL][${word}] Ticker: ${ticker}`);
+    (async () => {
+        for (let i = 0; i < 20; i++) {
+            try {
+                const val = await kalshi.getOrderbookValue(ticker);
+                logger.info(`[SIGNAL][${word}][${i + 1}/20] Ticker: ${ticker}, Orderbook: ${JSON.stringify(val)}`);
+            } catch (e) {
+                logger.error(`[SIGNAL][${word}] Error fetching orderbook: ${e.message}`);
+            }
+            if (i < 19) await new Promise(r => setTimeout(r, 1000));
+        }
+    })();
 
 
     // await kalshi.placeOrder({
@@ -185,8 +194,10 @@ function calculateRMS(buffer) {
 
                         if (token in keywords) {
                             await handleSignal(kalshi, token, keywords[token], enableTrading);
+                            logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
                         } else if (lastTwo in keywords) {
                             await handleSignal(kalshi, lastTwo, keywords[lastTwo], enableTrading);
+                            logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
                         }
 
                         session.transcript.push(token);
