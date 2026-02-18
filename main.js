@@ -46,7 +46,7 @@ async function runCapture(maxRetries = 3) {
                 const text = msg.text();
                 if (type === 'error') logger.error(`[Browser] ${text}`);
                 else if (type === 'warning') logger.warn(`[Browser] ${text}`);
-                else logger.debug(`[Browser] ${text}`);
+                else logger.trace(`[Browser] ${text}`);
             });
 
             // Expose a function so the browser can send audio chunks back to Node.js

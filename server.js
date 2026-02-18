@@ -53,7 +53,7 @@ async function init() {
     }
 };
 
-async function handleSignal(kalshi, word, ticker, enableTrading) {
+async function handleSignal(kalshi, word, ticker) {
     logger.info(`In this scenario I would bet on: ${word}`);
 
     logger.info("^^^")
@@ -168,10 +168,8 @@ function calculateRMS(buffer) {
             if (transcriber) {
                 try {
                     const result = await transcriber(float32Array, { sampling_rate: 16000 });
-                    if (result.text) {
-                        logger.debug(`[${sessionId}] Raw text: "${result.text}"`);
-                    }
                     const text = result.text.trim();
+
                     if (!text) return;
 
                     const session = state.get(sessionId);
@@ -184,8 +182,6 @@ function calculateRMS(buffer) {
                         // Fix: Check the *previous word in the transcript*, not keywords
                         const previousToken = session.transcript.at(-1);
                         const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
-
-                        logger.debug(`[${sessionId}] token: ${token}, lastTwo: ${lastTwo}`)
 
                         if (token in keywords) {
                             await handleSignal(kalshi, token, keywords[token], enableTrading);
