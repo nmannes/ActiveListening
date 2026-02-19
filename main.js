@@ -17,8 +17,7 @@ puppeteer.use(StealthPlugin());
 const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
-const targetUrl = args.url || 'https://www.youtube.com/watch?v=AxxVM_Vfcck'
-
+const targetUrl = args.url || 'https://www.espn.com/watch/player/_/id/a8a20588-829e-43aa-941a-866e647df01b'
 async function runCapture(retries = 3) {
 
     if (args.duration) {
@@ -64,6 +63,11 @@ async function runCapture(retries = 3) {
             process.stdout.write(buffer);
         });
 
+        const commercialCheckInterval = await setupCommercialCheck(targetUrl, page);
+
+        browser.on('disconnected', () => clearInterval(commercialCheckInterval));
+
+
         const pageDebug = await page.evaluate(() => {
             const body = document.body;
             const allTags = [...new Set([...body.querySelectorAll('*')].map(e => e.tagName.toLowerCase()))];
@@ -84,12 +88,21 @@ async function runCapture(retries = 3) {
         logger.debug(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
 
         if (targetUrl.includes("espn.com")) {
-            return await runCaptureESPN(page, retries);
+            await runCaptureESPN(page, retries);
         } else if (targetUrl.includes("youtube.com")) {
-            return await runCaptureYouTube(page, retries);
+            await runCaptureYouTube(page, retries);
         } else {
             throw new Error("Invalid URL");
         }
+
+        // Keep alive
+        await new Promise((resolve, reject) => {
+            browser.on('disconnected', () => {
+                reject(new Error('Browser disconnected'));
+            });
+            // We can also handle the args.duration here or rely on the process.exit(0) you already added at the top.
+        });
+
     } catch (error) {
         logger.error(`[${sessionId}] Error: ${error.message}`);
     } finally {
@@ -126,8 +139,6 @@ async function runCaptureESPN(page, retries) {
     // ESPN: complex shadow DOM search
     logger.debug(`[${sessionId}] Waiting for ESPN page to load...`);
     await new Promise(r => setTimeout(r, 5000));
-
-    logger.debug(`[${sessionId}] Page debug: ${JSON.stringify(pageDebug)}`);
 
     try {
         logger.debug(`[${sessionId}] Waiting for video element (timeout: 60000ms)...`);
@@ -218,9 +229,6 @@ async function runCaptureESPN(page, retries) {
             }
         }
 
-        // Commercial flag — set from Node.js side via page.evaluate
-        window._isCommercial = false;
-
         const audioTracks = stream.getAudioTracks();
         const audioStream = new MediaStream(audioTracks);
 
@@ -251,42 +259,6 @@ async function runCaptureESPN(page, retries) {
         window._recorder = recorder;
         console.log("MediaRecorder initialized and started");
     });
-
-    // Commercial detection via DOM search (for "Ad" badge)
-    let isCommercial = false;
-    const commercialCheckInterval = setInterval(async () => {
-        try {
-            const isNowCommercial = await page.evaluate(() => {
-                function findDeep(root, selector) {
-                    let found = root.querySelector(selector);
-                    if (found) return found;
-                    const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-                    let node = walkers.nextNode();
-                    while (node) {
-                        if (node.shadowRoot) {
-                            found = findDeep(node.shadowRoot, selector);
-                            if (found) return found;
-                        }
-                        node = walkers.nextNode();
-                    }
-                    return null;
-                }
-                const el = findDeep(document, '.ad-badge-overlay--badge');
-                return el !== null && el.textContent.toLowerCase().includes('ad');
-            });
-
-            if (isNowCommercial !== isCommercial) {
-                isCommercial = isNowCommercial;
-                await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
-                logger.info(`[${sessionId}] ESPN Ad state changed: ${isCommercial}`);
-            }
-        } catch (e) {
-            // Ignore transient errors
-        }
-    }, 2000);
-
-    browser.on('disconnected', () => clearInterval(commercialCheckInterval));
-
 
 }
 
@@ -334,9 +306,6 @@ async function runCaptureYouTube(page, retries) {
         console.log(`Found ${audioTracks.length} audio track(s)`);
         const audioStream = new MediaStream(audioTracks);
 
-        // Commercial flag — set from Node.js side via page.evaluate
-        window._isCommercial = false;
-
         const recorder = new MediaRecorder(audioStream, {
             mimeType: 'audio/webm;codecs=opus',
             audioBitsPerSecond: 128000
@@ -366,49 +335,6 @@ async function runCaptureYouTube(page, retries) {
 
     });
 
-    // Commercial detection via DOM search (for "Ad" badge)
-    let isCommercial = false;
-    const commercialCheckInterval = setInterval(async () => {
-        try {
-            const isNowCommercial = await page.evaluate(() => {
-                function findDeep(root, selector) {
-                    let found = root.querySelector(selector);
-                    if (found) return found;
-                    const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
-                    let node = walkers.nextNode();
-                    while (node) {
-                        if (node.shadowRoot) {
-                            found = findDeep(node.shadowRoot, selector);
-                            if (found) return found;
-                        }
-                        node = walkers.nextNode();
-                    }
-                    return null;
-                }
-                // YouTube specific ad containers
-                const ytAd = document.querySelector('.video-ads.ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout');
-                if (ytAd && ytAd.children.length > 0) return true;
-
-                // Generic ad badge search (as requested)
-                const badge = findDeep(document, '.ad-badge-overlay--badge');
-                if (badge && badge.textContent.toLowerCase().includes('ad')) return true;
-
-                return false;
-            });
-
-            if (isNowCommercial !== isCommercial) {
-                isCommercial = isNowCommercial;
-                await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
-                logger.info(`[${sessionId}] YouTube Ad state changed: ${isCommercial}`);
-            }
-        } catch (e) {
-            // Ignore transient errors
-        }
-    }, 2000);
-
-    browser.on('disconnected', () => clearInterval(commercialCheckInterval));
-
-
 
 }
 
@@ -416,10 +342,85 @@ async function runCaptureTvHeadEnd(browser, retries) {
 
 }
 
-async function runCaptureWrapper(maxRetries = 3) {
 
+async function setupCommercialCheck(url, page) {
+    // Commercial detection via DOM search (for "Ad" badge)
+    let commercialCheckInterval
+    if (url.includes("espn.com")) {
+
+        commercialCheckInterval = setInterval(async () => {
+            try {
+                await page.evaluate(() => {
+                    function findDeep(root, selector) {
+                        let found = root.querySelector(selector);
+                        if (found) return found;
+                        const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                        let node = walkers.nextNode();
+                        while (node) {
+                            if (node.shadowRoot) {
+                                found = findDeep(node.shadowRoot, selector);
+                                if (found) return found;
+                            }
+                            node = walkers.nextNode();
+                        }
+                        return null;
+                    }
+                    const el = findDeep(document, '.ad-badge-overlay--badge');
+                    return el !== null && el.textContent.toLowerCase().includes('ad');
+                });
+
+                if (isNowCommercial !== isCommercial) {
+                    isCommercial = isNowCommercial;
+                    await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
+                    logger.info(`[${sessionId}] ESPN Ad state changed: ${isCommercial}`);
+                }
+            } catch (e) {
+                // Ignore transient errors
+            }
+        }, 2000);
+    } else if (url.includes("youtube.com")) {
+        commercialCheckInterval = setInterval(async () => {
+            try {
+                const isNowCommercial = await page.evaluate(() => {
+                    function findDeep(root, selector) {
+                        let found = root.querySelector(selector);
+                        if (found) return found;
+                        const walkers = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+                        let node = walkers.nextNode();
+                        while (node) {
+                            if (node.shadowRoot) {
+                                found = findDeep(node.shadowRoot, selector);
+                                if (found) return found;
+                            }
+                            node = walkers.nextNode();
+                        }
+                        return null;
+                    }
+                    // YouTube specific ad containers
+                    const ytAd = document.querySelector('.video-ads.ytp-ad-module, .ytp-ad-player-overlay, .ytp-ad-player-overlay-layout');
+                    if (ytAd && ytAd.children.length > 0) return true;
+
+                    // Generic ad badge search (as requested)
+                    const badge = findDeep(document, '.ad-badge-overlay--badge');
+                    if (badge && badge.textContent.toLowerCase().includes('ad')) return true;
+
+                    return false;
+                });
+
+                if (isNowCommercial !== isCommercial) {
+                    isCommercial = isNowCommercial;
+                    await page.evaluate((val) => { window._isCommercial = val; }, isCommercial);
+                    logger.info(`[${sessionId}] YouTube Ad state changed: ${isCommercial}`);
+                }
+            } catch (e) {
+                // Ignore transient errors
+            }
+        }, 2000);
+    }
+    page.on('close', () => {
+        clearInterval(commercialCheckInterval);
+    });
 }
-
 // Handle Ctrl+C
 process.on('SIGINT', async () => {
     logger.info("Received SIGINT. Cleaning up...");
