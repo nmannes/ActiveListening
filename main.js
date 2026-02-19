@@ -345,12 +345,13 @@ async function runCaptureTvHeadEnd(browser, retries) {
 
 async function setupCommercialCheck(url, page) {
     // Commercial detection via DOM search (for "Ad" badge)
-    let commercialCheckInterval
-    if (url.includes("espn.com")) {
+    let commercialCheckInterval;
+    let isCommercial = false;
 
+    if (url.includes("espn.com")) {
         commercialCheckInterval = setInterval(async () => {
             try {
-                await page.evaluate(() => {
+                const isNowCommercial = await page.evaluate(() => {
                     function findDeep(root, selector) {
                         let found = root.querySelector(selector);
                         if (found) return found;
@@ -417,9 +418,12 @@ async function setupCommercialCheck(url, page) {
             }
         }, 2000);
     }
+
     page.on('close', () => {
         clearInterval(commercialCheckInterval);
     });
+
+    return commercialCheckInterval;
 }
 // Handle Ctrl+C
 process.on('SIGINT', async () => {
