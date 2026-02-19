@@ -36,7 +36,7 @@ async function init() {
         );
 
         logger.info(`Market: ${market.title}`);
-        logger.info(`Trading enabled: ${process.env.TRADE_FOR_REAL}`);
+        logger.info(`Trading enabled: ${process.env.TRADE_FOR_REAL || false}`);
 
         return {
             kalshi,
@@ -140,12 +140,17 @@ async function handleSignal(kalshi, word, ticker) {
     logger.info(`[TRADE][${word}] Waiting ${delay}ms before placing order...`);
     await new Promise(r => setTimeout(r, delay));
 
-    const result = await kalshi.placeOrder({
-        ticker,
-        count: 10,
-    });
+    if (process.env.TRADE_FOR_REAL) {
 
-    logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
+        // const result = await kalshi.placeOrder({
+        //     ticker,
+        //     count: 10,
+        // });
+        logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
+    } else {
+        logger.info(`[TRADE][${word}] Not trading for real but word came up`)
+    }
+
 };
 
 function calculateRMS(buffer) {

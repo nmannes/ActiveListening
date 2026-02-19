@@ -1,6 +1,14 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
+const fs = require('fs');
+const path = require('path');
+
+const debugFramesDir = path.join(__dirname, 'debug_frames');
+
+if (!fs.existsSync(debugFramesDir)) {
+    fs.mkdirSync(debugFramesDir, { recursive: true });
+}
 
 const cookies = require('./espn_cookies.json');
 
@@ -365,9 +373,32 @@ async function runCapture(maxRetries = 3) {
 
             logger.info(`[${sessionId}] Audio capture running. Streaming to stdout...`);
 
+            // Periodic frame capture loop
+            const frameCaptureInterval = setInterval(async () => {
+                try {
+                    const video = await page.$('video');
+                    if (video) {
+                        const timestamp = Date.now();
+                        const filename = `frame_${timestamp}.jpg`;
+                        const filepath = path.join(debugFramesDir, filename);
+                        await video.screenshot({
+                            path: filepath,
+                            type: 'jpeg',
+                            quality: 80
+                        });
+                        // logger.trace(`[${sessionId}] Captured debug frame: ${filename}`);
+                    }
+                } catch (e) {
+                    logger.debug(`[${sessionId}] Frame capture failed: ${e.message}`);
+                }
+            }, 2000);
+
             // Keep alive
             await new Promise((resolve, reject) => {
-                browser.on('disconnected', () => reject(new Error('Browser disconnected')));
+                browser.on('disconnected', () => {
+                    clearInterval(frameCaptureInterval);
+                    reject(new Error('Browser disconnected'));
+                });
 
                 if (args.duration) {
                     setTimeout(() => {
