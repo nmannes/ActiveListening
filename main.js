@@ -18,7 +18,91 @@ puppeteer.use(StealthPlugin());
 const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
-const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/0f485a1a848627fbd928551824b0e8ff'
+const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
+const { spawn, exec } = require('child_process');
+
+async function runCaptureTvHeadEnd(url, retries) {
+    logger.info(`[${sessionId}] Spawning ffmpeg to capture stream from ${url}`);
+
+    return new Promise((resolve, reject) => {
+        // We will output audio as PCM to stdout (so server.js ffmpeg can read it direct).
+        // Wait, server.js expects pcm or webm. MediaRecorder gave webm/opus.
+        // Actually ffmpeg in server.js doesn't care if we send it webm/opus or raw pcm, it will transcode to pcm_s16le.
+        // Sending it as webm/opus closely mimics the puppeteer approach.
+        const args = [
+            '-y',
+            '-i', url,
+            // Output 1: Audio to stdout encoded as WebM/Opus so it seamlessly replaces MediaRecorder
+            '-map', '0:a',
+            '-c:a', 'libopus',
+            '-f', 'webm',
+            'pipe:1',
+            // Output 2: Video frames to the debug_frames directory
+            '-map', '0:v',
+            '-r', '0.5', // 1 frame every 2 seconds
+            '-f', 'image2',
+            '-update', '1',
+            path.join(debugFramesDir, `${sessionId}_last_frame.jpg`)
+        ];
+
+
+        let isCommercialBreak = false;
+
+        // set an interval to check for commercial breaks
+        const commercialCheckInterval = setInterval(async () => {
+            const frameFiles = fs.readdirSync(debugFramesDir).filter(f => f.endsWith('.jpg')).sort();
+            if (frameFiles.length === 0) {
+                return;
+            }
+            const lastFrame = frameFiles[frameFiles.length - 1];
+            const lastFramePath = path.join(debugFramesDir, lastFrame);
+
+            // get all text on the frame via tesseract ocr
+            await exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
+                if (error) {
+                    logger.error(`[${sessionId}] Tesseract error: ${error.message}`);
+                    return;
+                }
+                const text = stdout.toLowerCase().trim();
+
+                if (text !== '') {
+                    logger.debug(`[${sessionId}]: ${text}`);
+                }
+            });
+        }, 2000);
+
+        const ffmpegProc = spawn('ffmpeg', args);
+
+        // Pipe the ffmpeg stdout (the audio stream) to the main process stdout
+        ffmpegProc.stdout.on('data', (data) => {
+            if (isCommercialBreak) {
+                return;
+            }
+            process.stdout.write(data);
+        });
+
+        ffmpegProc.stderr.on('data', (data) => {
+            // Optional: log ffmpeg output if needed for debugging
+            // logger.trace(`[FFMPEG] ${data.toString()}`);
+        });
+
+        ffmpegProc.on('close', (code) => {
+            logger.info(`[${sessionId}] FFMPEG exited with code ${code}`);
+            resolve();
+        });
+
+        ffmpegProc.on('error', (err) => {
+            logger.error(`[${sessionId}] FFMPEG error: ${err.message}`);
+            reject(err);
+        });
+
+        // Handle Ctrl-C / cleanup by killing ffmpeg
+        process.on('SIGINT', () => {
+            clearInterval(commercialCheckInterval);
+            ffmpegProc.kill();
+        });
+    });
+}
 async function runCapture(retries = 3) {
 
     if (args.duration) {
@@ -337,33 +421,6 @@ async function runCaptureYouTube(page, retries) {
     });
 
 
-}
-
-async function runCaptureTvHeadEnd(url, retries) {
-    logger.info(`[${sessionId}] Fetching raw stream from ${url}`);
-
-    return new Promise((resolve, reject) => {
-        const req = http.get(url, (res) => {
-            if (res.statusCode !== 200) {
-                return reject(new Error(`Failed to fetch stream: ${res.statusCode}`));
-            }
-            logger.info(`[${sessionId}] Connected to stream. Piping to stdout...`);
-
-            // Pipe the raw MPEG-TS stream directly to stdout
-            // server.js's ffmpeg process will read this and extract the audio
-            res.pipe(process.stdout);
-
-            res.on('end', () => {
-                logger.info(`[${sessionId}] Stream ended.`);
-                resolve();
-            });
-        });
-
-        req.on('error', (err) => {
-            logger.error(`[${sessionId}] Stream fetch error: ${err.message}`);
-            reject(err);
-        });
-    });
 }
 
 

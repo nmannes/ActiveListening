@@ -181,8 +181,8 @@ function calculateRMS(buffer) {
     logger.info(`[${sessionId}] Spawning main.js...`);
     const child = spawn("node", [
         "./main.js",
-    ])
 
+    ])
     // Cleanup on exit
     process.on('SIGINT', () => {
         child.kill();
@@ -194,7 +194,9 @@ function calculateRMS(buffer) {
     child.stderr.on('data', (data) => {
         const lines = data.toString().split('\n').filter(l => l.trim());
         lines.forEach(line => {
-            if (line.includes('Ad state changed:')) {
+            if (line === '') {
+                return;
+            } else if (line.includes('Ad state changed:')) {
                 logger.info(`[${sessionId}] [Child] ${line}`);
             } else {
                 logger.debug(`[${sessionId}] [Child] ${line}`);
