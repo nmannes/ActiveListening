@@ -3,6 +3,7 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
 
 const debugFramesDir = path.join(__dirname, 'debug_frames');
 
@@ -17,7 +18,7 @@ puppeteer.use(StealthPlugin());
 const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
-const targetUrl = args.url || 'https://www.espn.com/watch/player/_/id/a8a20588-829e-43aa-941a-866e647df01b'
+const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/0f485a1a848627fbd928551824b0e8ff'
 async function runCapture(retries = 3) {
 
     if (args.duration) {
@@ -28,7 +29,7 @@ async function runCapture(retries = 3) {
     }
 
     if (targetUrl.includes("localhost:9981")) {
-        return await runCaptureTvHeadEnd();
+        return await runCaptureTvHeadEnd(targetUrl, retries);
     }
 
     var browser;
@@ -338,8 +339,31 @@ async function runCaptureYouTube(page, retries) {
 
 }
 
-async function runCaptureTvHeadEnd(browser, retries) {
+async function runCaptureTvHeadEnd(url, retries) {
+    logger.info(`[${sessionId}] Fetching raw stream from ${url}`);
 
+    return new Promise((resolve, reject) => {
+        const req = http.get(url, (res) => {
+            if (res.statusCode !== 200) {
+                return reject(new Error(`Failed to fetch stream: ${res.statusCode}`));
+            }
+            logger.info(`[${sessionId}] Connected to stream. Piping to stdout...`);
+
+            // Pipe the raw MPEG-TS stream directly to stdout
+            // server.js's ffmpeg process will read this and extract the audio
+            res.pipe(process.stdout);
+
+            res.on('end', () => {
+                logger.info(`[${sessionId}] Stream ended.`);
+                resolve();
+            });
+        });
+
+        req.on('error', (err) => {
+            logger.error(`[${sessionId}] Stream fetch error: ${err.message}`);
+            reject(err);
+        });
+    });
 }
 
 

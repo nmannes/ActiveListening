@@ -181,9 +181,7 @@ function calculateRMS(buffer) {
     logger.info(`[${sessionId}] Spawning main.js...`);
     const child = spawn("node", [
         "./main.js",
-        // "--url", market.mediaStreamURL,
-    ]);
-
+    ])
 
     // Cleanup on exit
     process.on('SIGINT', () => {
