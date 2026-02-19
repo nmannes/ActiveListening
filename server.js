@@ -57,7 +57,7 @@ function spawnTranscriber() {
             '--model',
             process.env.WHISPER_MODEL,
             '--device',
-            process.env.TRANSCRIPTION_HARDWARE
+            process.env.TRANSCRIPTION_HARDWARE || 'cpu'
         ], {
             stdio: ['pipe', 'pipe', 'pipe'],
             env: { ...process.env },
