@@ -256,20 +256,26 @@ function calculateRMS(buffer) {
                     const words = text.split(' ');
                     for (const word of words) {
                         const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
+                        if (!token) continue;
 
-                        // Fix: Check the *previous word in the transcript*, not keywords
-                        const previousToken = session.transcript.at(-1);
-                        const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
+                        session.transcript.push(token)
 
-                        if (token in keywords) {
-                            await handleSignal(kalshi, token, keywords[token], buyCount);
-                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
-                        } else if (lastTwo in keywords) {
-                            await handleSignal(kalshi, lastTwo, keywords[lastTwo], buyCount);
-                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
+                        for (const [key, value] of Object.entries(keywords)) {
+                            const keyLower = key.toLowerCase();
+                            const keyWords = keyLower.split(' ');
+                            const keyLen = keyWords.length;
+
+                            // Only check if we have enough words in transcript
+                            if (session.transcript.length >= keyLen) {
+                                const transcriptTail = session.transcript.slice(-keyLen).join(' ');
+                                if (keyLower === transcriptTail) {
+                                    await handleSignal(kalshi, keyLower, value, buyAmount);
+                                    logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
+                                }
+                            }
                         }
 
-                        session.transcript.push(token);
+
                         if (session.transcript.length % lastWordsCount === 0) {
                             logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         }
