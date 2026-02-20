@@ -67,7 +67,10 @@ async function runCaptureTvHeadEnd(url, retries) {
                 const text = stdout.toLowerCase().trim();
 
                 if (text !== '') {
-                    logger.info(`[${sessionId}]: ${text}`);
+                    if (!text.toLowerCase().includes('nbcwashington') != isCommercialBreak) {
+                        isCommercialBreak = !isCommercialBreak;
+                        logger.info(`[${sessionId}] Commercial break: ${isCommercialBreak}`);
+                    }
                 }
             });
         }, 2000);
