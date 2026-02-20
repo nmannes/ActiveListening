@@ -143,7 +143,7 @@ async function handleSignal(kalshi, word, ticker) {
         }
     })();
 
-    const delay = 1000 + Math.floor(Math.random() * 5000);
+    const delay = 10000 + Math.floor(Math.random() * 5000);
     logger.info(`[TRADE][${word}] Waiting ${delay}ms before placing order...`);
     await new Promise(r => setTimeout(r, delay));
 

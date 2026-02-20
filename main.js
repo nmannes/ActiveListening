@@ -67,7 +67,9 @@ async function runCaptureTvHeadEnd(url, retries) {
                 const text = stdout.toLowerCase().trim();
 
                 if (text !== '') {
-                    if (!text.toLowerCase().includes('nbcwashington') != isCommercialBreak) {
+                    if (!text.toLowerCase().includes('nbcwashington') != isCommercialBreak ||
+                        text.toLowerCase().includes('live') != isCommercialBreak
+                    ) {
                         isCommercialBreak = !isCommercialBreak;
                         logger.info(`[${sessionId}] Commercial break: ${isCommercialBreak}`);
                     }
