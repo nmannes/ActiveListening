@@ -48,6 +48,7 @@ async function init() {
             kalshi,
             market,
             transcriber,
+            buyCount: args.buyCount || 30,
             lastWordsCount: args.lastWordsCount || 20,
         }
     } catch (err) {
@@ -128,7 +129,7 @@ function spawnTranscriber() {
     });
 }
 
-async function handleSignal(kalshi, word, ticker) {
+async function handleSignal(kalshi, word, ticker, buyCount) {
     // Log the orderbook value every second for 20 seconds
     logger.info(`[SIGNAL][${word}] Ticker: ${ticker}`);
 
@@ -137,7 +138,7 @@ async function handleSignal(kalshi, word, ticker) {
 
         const result = await kalshi.placeOrder({
             ticker,
-            count: 10,
+            count: buyCount,
         });
         logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
     } else {
@@ -157,7 +158,7 @@ function calculateRMS(buffer) {
 }
 
 (async () => {
-    const { kalshi, market, transcriber, lastWordsCount } = await init();
+    const { kalshi, market, transcriber, lastWordsCount, buyCount } = await init();
     const state = new Map();
 
     const sessionId = market ? market.slug : `test-run-${randomBytes(4).toString('hex')}`;
@@ -261,10 +262,10 @@ function calculateRMS(buffer) {
                         const lastTwo = previousToken ? [previousToken, token].join(' ') : null;
 
                         if (token in keywords) {
-                            await handleSignal(kalshi, token, keywords[token]);
+                            await handleSignal(kalshi, token, keywords[token], buyCount);
                             logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         } else if (lastTwo in keywords) {
-                            await handleSignal(kalshi, lastTwo, keywords[lastTwo]);
+                            await handleSignal(kalshi, lastTwo, keywords[lastTwo], buyCount);
                             logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         }
 
