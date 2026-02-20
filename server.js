@@ -130,17 +130,13 @@ function spawnTranscriber() {
 }
 
 async function handleSignal(kalshi, word, ticker, buyCount) {
-    // Log the orderbook value every second for 20 seconds
-    logger.info(`[SIGNAL][${word}] Ticker: ${ticker}`);
-
-
     if (process.env.TRADE_FOR_REAL || false) {
 
-        const result = await kalshi.placeOrder({ ticker, count: buyCount });
+        const result = await kalshi.placeFillOrKillOrder({ ticker, count: buyCount });
 
-        logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
+        logger.info(`[TRADE] Placed order: ${JSON.stringify(result, null, 2)}`);
     } else {
-        logger.info(`[TRADE][${word}] Not trading for real but word came up`)
+        logger.info(`[TRADE] Not trading for real but ${word} was said`)
     }
 
 };
