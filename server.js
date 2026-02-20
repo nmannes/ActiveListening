@@ -31,7 +31,7 @@ async function init() {
         const hardCodedGame = require('./game.json');
         const market = hardCodedGame || markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
         if (market) {
-            logger.info(`Market: ${market.title}`);
+            logger.info(`Market: ${JSON.stringify(market, null, 2)}`);
         } else {
             logger.info('No market available rn :( but proceeding');
         }
