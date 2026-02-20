@@ -27,7 +27,9 @@ async function init() {
 
         const markets = JSON.parse(rawData);
 
-        const market = markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
+
+        const hardCodedGame = require('./game.json');
+        const market = hardCodedGame || markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
         if (market) {
             logger.info(`Market: ${market.title}`);
         } else {
@@ -46,6 +48,7 @@ async function init() {
             kalshi,
             market,
             transcriber,
+            lastWordsCount: args.lastWordsCount || 20,
         }
     } catch (err) {
         logger.fatal({ err }, 'Initialization failed: ' + err.message);
@@ -140,16 +143,16 @@ async function handleSignal(kalshi, word, ticker) {
         }
     })();
 
-    const delay = 6000 + Math.floor(Math.random() * 1000);
+    const delay = 1000 + Math.floor(Math.random() * 5000);
     logger.info(`[TRADE][${word}] Waiting ${delay}ms before placing order...`);
     await new Promise(r => setTimeout(r, delay));
 
-    if (process.env.TRADE_FOR_REAL) {
+    if (process.env.TRADE_FOR_REAL || false) {
 
-        // const result = await kalshi.placeOrder({
-        //     ticker,
-        //     count: 10,
-        // });
+        const result = await kalshi.placeOrder({
+            ticker,
+            count: 10,
+        });
         logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
     } else {
         logger.info(`[TRADE][${word}] Not trading for real but word came up`)
@@ -168,7 +171,7 @@ function calculateRMS(buffer) {
 }
 
 (async () => {
-    const { kalshi, market, transcriber } = await init();
+    const { kalshi, market, transcriber, lastWordsCount } = await init();
     const state = new Map();
 
     const sessionId = market ? market.slug : `test-run-${randomBytes(4).toString('hex')}`;
@@ -185,7 +188,8 @@ function calculateRMS(buffer) {
     logger.info(`[${sessionId}] Spawning main.js...`);
     const child = spawn("node", [
         "./main.js",
-
+        '--sessionId', sessionId,
+        '--url', market.mediaStreamURL,
     ])
     // Cleanup on exit
     process.on('SIGINT', () => {
@@ -272,15 +276,15 @@ function calculateRMS(buffer) {
 
                         if (token in keywords) {
                             await handleSignal(kalshi, token, keywords[token]);
-                            logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
+                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         } else if (lastTwo in keywords) {
                             await handleSignal(kalshi, lastTwo, keywords[lastTwo]);
-                            logger.info(`[${sessionId}][SIGNAL] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
+                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         }
 
                         session.transcript.push(token);
-                        if (session.transcript.length % 20 === 0) {
-                            logger.info(`[${sessionId}] last 20 words: ${session.transcript.slice(-20).join(' ')}`)
+                        if (session.transcript.length % lastWordsCount === 0) {
+                            logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                         }
                     }
                 } catch (e) {

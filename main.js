@@ -34,8 +34,9 @@ async function runCaptureTvHeadEnd(url, retries) {
             '-y',
             '-i', url,
             // Output 1: Audio to stdout encoded as WebM/Opus so it seamlessly replaces MediaRecorder
-            '-map', '0:a',
+            '-map', '0:a:0', // Map first audio stream only
             '-c:a', 'libopus',
+            '-ac', '1',      // Downmix to mono
             '-f', 'webm',
             'pipe:1',
             // Output 2: Video frames to the debug_frames directory
@@ -43,7 +44,7 @@ async function runCaptureTvHeadEnd(url, retries) {
             '-r', '0.5', // 1 frame every 2 seconds
             '-f', 'image2',
             '-update', '1',
-            path.join(debugFramesDir, `${sessionId}_last_frame.jpg`)
+            path.join(debugFramesDir, `last_frame.jpg`)
         ];
 
 
@@ -51,12 +52,11 @@ async function runCaptureTvHeadEnd(url, retries) {
 
         // set an interval to check for commercial breaks
         const commercialCheckInterval = setInterval(async () => {
-            const frameFiles = fs.readdirSync(debugFramesDir).filter(f => f.endsWith('.jpg')).sort();
-            if (frameFiles.length === 0) {
+
+            if (!fs.existsSync(path.join(debugFramesDir, 'last_frame.jpg'))) {
                 return;
             }
-            const lastFrame = frameFiles[frameFiles.length - 1];
-            const lastFramePath = path.join(debugFramesDir, lastFrame);
+            const lastFramePath = path.join(debugFramesDir, 'last_frame.jpg');
 
             // get all text on the frame via tesseract ocr
             await exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
@@ -67,7 +67,7 @@ async function runCaptureTvHeadEnd(url, retries) {
                 const text = stdout.toLowerCase().trim();
 
                 if (text !== '') {
-                    logger.debug(`[${sessionId}]: ${text}`);
+                    logger.info(`[${sessionId}]: ${text}`);
                 }
             });
         }, 2000);
@@ -83,8 +83,8 @@ async function runCaptureTvHeadEnd(url, retries) {
         });
 
         ffmpegProc.stderr.on('data', (data) => {
-            // Optional: log ffmpeg output if needed for debugging
-            // logger.trace(`[FFMPEG] ${data.toString()}`);
+            // Log ffmpeg output to help debug code 234
+            logger.trace(`[FFMPEG] ${data.toString().trim()}`);
         });
 
         ffmpegProc.on('close', (code) => {
