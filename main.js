@@ -22,6 +22,69 @@ const targetUrl = args.url || 'https://www.youtube.com/watch?v=GyTufVoPa0c'
 //const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
 const { spawn, exec } = require('child_process');
 
+
+
+const nbcColors = [
+    '#FCB711',
+    '#F37021',
+    '#CC004C',
+    '#6460AA',
+    '#0089D0',
+    '#0DB14B'
+]
+
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+}
+
+async function verifyNbcColors(imagePath) {
+    const targetRgb = nbcColors.map(hexToRgb);
+    const foundColors = new Set();
+    const tolerance = 35; // Increased tolerance for "mostly similar" colors
+
+    return new Promise((resolve, reject) => {
+        // Use ffmpeg to stream raw RGB pixels from the cropped image
+        const ffmpeg = spawn('ffmpeg', ['-i', imagePath, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']);
+
+        ffmpeg.stdout.on('data', (chunk) => {
+            for (let i = 0; i < chunk.length; i += 3) {
+                const r = chunk[i];
+                const g = chunk[i + 1];
+                const b = chunk[i + 2];
+
+                for (let j = 0; j < targetRgb.length; j++) {
+                    if (foundColors.has(j)) continue; // Optimization: skip already found colors
+
+                    const target = targetRgb[j];
+                    // Simple Euclidean distance squared or manhattan distance for speed
+                    // Here we use channel-wise tolerance
+                    if (Math.abs(r - target.r) < tolerance &&
+                        Math.abs(g - target.g) < tolerance &&
+                        Math.abs(b - target.b) < tolerance) {
+                        foundColors.add(j);
+                    }
+                }
+            }
+        });
+
+        ffmpeg.on('close', () => {
+            const allFound = foundColors.size === targetRgb.length;
+            if (foundColors.size > 0) {
+                logger.trace(`[verifyNbcColors] Found ${foundColors.size}/${targetRgb.length} NBC colors.`);
+            }
+            resolve(allFound);
+        });
+
+        ffmpeg.on('error', (err) => reject(err));
+    });
+}
+
+
 async function runCaptureTvHeadEnd(url, retries) {
     logger.info(`[${sessionId}] Spawning ffmpeg to capture stream from ${url}`);
 
@@ -50,29 +113,52 @@ async function runCaptureTvHeadEnd(url, retries) {
 
         let isCommercialBreak = false;
 
-        // set an interval to check for commercial breaks
         const commercialCheckInterval = setInterval(async () => {
+            const lastFramePath = path.join(debugFramesDir, 'last_frame.jpg');
+            const cropPath = path.join(debugFramesDir, 'top_right_crop.jpg');
 
-            if (!fs.existsSync(path.join(debugFramesDir, 'last_frame.jpg'))) {
+            if (!fs.existsSync(lastFramePath)) {
                 return;
             }
-            const lastFramePath = path.join(debugFramesDir, 'last_frame.jpg');
 
-            // get all text on the frame via tesseract ocr
-            await exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
+
+
+            // 1. Run tesseract on the whole screen for context (as requested)
+            exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
+                if (!error) {
+                    const fullText = stdout.trim();
+                    if (fullText) logger.trace(`[${sessionId}] Full screen OCR: ${fullText.replace(/\n/g, ' ')}`);
+                }
+            });
+
+            // 2. Crop the top-right corner and run tesseract for logo detection
+            const cropCmd = `ffmpeg -i ${lastFramePath} -vf "crop=100:150:1750:20" -y ${cropPath}`;
+            exec(cropCmd, async (error, stdout) => {
                 if (error) {
-                    logger.error(`[${sessionId}] Tesseract error: ${error.message}`);
+                    logger.error(`[${sessionId}] Logo detection error: ${error.message}`);
                     return;
                 }
-                const text = stdout.toLowerCase().trim();
 
-                if (text !== '') {
-                    if (!text.toLowerCase().includes('nbcwashington') != isCommercialBreak ||
-                        text.toLowerCase().includes('live') != isCommercialBreak
-                    ) {
-                        isCommercialBreak = !isCommercialBreak;
-                        logger.info(`[${sessionId}] Commercial break: ${isCommercialBreak}`);
-                    }
+                const cropText = stdout.toLowerCase().trim();
+                if (cropText) logger.debug(`[${sessionId}] Logo crop OCR: ${cropText.replace(/\n/g, ' ')}`);
+
+                // Verify NBC colors are present in the crop
+                let allColorsPresent = false;
+                try {
+                    allColorsPresent = await verifyNbcColors(cropPath);
+                } catch (err) {
+                    logger.error(`[${sessionId}] Color verification error: ${err.message}`);
+                }
+
+                // Logic: NBC Logo presence indicates content, absence indicates commercial
+                // We check for both OCR text and NBC colors
+                const hasLogoOcr = cropText.includes('nbc') || cropText.includes('washington') || cropText.includes('live');
+                const hasLogo = hasLogoOcr || allColorsPresent;
+                const nextIsCommercialBreak = !hasLogo;
+
+                if (nextIsCommercialBreak !== isCommercialBreak) {
+                    isCommercialBreak = nextIsCommercialBreak;
+                    logger.info(`[${sessionId}] Commercial break state changed: ${isCommercialBreak} (Reason: ${hasLogo ? (allColorsPresent ? 'Colors found' : 'OCR found') : 'Logo missing'})`);
                 }
             });
         }, 2000);
