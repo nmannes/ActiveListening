@@ -131,21 +131,7 @@ function spawnTranscriber() {
 async function handleSignal(kalshi, word, ticker) {
     // Log the orderbook value every second for 20 seconds
     logger.info(`[SIGNAL][${word}] Ticker: ${ticker}`);
-    (async () => {
-        for (let i = 0; i < 20; i++) {
-            try {
-                const val = await kalshi.getOrderbookValue(ticker);
-                logger.info(`[SIGNAL][${word}][${i + 1}/20] Ticker: ${ticker}, Orderbook: ${JSON.stringify(val, null, 2)}`);
-            } catch (e) {
-                logger.error(`[SIGNAL][${word}] Error fetching orderbook: ${e.message}`);
-            }
-            if (i < 19) await new Promise(r => setTimeout(r, 1000));
-        }
-    })();
 
-    const delay = 10000 + Math.floor(Math.random() * 5000);
-    logger.info(`[TRADE][${word}] Waiting ${delay}ms before placing order...`);
-    await new Promise(r => setTimeout(r, delay));
 
     if (process.env.TRADE_FOR_REAL || false) {
 
