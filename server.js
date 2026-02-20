@@ -49,7 +49,7 @@ async function init() {
             market,
             transcriber,
             buyCount: args.buyCount || 1000,
-            lastWordsCount: args.lastWordsCount || 20,
+            lastWordsCount: args.lastWordsCount || 7,
         }
     } catch (err) {
         logger.fatal({ err }, 'Initialization failed: ' + err.message);
