@@ -6,6 +6,7 @@ const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
 
 const { args, KALSHI_ENV } = require('./lib/args');
+const { randomBytes } = require('crypto');
 
 
 async function init() {
@@ -27,7 +28,11 @@ async function init() {
         const markets = JSON.parse(rawData);
 
         const market = markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
-        if (!market) throw new Error(`no market available rn :(`);
+        if (market) {
+            logger.info(`Market: ${market.title}`);
+        } else {
+            logger.info('No market available rn :( but proceeding');
+        }
 
         const kalshi = new KalshiClient(
             process.env.KALSHI_KEY_ID,
@@ -35,7 +40,6 @@ async function init() {
             KALSHI_ENV
         );
 
-        logger.info(`Market: ${market.title}`);
         logger.info(`Trading enabled: ${process.env.TRADE_FOR_REAL || false}`);
 
         return {
@@ -167,7 +171,7 @@ function calculateRMS(buffer) {
     const { kalshi, market, transcriber } = await init();
     const state = new Map();
 
-    const sessionId = market.slug;
+    const sessionId = market ? market.slug : `test-run-${randomBytes(4).toString('hex')}`;
     state.set(sessionId, { transcript: [], audioChunks: [] });
 
     logger.info(`[${sessionId}] Starting capture process...`);

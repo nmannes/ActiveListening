@@ -18,7 +18,8 @@ puppeteer.use(StealthPlugin());
 const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
-const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
+const targetUrl = args.url || 'https://www.youtube.com/watch?v=GyTufVoPa0c'
+//const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
 const { spawn, exec } = require('child_process');
 
 async function runCaptureTvHeadEnd(url, retries) {
