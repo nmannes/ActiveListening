@@ -136,10 +136,8 @@ async function handleSignal(kalshi, word, ticker, buyCount) {
 
     if (process.env.TRADE_FOR_REAL || false) {
 
-        const result = await kalshi.placeOrder({
-            ticker,
-            count: buyCount,
-        });
+        const result = await kalshi.placeOrder({ ticker, count: buyCount });
+
         logger.info(`[TRADE][${word}] Placed order: ${JSON.stringify(result, null, 2)}`);
     } else {
         logger.info(`[TRADE][${word}] Not trading for real but word came up`)
