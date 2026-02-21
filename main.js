@@ -19,7 +19,7 @@ const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
 const targetUrl = args.url || 'https://www.youtube.com/watch?v=GyTufVoPa0c'
-//const targetUrl = args.url || 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
+// const targetUrl = 'http://localhost:9981/play/stream/channel/10b4df1ca30fcb4b3099fb32a883c45e'
 const { spawn, exec } = require('child_process');
 
 
@@ -216,7 +216,7 @@ async function runCapture(retries = 3) {
 
         browser = await puppeteer.launch({
             defaultViewport: null,
-            headless: false,
+            headless: true,
             args: [
                 "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",
