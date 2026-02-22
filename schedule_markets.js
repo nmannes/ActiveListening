@@ -25,8 +25,9 @@ matches.forEach(m => {
     const dateStr = `${pad(scheduleTime.getMonth() + 1)}${pad(scheduleTime.getDate())}${scheduleTime.getFullYear().toString().slice(-2)}`;
 
     // 3. Build the command
-    // We pass the kalshiLink so server.js knows which market to pick
-    const cmd = `cd ${process.cwd()} && bun run server.js --kalshiLink "${m.link}" --logFile "logs/${m.slug}.log"`;
+    // We pass the match data as base64 to avoid shell escaping issues
+    const matchBase64 = Buffer.from(JSON.stringify(m)).toString('base64');
+    const cmd = `cd ${process.cwd()} && bun run server.js --matchJSON ${matchBase64} --logFile "logs/${m.slug}.log"`;
 
     // 4. Execute 'at'
     try {
