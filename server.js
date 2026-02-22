@@ -37,6 +37,11 @@ async function init() {
             }
             market.mediaStreamURL = market.mediaStreamURL || market.channelURL;
             logger.info(`Market: ${market.title} | Stream: ${market.mediaStreamURL}`);
+        } else if (args.getFirst) {
+            const data = fs.readFileSync(path.join(__dirname, 'final_markets_with_streams.json'), 'utf-8');
+            market = JSON.parse(data).find(m => m['channelURL'] !== null);
+            market.mediaStreamURL = market.channelURL;
+            logger.info('Getting first market...');
         } else {
             throw new Error('No market provided via --matchJSON. This is required.');
         }
@@ -67,7 +72,7 @@ async function init() {
 
 function spawnTranscriber() {
     return new Promise((resolve, reject) => {
-        const proc = spawn('python', [
+        const proc = spawn('python3', [
             path.join(__dirname,
                 'transcribe_worker.py'),
             '--model',
