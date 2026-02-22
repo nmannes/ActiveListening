@@ -2,6 +2,7 @@ const fs = require('fs');
 const { frontPageMarkets } = require('./lib/discover_markets.js');
 const { findProgramsByZipAndKeyword } = require('./lib/tv_discovery.js');
 const { getTeamNames } = require('./lib/discover_markets.js');
+const { getChannelURLByBand } = require('./lib/xml.js');
 const logger = require('./lib/logger');
 
 (async () => {
@@ -75,15 +76,25 @@ const logger = require('./lib/logger');
             });
 
             if (match) {
-                logger.info(`[MATCH] Found TV stream for "${market.title}" -> ${match.station} (${match.channelURL})`);
+                // Refresh channelURL in case it was null in cache
+                if (!match.channelURL && match.band) {
+                    match.channelURL = await getChannelURLByBand(match.band);
+                }
+
+                logger.info(`[MATCH] Found TV program for "${market.title}" -> ${match.station} (Stream URL: ${match.channelURL || 'NOT FOUND'})`);
                 market['channelURL'] = match['channelURL'];
+                market['station'] = match['station'];
+                market['matchedProgram'] = match;
             }
         }
 
-        const marketsWithStreams = markets.filter(m => m.channelURL);
-        logger.info(`Discovery complete. Found streams for ${marketsWithStreams.length} out of ${markets.length} markets.`);
+        const marketsWithMatches = markets.filter(m => m.matchedProgram);
+        logger.info(`Discovery complete. Found matches for ${marketsWithMatches.length} out of ${markets.length} markets.`);
 
-        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(marketsWithStreams, null, 2));
+        const marketsWithStreams = marketsWithMatches.filter(m => m.channelURL);
+        logger.info(`Of those, ${marketsWithStreams.length} have valid stream URLs.`);
+
+        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(marketsWithMatches, null, 2));
 
         if (marketsWithStreams.length > 0) {
             logger.info('Sample matches:');
