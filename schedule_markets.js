@@ -21,7 +21,7 @@ matches.forEach(m => {
         console.log(`[SKIPPED] "${m.title}" - Market has already started`);
         return;
     }
-    const scheduleTime = new Date(startTime.getTime() - (60 * 1000));
+    const scheduleTime = new Date(startTime.getTime());
 
     // 2. Format for 'at' command (HH:MM MMDDYY)
     const pad = (n) => n.toString().padStart(2, '0');
