@@ -128,6 +128,17 @@ async function runCaptureTvHeadEnd(url, retries) {
                 if (!error) {
                     const fullText = stdout.trim();
                     if (fullText) logger.trace(`[${sessionId}] Full screen OCR: ${fullText.replace(/\n/g, ' ')}`);
+
+                    // look for 1st, 2nd, 3rd, or 4th quarter to detect if we're in a game or not
+                    const quarterRegex = /([1-4](st|nd|rd|th)?\s*quarter)/i;
+                    const hasQuarter = quarterRegex.test(fullText);
+                    if (!hasQuarter) {
+                        logger.info(`[${sessionId}] No quarter text detected in OCR, likely not live game content. Marking as commercial break.`);
+                        isCommercialBreak = true;
+                    } else {
+                        logger.info(`[${sessionId}] Quarter text detected in OCR, likely live game content. Marking as non-commercial.`);
+                        isCommercialBreak = false;
+                    }
                 }
             });
 
@@ -150,10 +161,6 @@ async function runCaptureTvHeadEnd(url, retries) {
                     logger.error(`[${sessionId}] Color verification error: ${err.message}`);
                 }
 
-                // Logic: NBC Logo presence indicates content, absence indicates commercial
-                // We check for both OCR text and NBC colors
-                const hasLogoOcr = cropText.includes('nbc') || cropText.includes('washington') || cropText.includes('live');
-                const hasLogo = hasLogoOcr || allColorsPresent;
                 const nextIsCommercialBreak = !hasLogo;
 
                 if (nextIsCommercialBreak !== isCommercialBreak) {
