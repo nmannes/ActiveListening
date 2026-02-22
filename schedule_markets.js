@@ -17,6 +17,10 @@ console.log(`Scheduling ${matches.length} markets...`);
 matches.forEach(m => {
     // 1. Calculate start time (60 seconds before the official start)
     const startTime = new Date(m.eventStartTimeTS);
+    if (startTime < new Date()) {
+        console.log(`[SKIPPED] "${m.title}" - Market has already started`);
+        return;
+    }
     const scheduleTime = new Date(startTime.getTime() - (60 * 1000));
 
     // 2. Format for 'at' command (HH:MM MMDDYY)
