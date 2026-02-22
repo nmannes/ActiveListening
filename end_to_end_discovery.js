@@ -83,7 +83,7 @@ const logger = require('./lib/logger');
         const marketsWithStreams = markets.filter(m => m.channelURL);
         logger.info(`Discovery complete. Found streams for ${marketsWithStreams.length} out of ${markets.length} markets.`);
 
-        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(markets, null, 2));
+        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(marketsWithStreams, null, 2));
 
         if (marketsWithStreams.length > 0) {
             logger.info('Sample matches:');
