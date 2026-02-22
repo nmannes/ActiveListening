@@ -1,7 +1,7 @@
 const fs = require('fs');
 const { frontPageMarkets } = require('./lib/discover_markets.js');
 const { findProgramsByZipAndKeyword } = require('./lib/tv_discovery.js');
-const { matchMarkets } = require('./match_markets.js');
+const { getTeamNames } = require('./lib/discover_markets.js');
 const logger = require('./lib/logger');
 
 (async () => {
@@ -36,11 +36,37 @@ const logger = require('./lib/logger');
         logger.info(`Fetched schedule for ${scheduleData.length} stations.`);
         fs.writeFileSync('latest_schedule.json', JSON.stringify(scheduleData, null, 2));
 
+        // 3. Match
+        logger.info('--- 3. Matching Markets to TV Schedule ---');
+        for (const market of markets) {
+            const teams = getTeamNames(market.title);
+            if (teams.length !== 2) continue;
 
-        for (market of markets) {
-            
+            const [team1, team2] = teams;
+
+            // Simple match: check if both team names appear in the program title or description
+            const match = scheduleData.find(p => {
+                const searchArea = `${p.title} ${p.description || ''}`.toLowerCase();
+                return searchArea.includes(team1) && searchArea.includes(team2);
+            });
+
+            if (match) {
+                logger.info(`[MATCH] Found TV stream for "${market.title}" -> ${match.station} (${match.channelURL})`);
+                market.mediaStreamURL = match.channelURL;
+            }
         }
 
+        const marketsWithStreams = markets.filter(m => m.mediaStreamURL);
+        logger.info(`Discovery complete. Found streams for ${marketsWithStreams.length} out of ${markets.length} markets.`);
+
+        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(markets, null, 2));
+
+        if (marketsWithStreams.length > 0) {
+            logger.info('Sample matches:');
+            marketsWithStreams.slice(0, 5).forEach(m => {
+                logger.info(` - ${m.title} -> ${m.mediaStreamURL}`);
+            });
+        }
 
     } catch (e) {
         logger.error('Failed to run end-to-end discovery script:', e);
