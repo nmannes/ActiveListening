@@ -48,7 +48,7 @@ async function init() {
             kalshi,
             market,
             transcriber,
-            buyCount: args.buyCount || 1000,
+            buyCount: args.buyCount || 5,
             lastWordsCount: args.lastWordsCount || 7,
         }
     } catch (err) {
