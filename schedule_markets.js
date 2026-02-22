@@ -15,9 +15,9 @@ const matches = JSON.parse(fs.readFileSync(MATCHES_FILE, 'utf8'));
 console.log(`Scheduling ${matches.length} markets...`);
 
 matches.forEach(m => {
-    // 1. Calculate start time (2 minutes before the official start)
+    // 1. Calculate start time (60 seconds before the official start)
     const startTime = new Date(m.eventStartTimeTS);
-    const scheduleTime = new Date(startTime.getTime() - (2 * 60 * 1000));
+    const scheduleTime = new Date(startTime.getTime() - (60 * 1000));
 
     // 2. Format for 'at' command (HH:MM MMDDYY)
     const pad = (n) => n.toString().padStart(2, '0');

@@ -29,6 +29,7 @@ async function init() {
             mediaStreamURL: m.mediaStreamURL || m.channelURL
         }));
 
+
         const market = hardCodedGame || markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL);
         if (market) {
             logger.info(`Market: ${market.title} | Stream: ${market.mediaStreamURL}`);
