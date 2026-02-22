@@ -22,18 +22,18 @@ async function init() {
         if (!process.env.KALSHI_KEY_ID) throw new Error("KALSHI_KEY_ID is missing from environment variables");
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
-        logger.info(`Loading markets for ${KALSHI_ENV}...`);
         const rawData = fs.readFileSync(`${__dirname}/${KALSHI_ENV}_markets_with_event_times.json`);
+        const hardCodedGame = fs.existsSync('./game.json') ? require('./game.json') : null;
+        const markets = JSON.parse(rawData).map(m => ({
+            ...m,
+            mediaStreamURL: m.mediaStreamURL || m.channelURL
+        }));
 
-        const markets = JSON.parse(rawData);
-
-
-        const hardCodedGame = require('./game.json');
-        const market = hardCodedGame || markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL !== null);
+        const market = hardCodedGame || markets.find(m => m.link === args.kalshiLink) || markets.find(m => m.mediaStreamURL);
         if (market) {
-            logger.info(`Market: ${JSON.stringify(market, null, 2)}`);
+            logger.info(`Market: ${market.title} | Stream: ${market.mediaStreamURL}`);
         } else {
-            logger.info('No market available rn :( but proceeding');
+            logger.info('No market with stream found. Available: ' + markets.filter(m => m.mediaStreamURL).length);
         }
 
         const kalshi = new KalshiClient(
