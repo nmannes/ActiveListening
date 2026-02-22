@@ -22,6 +22,10 @@ export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 nvm install --lts
 
+
+wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo dapt install ./google-chrome-stable_current_amd64.deb -y
+
 # 5. Setup SSH & Tailscale
 mkdir -p ~/.ssh
 cat > ~/.ssh/authorized_keys << EOF
