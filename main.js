@@ -142,32 +142,32 @@ async function runCaptureTvHeadEnd(url, retries) {
                 }
             });
 
-            // 2. Crop the top-right corner and run tesseract for logo detection
-            const cropCmd = `ffmpeg -i ${lastFramePath} -vf "crop=100:150:1750:20" -y ${cropPath}`;
-            exec(cropCmd, async (error, stdout) => {
-                if (error) {
-                    logger.error(`[${sessionId}] Logo detection error: ${error.message}`);
-                    return;
-                }
+            // // 2. Crop the top-right corner and run tesseract for logo detection
+            // const cropCmd = `ffmpeg -i ${lastFramePath} -vf "crop=100:150:1750:20" -y ${cropPath}`;
+            // exec(cropCmd, async (error, stdout) => {
+            //     if (error) {
+            //         logger.error(`[${sessionId}] Logo detection error: ${error.message}`);
+            //         return;
+            //     }
 
-                const cropText = stdout.toLowerCase().trim();
-                if (cropText) logger.debug(`[${sessionId}] Logo crop OCR: ${cropText.replace(/\n/g, ' ')}`);
+            //     const cropText = stdout.toLowerCase().trim();
+            //     if (cropText) logger.debug(`[${sessionId}] Logo crop OCR: ${cropText.replace(/\n/g, ' ')}`);
 
-                // Verify NBC colors are present in the crop
-                let allColorsPresent = false;
-                try {
-                    allColorsPresent = await verifyNbcColors(cropPath);
-                } catch (err) {
-                    logger.error(`[${sessionId}] Color verification error: ${err.message}`);
-                }
+            //     // Verify NBC colors are present in the crop
+            //     let allColorsPresent = false;
+            //     try {
+            //         allColorsPresent = await verifyNbcColors(cropPath);
+            //     } catch (err) {
+            //         logger.error(`[${sessionId}] Color verification error: ${err.message}`);
+            //     }
 
-                const nextIsCommercialBreak = !hasLogo;
+            //     const nextIsCommercialBreak = !hasLogo;
 
-                if (nextIsCommercialBreak !== isCommercialBreak) {
-                    isCommercialBreak = nextIsCommercialBreak;
-                    logger.info(`[${sessionId}] Commercial break state changed: ${isCommercialBreak} (Reason: ${hasLogo ? (allColorsPresent ? 'Colors found' : 'OCR found') : 'Logo missing'})`);
-                }
-            });
+            //     if (nextIsCommercialBreak !== isCommercialBreak) {
+            //         isCommercialBreak = nextIsCommercialBreak;
+            //         logger.info(`[${sessionId}] Commercial break state changed: ${isCommercialBreak} (Reason: ${hasLogo ? (allColorsPresent ? 'Colors found' : 'OCR found') : 'Logo missing'})`);
+            //     }
+            // });
         }, 2000);
 
         const ffmpegProc = spawn('ffmpeg', args);
