@@ -279,7 +279,9 @@ function calculateRMS(buffer) {
                             if (session.transcript.length >= keyLen) {
                                 const transcriptTail = session.transcript.slice(-keyLen).join(' ');
                                 if (keyLower === transcriptTail) {
+                                    logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${key}"`);
                                     await handleSignal(kalshi, keyLower, value, buyCount);
+                                    delete keywords[keyLower];
                                     logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
                                 }
                             }
