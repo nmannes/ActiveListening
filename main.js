@@ -3,7 +3,8 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
+
+const { args } = require('./lib/args')
 
 const debugFramesDir = path.join(__dirname, 'debug_frames');
 
@@ -11,11 +12,26 @@ if (!fs.existsSync(debugFramesDir)) {
     fs.mkdirSync(debugFramesDir, { recursive: true });
 }
 
-const cookies = require('./espn_cookies.json');
+let cookies = [];
+const cookiesDir = path.join(__dirname, 'cookies');
+if (fs.existsSync(cookiesDir)) {
+    const cookieFiles = fs.readdirSync(cookiesDir).filter(f => f.endsWith('.json'));
+    cookieFiles.forEach(file => {
+        try {
+            const content = JSON.parse(fs.readFileSync(path.join(cookiesDir, file), 'utf8'));
+            if (Array.isArray(content)) {
+                cookies = cookies.concat(content);
+            } else {
+                cookies.push(content);
+            }
+            logger.debug(`Loaded cookies from ${file}`);
+        } catch (e) {
+            logger.error(`Failed to load cookies from ${file}: ${e.message}`);
+        }
+    });
+}
 
 puppeteer.use(StealthPlugin());
-
-const { args } = require('./lib/args')
 
 const sessionId = args.id || (new Date()).getUTCSeconds()
 const targetUrl = args.url || 'https://www.youtube.com/watch?v=GyTufVoPa0c'
@@ -223,7 +239,7 @@ async function runCapture(retries = 3) {
 
         browser = await puppeteer.launch({
             defaultViewport: null,
-            headless: true,
+            headless: false,
             args: [
                 "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",
@@ -237,6 +253,8 @@ async function runCapture(retries = 3) {
         });
 
         page = await browser.newPage();
+
+        await page.setCookie(...cookies);
 
         // Forward console logs to pino via stderr
         page.on('console', msg => logger.trace(`[Browser] ${msg.text()}`));
@@ -276,7 +294,7 @@ async function runCapture(retries = 3) {
         } else if (targetUrl.includes("youtube.com")) {
             await runCaptureYouTube(page, retries);
         } else {
-            throw new Error("Invalid URL");
+            await runCaptureAudio(page, retries);
         }
 
         // Keep alive
@@ -296,7 +314,6 @@ async function runCapture(retries = 3) {
 }
 
 async function runCaptureESPN(page, retries) {
-    await page.setCookie(...cookies);
 
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
@@ -497,6 +514,80 @@ async function runCaptureYouTube(page, retries) {
 
         recorder.ondataavailable = async (event) => {
             if (window._isCommercial) return; // skip audio during commercials
+            if (event.data.size > 0) {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64 = reader.result.split(',')[1];
+                    if (base64) {
+                        window.sendAudioChunk(base64);
+                    }
+                };
+                reader.readAsDataURL(event.data);
+            }
+        };
+
+        recorder.onerror = (e) => {
+            console.error("MediaRecorder error:", e.error?.message || e);
+        };
+
+        recorder.start(100);
+        window._recorder = recorder;
+        console.log("MediaRecorder initialized and started");
+
+    });
+
+
+}
+
+async function runCaptureAudio(page, retries) {
+    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    try {
+        logger.debug(`[${sessionId}] Waiting for video element...`);
+        await page.waitForSelector('video', { timeout: 20000 });
+        logger.debug(`[${sessionId}] Video element found.`);
+    } catch (e) {
+        throw new Error("Video element not found within 20s");
+    }
+    // Small delay for video to start
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Try to play all video elements
+    await page.evaluate(() => {
+        const videos = document.querySelectorAll('video');
+        for (const v of videos) {
+            console.log(`Video state: readyState=${v.readyState}, paused=${v.paused}, src=${v.currentSrc || v.src || '(none)'}`);
+            if (v.paused) {
+                v.muted = false;
+                v.play().catch(e => console.log('play() rejected:', e.message));
+            }
+        }
+    });
+
+
+    await page.evaluate(() => {
+        const video = document.querySelector('video');
+        if (!video) {
+            console.error("No video element found");
+            return;
+        }
+
+        const stream = video.captureStream();
+        const audioTracks = stream.getAudioTracks();
+        if (audioTracks.length === 0) {
+            console.error("No audio tracks found on video element");
+            return;
+        }
+
+        console.log(`Found ${audioTracks.length} audio track(s)`);
+        const audioStream = new MediaStream(audioTracks);
+
+        const recorder = new MediaRecorder(audioStream, {
+            mimeType: 'audio/webm;codecs=opus',
+            audioBitsPerSecond: 128000
+        });
+
+        recorder.ondataavailable = async (event) => {
             if (event.data.size > 0) {
                 const reader = new FileReader();
                 reader.onload = () => {

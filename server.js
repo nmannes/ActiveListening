@@ -23,7 +23,10 @@ async function init() {
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
         let market = null;
-        if (args.matchJSON) {
+        if (args.earningsCall) {
+            market = JSON.parse(fs.readFileSync('earnings_call.json'));
+            logger.info(`Market: ${market.title} | Stream: ${market.mediaStreamURL}`);
+        } else if (args.matchJSON) {
             try {
                 // Check if it looks like JSON, otherwise assume base64
                 if (args.matchJSON.trim().startsWith('{')) {
@@ -180,11 +183,14 @@ function calculateRMS(buffer) {
     // Spawn main.js
 
     logger.info(`[${sessionId}] Spawning main.js...`);
-    const child = spawn("node", [
+
+    let args = [
         "./main.js",
         '--sessionId', sessionId,
         '--url', market.mediaStreamURL,
-    ])
+    ]
+
+    const child = spawn("node", args)
     // Cleanup on exit
     process.on('SIGINT', () => {
         child.kill();
