@@ -239,7 +239,7 @@ async function runCapture(retries = 3) {
 
         browser = await puppeteer.launch({
             defaultViewport: null,
-            headless: false,
+            headless: true,
             args: [
                 "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",

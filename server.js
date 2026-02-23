@@ -23,10 +23,7 @@ async function init() {
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
         let market = null;
-        if (args.earningsCall) {
-            market = JSON.parse(fs.readFileSync('earnings_call.json'));
-            logger.info(`Market: ${market.title} | Stream: ${market.mediaStreamURL}`);
-        } else if (args.matchJSON) {
+        if (args.matchJSON) {
             try {
                 // Check if it looks like JSON, otherwise assume base64
                 if (args.matchJSON.trim().startsWith('{')) {

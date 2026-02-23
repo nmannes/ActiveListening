@@ -2,15 +2,19 @@ const fs = require('fs');
 const { execSync } = require('child_process');
 const path = require('path');
 const logger = require('./lib/logger');
+const { args } = require('./lib/args');
 
-const MATCHES_FILE = 'final_markets_with_streams.json';
+const MATCHES_FILE = args.fromFile || 'final_markets_with_streams.json';
 
 if (!fs.existsSync(MATCHES_FILE)) {
     console.error(`No matches found at ${MATCHES_FILE}`);
     process.exit(1);
 }
 
-const matches = JSON.parse(fs.readFileSync(MATCHES_FILE, 'utf8'));
+let matches = JSON.parse(fs.readFileSync(MATCHES_FILE, 'utf8'));
+if (!Array.isArray(matches)) {
+    matches = [matches];
+}
 
 console.log(`Scheduling ${matches.length} markets...`);
 
