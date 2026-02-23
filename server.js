@@ -251,7 +251,7 @@ function calculateRMS(buffer) {
 
     let pcmBuffer = [];
     const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds of 16-bit audio (2 bytes/sample)
-    const VAD_THRESHOLD = 0.01; // Adjust based on noise levels
+    const VAD_THRESHOLD = 0.03; // Adjust based on noise levels
 
     ffmpeg.stdout.on('data', async (chunk) => {
         pcmBuffer.push(chunk);
