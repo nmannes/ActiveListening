@@ -239,7 +239,6 @@ async function runCapture(retries = 3) {
 
         browser = await puppeteer.launch({
             defaultViewport: null,
-            headless: true,
             args: [
                 "--start-maximized",
                 "--autoplay-policy=no-user-gesture-required",
@@ -541,6 +540,27 @@ async function runCaptureYouTube(page, retries) {
 
 async function runCaptureAudio(page, retries) {
     await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    // Auto-fill Q4 earnings registration form if present
+    try {
+        const emailInput = await page.$('[data-id="AlreadyRegisteredFormEmail"] input, [data-id="GuestRegistrationFormEmail"] input');
+        if (emailInput) {
+            logger.info(`[${sessionId}] Q4 registration form detected, auto-filling email...`);
+            await emailInput.click({ clickCount: 3 }); // select any existing text
+            await emailInput.type('nmannes@gmail.com', { delay: 50 });
+            await new Promise(r => setTimeout(r, 500));
+            const joinButton = await page.$('[data-id="AlreadyRegisteredFormJoinButton"], [data-id="GuestRegistrationFormRegisterButton"]');
+            if (joinButton) {
+                await joinButton.click();
+                logger.info(`[${sessionId}] Clicked join/register button, waiting for page transition...`);
+                await new Promise(r => setTimeout(r, 5000));
+                // Wait for navigation or content change
+                await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => { });
+            }
+        }
+    } catch (e) {
+        logger.debug(`[${sessionId}] No Q4 registration form found or auto-fill failed: ${e.message}`);
+    }
 
     try {
         logger.debug(`[${sessionId}] Waiting for video element...`);

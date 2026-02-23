@@ -34,9 +34,9 @@ matches.forEach(m => {
     // 3. Build the command
     // We pass the match data as base64 to avoid shell escaping issues
     const matchBase64 = Buffer.from(JSON.stringify(m)).toString('base64');
-    
+
     const cmd = [
-        "cd", process.cwd(),"&&",
+        "cd", process.cwd(), "&&",
         "bun run server.js",
         args.fromFile ? "--fromFile" : "--matchJSON",
         args.fromFile ? args.fromFile : matchBase64,
