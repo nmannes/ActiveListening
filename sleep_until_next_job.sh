@@ -53,6 +53,6 @@ echo "Sleeping for:   ~$(( SECONDS_UNTIL / 3600 ))h $(( (SECONDS_UNTIL % 3600) /
 echo ""
 echo "Suspending to RAM now..."
 
-rtcwake -m disk -t "$WAKE_EPOCH"
+rtcwake -m mem -t "$WAKE_EPOCH"
 
 echo "☀  Awake! Next job (#$JOB_ID) fires at $JOB_HUMAN."
