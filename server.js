@@ -23,7 +23,9 @@ async function init() {
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
         let market = null;
-        if (args.matchJSON) {
+        if (args.jsonFile) {
+            market = JSON.parse(fs.readFileSync(args.jsonFile, 'utf8'));
+        } else if (args.matchJSON) {
             try {
                 // Check if it looks like JSON, otherwise assume base64
                 if (args.matchJSON.trim().startsWith('{')) {
@@ -46,6 +48,20 @@ async function init() {
             throw new Error('No market provided via --matchJSON. This is required.');
         }
 
+
+
+        // const indexedKeywordsByLastWord = {};
+        // for (const [key, value] of Object.entries(market.keywords)) {
+        //     const words = key.toLowerCase().split(' ');
+        //     const lastWord = words[words.length - 1];
+        //     if (!indexedKeywordsByLastWord[lastWord]) {
+        //         indexedKeywordsByLastWord[lastWord] = [];
+        //     }
+        //     indexedKeywordsByLastWord[lastWord].push({ key, words, value });
+        // }
+
+
+        // fs.writeFileSync('indexedKeywordsByLastWord.json', JSON.stringify(indexedKeywordsByLastWord, null, 2));
 
 
 
