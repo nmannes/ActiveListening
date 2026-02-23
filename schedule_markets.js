@@ -39,7 +39,8 @@ matches.forEach(m => {
     const cmd = [
         "cd", process.cwd(),"&&",
         "bun run server.js",
-        "--matchJSON", matchBase64,
+        args.fromFile ? "--fromFile" : "--matchJSON",
+        args.fromFile ? args.fromFile : matchBase64,
         "--logFile", `"./logs/${m.slug}.log"`,
         "--duration", "1200"
     ].join(' ');

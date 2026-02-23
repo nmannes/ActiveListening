@@ -23,8 +23,8 @@ async function init() {
         if (!process.env.KALSHI_PRIVATE_KEY_PATH) throw new Error("KALSHI_PRIVATE_KEY_PATH is missing from environment variables");
 
         let market = null;
-        if (args.jsonFile) {
-            market = JSON.parse(fs.readFileSync(args.jsonFile, 'utf8'));
+        if (args.fromFile) {
+            market = JSON.parse(fs.readFileSync(args.fromFile, 'utf8'));
         } else if (args.matchJSON) {
             try {
                 // Check if it looks like JSON, otherwise assume base64
