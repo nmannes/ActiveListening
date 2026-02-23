@@ -269,6 +269,9 @@ function calculateRMS(buffer) {
                         if (!token) continue;
 
                         session.transcript.push(token)
+                        if (session.transcript.length > 500) {
+                            session.transcript.shift();
+                        }
 
                         for (const [key, value] of Object.entries(keywords)) {
                             const keyLower = key.toLowerCase();
