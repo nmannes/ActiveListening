@@ -163,7 +163,7 @@ async function handleSignal(kalshi, word, ticker, buyCount) {
 
         const result = await kalshi.placeFillOrKillOrder({ ticker, count: buyCount });
 
-        logger.info(`[TRADE] result: ${result}`);
+        logger.info(result, `[TRADE] result`);
     } else {
         logger.info(`[TRADE] Not trading for real but ${word} was said`)
     }
