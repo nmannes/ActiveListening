@@ -35,7 +35,14 @@ matches.forEach(m => {
     // 3. Build the command
     // We pass the match data as base64 to avoid shell escaping issues
     const matchBase64 = Buffer.from(JSON.stringify(m)).toString('base64');
-    const cmd = `cd ${process.cwd()} && bun run server.js --matchJSON ${matchBase64} --logFile "./logs/${m.slug}.log" --duration 1200`;
+    
+    const cmd = " ".join([
+        "cd", process.cwd(),"&&",
+        "bun run server.js",
+        "--matchJSON", matchBase64,
+        "--logFile", `"./logs/${m.slug}.log"`,
+        "--duration", "1200"
+    ])
 
     // 4. Execute 'at'
     try {
