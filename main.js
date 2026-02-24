@@ -129,62 +129,62 @@ async function runCaptureTvHeadEnd(url, retries) {
 
         let isCommercialBreak = false;
 
-        const commercialCheckInterval = setInterval(async () => {
-            const lastFramePath = path.join(debugFramesDir, 'last_frame.jpg');
-            const cropPath = path.join(debugFramesDir, 'top_right_crop.jpg');
+        // const commercialCheckInterval = setInterval(async () => {
+        //     const lastFramePath = path.join(debugFramesDir, 'last_frame.jpg');
+        //     const cropPath = path.join(debugFramesDir, 'top_right_crop.jpg');
 
-            if (!fs.existsSync(lastFramePath)) {
-                return;
-            }
+        //     if (!fs.existsSync(lastFramePath)) {
+        //         return;
+        //     }
 
 
 
-            // 1. Run tesseract on the whole screen for context (as requested)
-            exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
-                if (!error) {
-                    const fullText = stdout.trim();
-                    if (fullText) logger.trace(`[${sessionId}] Full screen OCR: ${fullText.replace(/\n/g, ' ')}`);
+        //     // 1. Run tesseract on the whole screen for context (as requested)
+        //     exec(`tesseract ${lastFramePath} stdout`, (error, stdout) => {
+        //         if (!error) {
+        //             const fullText = stdout.trim();
+        //             if (fullText) logger.trace(`[${sessionId}] Full screen OCR: ${fullText.replace(/\n/g, ' ')}`);
 
-                    // look for 1st, 2nd, 3rd, or 4th quarter to detect if we're in a game or not
-                    const quarterRegex = /([1-4](st|nd|rd|th)?\s*quarter)/i;
-                    const hasQuarter = quarterRegex.test(fullText);
-                    if (!hasQuarter) {
-                        logger.info(`[${sessionId}] No quarter text detected in OCR, likely not live game content. Marking as commercial break.`);
-                        isCommercialBreak = true;
-                    } else {
-                        logger.info(`[${sessionId}] Quarter text detected in OCR, likely live game content. Marking as non-commercial.`);
-                        isCommercialBreak = false;
-                    }
-                }
-            });
+        //             // look for 1st, 2nd, 3rd, or 4th quarter to detect if we're in a game or not
+        //             const quarterRegex = /([1-4](st|nd|rd|th)?\s*quarter)/i;
+        //             const hasQuarter = quarterRegex.test(fullText);
+        //             if (!hasQuarter) {
+        //                 logger.info(`[${sessionId}] No quarter text detected in OCR, likely not live game content. Marking as commercial break.`);
+        //                 isCommercialBreak = true;
+        //             } else {
+        //                 logger.info(`[${sessionId}] Quarter text detected in OCR, likely live game content. Marking as non-commercial.`);
+        //                 isCommercialBreak = false;
+        //             }
+        //         }
+        //     });
 
-            // // 2. Crop the top-right corner and run tesseract for logo detection
-            // const cropCmd = `ffmpeg -i ${lastFramePath} -vf "crop=100:150:1750:20" -y ${cropPath}`;
-            // exec(cropCmd, async (error, stdout) => {
-            //     if (error) {
-            //         logger.error(`[${sessionId}] Logo detection error: ${error.message}`);
-            //         return;
-            //     }
+        //     // 2. Crop the top-right corner and run tesseract for logo detection
+        //     const cropCmd = `ffmpeg -i ${lastFramePath} -vf "crop=100:150:1750:20" -y ${cropPath}`;
+        //     exec(cropCmd, async (error, stdout) => {
+        //         if (error) {
+        //             logger.error(`[${sessionId}] Logo detection error: ${error.message}`);
+        //             return;
+        //         }
 
-            //     const cropText = stdout.toLowerCase().trim();
-            //     if (cropText) logger.debug(`[${sessionId}] Logo crop OCR: ${cropText.replace(/\n/g, ' ')}`);
+        //         const cropText = stdout.toLowerCase().trim();
+        //         if (cropText) logger.debug(`[${sessionId}] Logo crop OCR: ${cropText.replace(/\n/g, ' ')}`);
 
-            //     // Verify NBC colors are present in the crop
-            //     let allColorsPresent = false;
-            //     try {
-            //         allColorsPresent = await verifyNbcColors(cropPath);
-            //     } catch (err) {
-            //         logger.error(`[${sessionId}] Color verification error: ${err.message}`);
-            //     }
+        //         // Verify NBC colors are present in the crop
+        //         let allColorsPresent = false;
+        //         try {
+        //             allColorsPresent = await verifyNbcColors(cropPath);
+        //         } catch (err) {
+        //             logger.error(`[${sessionId}] Color verification error: ${err.message}`);
+        //         }
 
-            //     const nextIsCommercialBreak = !hasLogo;
+        //         const nextIsCommercialBreak = !hasLogo;
 
-            //     if (nextIsCommercialBreak !== isCommercialBreak) {
-            //         isCommercialBreak = nextIsCommercialBreak;
-            //         logger.info(`[${sessionId}] Commercial break state changed: ${isCommercialBreak} (Reason: ${hasLogo ? (allColorsPresent ? 'Colors found' : 'OCR found') : 'Logo missing'})`);
-            //     }
-            // });
-        }, 2000);
+        //         if (nextIsCommercialBreak !== isCommercialBreak) {
+        //             isCommercialBreak = nextIsCommercialBreak;
+        //             logger.info(`[${sessionId}] Commercial break state changed: ${isCommercialBreak} (Reason: ${hasLogo ? (allColorsPresent ? 'Colors found' : 'OCR found') : 'Logo missing'})`);
+        //         }
+        //     });
+        // }, 2000);
 
         const ffmpegProc = spawn('ffmpeg', args);
 
@@ -213,8 +213,8 @@ async function runCaptureTvHeadEnd(url, retries) {
 
         // Handle Ctrl-C / cleanup by killing ffmpeg
         process.on('SIGINT', () => {
-            clearInterval(commercialCheckInterval);
             ffmpegProc.kill();
+            clearInterval(commercialCheckInterval);
         });
     });
 }
