@@ -111,6 +111,9 @@ async function runCaptureTvHeadEnd(url, retries) {
         // Sending it as webm/opus closely mimics the puppeteer approach.
         const args = [
             '-y',
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_delay_max', '5',
             '-i', url,
             // Output 1: Audio to stdout encoded as WebM/Opus so it seamlessly replaces MediaRecorder
             '-map', '0:a:0', // Map first audio stream only
@@ -188,6 +191,11 @@ async function runCaptureTvHeadEnd(url, retries) {
 
         const ffmpegProc = spawn('ffmpeg', args);
 
+        // Heartbeat: log every 60s so we know ffmpeg is still alive
+        const heartbeat = setInterval(() => {
+            logger.info(`[${sessionId}] [heartbeat] ffmpeg still running`);
+        }, 60_000);
+
         // Pipe the ffmpeg stdout (the audio stream) to the main process stdout
         ffmpegProc.stdout.on('data', (data) => {
             if (isCommercialBreak) {
@@ -202,6 +210,7 @@ async function runCaptureTvHeadEnd(url, retries) {
         });
 
         ffmpegProc.on('close', (code) => {
+            clearInterval(heartbeat);
             logger.info(`[${sessionId}] FFMPEG exited with code ${code}`);
             resolve();
         });

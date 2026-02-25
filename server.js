@@ -185,127 +185,161 @@ function calculateRMS(buffer) {
 
     const streamsDir = path.join(__dirname, 'streams');
     if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
-    const outputFile = fs.createWriteStream(path.join(streamsDir, `${(new Date()).getTime()}-${sessionId}.webm`));
 
-    // Spawn main.js
-
-    logger.info(`[${sessionId}] Spawning main.js...`);
-
-    let args = [
+    const childArgs = [
         "./main.js",
         '--sessionId', sessionId,
         '--url', market.mediaStreamURL,
-    ]
+    ];
 
-    const child = spawn("node", args)
-    // Cleanup on exit
-    process.on('SIGINT', () => {
-        child.kill();
-        if (transcriber && transcriber.kill) transcriber.kill();
-        process.exit();
-    });
-
-    // Handle logs from child
-    child.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(l => l.trim());
-        lines.forEach(line => {
-            if (line === '') {
-                return;
-            } else if (line.includes('Ad state changed:')) {
-                logger.info(`[${sessionId}] [Child] ${line}`);
-            } else {
-                logger.debug(`[${sessionId}] [Child] ${line}`);
-            }
-        });
-    });
-
-    // Setup FFmpeg
-    // Reading from child.stdout (main.js stdout) -> Pipe to ffmpeg stdin
-    const ffmpeg = spawn('ffmpeg', [
-        '-i', 'pipe:0',      // Input from stdin
-        '-f', 's16le',       // Output format PCM 16-bit Little Endian
-        '-acodec', 'pcm_s16le',
-        '-ar', '16000',      // Sample rate 16k
-        '-ac', '1',          // Mono
-        'pipe:1'             // Output to stdout
-    ]);
-
-    // Pipe audio: main.js -> ffmpeg
-    child.stdout.on('data', (chunk) => {
-        logger.trace(`[${sessionId}] Received ${chunk.length} bytes from child`);
-    });
-    child.stdout.pipe(ffmpeg.stdin);
-    // Also save raw stream for debugging if needed, but ffmpeg expects webm/opus usually. 
-    // Since main.js sends webm/opus via stdout, we can also pipe it to file:
-    child.stdout.pipe(outputFile);
-
-    ffmpeg.stderr.on('data', (data) => {
-        logger.trace(`[${sessionId}] [ffmpeg] ${data.toString()}`);
-    });
-
-    let pcmBuffer = [];
     const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds of 16-bit audio (2 bytes/sample)
-    const VAD_THRESHOLD = 0.03; // Adjust based on noise levels
+    const VAD_THRESHOLD = 0.005; // Lowered from 0.03 — quieter streams have RMS ~0.02
+    const AUDIO_TIMEOUT_MS = 60_000; // 60 seconds with no audio = problem
+    const RESPAWN_DELAY_MS = 3_000;
 
-    ffmpeg.stdout.on('data', async (chunk) => {
-        pcmBuffer.push(chunk);
-        const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
+    function spawnPipeline() {
+        let pcmBuffer = [];
+        let lastAudioTime = Date.now();
+        let isShuttingDown = false;
 
-        if (totalLength >= CHUNK_THRESHOLD) {
-            const fullBuffer = Buffer.concat(pcmBuffer);
-            pcmBuffer = [];
+        const outputFile = fs.createWriteStream(path.join(streamsDir, `${Date.now()}-${sessionId}.webm`));
 
-            // VAD Check
-            const rms = calculateRMS(fullBuffer);
-            if (rms < VAD_THRESHOLD) {
-                // logger.debug(`[${sessionId}] Silence detected (RMS: ${rms.toFixed(4)}), skipping...`);
-                return;
+        logger.info(`[${sessionId}] Spawning main.js...`);
+
+        const child = spawn("node", childArgs);
+
+        // Cleanup on exit
+        const sigintHandler = () => {
+            isShuttingDown = true;
+            child.kill();
+            if (transcriber && transcriber.kill) transcriber.kill();
+            process.exit();
+        };
+        process.on('SIGINT', sigintHandler);
+
+        // Handle logs from child
+        child.stderr.on('data', (data) => {
+            const lines = data.toString().split('\n').filter(l => l.trim());
+            lines.forEach(line => {
+                if (line === '') {
+                    return;
+                } else if (line.includes('Ad state changed:')) {
+                    logger.info(`[${sessionId}] [Child] ${line}`);
+                } else {
+                    logger.debug(`[${sessionId}] [Child] ${line}`);
+                }
+            });
+        });
+
+        // Setup FFmpeg: child.stdout (webm/opus) -> ffmpeg -> PCM
+        const ffmpeg = spawn('ffmpeg', [
+            '-i', 'pipe:0',
+            '-f', 's16le',
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
+            'pipe:1'
+        ]);
+
+        child.stdout.on('data', (chunk) => {
+            logger.trace(`[${sessionId}] Received ${chunk.length} bytes from child`);
+        });
+        child.stdout.pipe(ffmpeg.stdin);
+        child.stdout.pipe(outputFile);
+
+        ffmpeg.stderr.on('data', (data) => {
+            logger.trace(`[${sessionId}] [ffmpeg] ${data.toString()}`);
+        });
+
+        // Watchdog: detect if audio stops flowing
+        let pcmChunkCount = 0;
+        const watchdog = setInterval(() => {
+            const silenceMs = Date.now() - lastAudioTime;
+            logger.info(`[${sessionId}] [health] silenceSec=${(silenceMs / 1000).toFixed(0)} pcmChunks=${pcmChunkCount}`);
+            if (silenceMs > AUDIO_TIMEOUT_MS) {
+                logger.warn(`[${sessionId}] No audio received for ${(silenceMs / 1000).toFixed(0)}s — killing child to trigger restart`);
+                child.kill();
             }
+        }, 30_000);
 
-            if (transcriber) {
-                try {
-                    // Send raw PCM buffer to Python worker
-                    const result = await transcriber(fullBuffer);
-                    const text = (result.text || '').trim();
+        ffmpeg.on('close', (code) => {
+            logger.warn(`[${sessionId}] [server ffmpeg] exited with code ${code}`);
+        });
 
-                    if (!text) return;
+        let vadSkipCount = 0;
+        ffmpeg.stdout.on('data', async (chunk) => {
+            lastAudioTime = Date.now();
+            pcmChunkCount++;
+            pcmBuffer.push(chunk);
+            const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
 
-                    const session = state.get(sessionId);
+            if (totalLength >= CHUNK_THRESHOLD) {
+                const fullBuffer = Buffer.concat(pcmBuffer);
+                pcmBuffer = [];
 
-                    const words = text.split(' ');
-                    for (const word of words) {
-                        const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
-                        if (!token) continue;
-
-                        session.transcript.push(token)
-                        if (session.transcript.length > 500) {
-                            session.transcript.shift();
-                        }
-
-                        const matched = findKeywordMatch(keywordIndex, session.transcript, token);
-                        if (matched) {
-                            logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${matched.key}"`);
-                            await handleSignal(kalshi, matched.key.toLowerCase(), matched.value, buyCount);
-                            removeFromIndex(keywordIndex, matched.key);
-                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
-                        }
-
-
-                        if (session.transcript.length % lastWordsCount === 0) {
-                            logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
-                        }
+                // VAD Check
+                const rms = calculateRMS(fullBuffer);
+                if (rms < VAD_THRESHOLD) {
+                    vadSkipCount++;
+                    if (vadSkipCount % 50 === 1) {
+                        logger.debug(`[${sessionId}] VAD silence skip #${vadSkipCount} (RMS: ${rms.toFixed(4)})`);
                     }
-                } catch (e) {
-                    logger.error({ err: e }, `[${sessionId}] Transcription error`);
+                    return;
+                }
+                vadSkipCount = 0;
+
+                if (transcriber) {
+                    try {
+                        const result = await transcriber(fullBuffer);
+                        const text = (result.text || '').trim();
+
+                        if (!text) return;
+
+                        const session = state.get(sessionId);
+
+                        const words = text.split(' ');
+                        for (const word of words) {
+                            const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
+                            if (!token) continue;
+
+                            session.transcript.push(token);
+                            if (session.transcript.length > 500) {
+                                session.transcript.shift();
+                            }
+
+                            const matched = findKeywordMatch(keywordIndex, session.transcript, token);
+                            if (matched) {
+                                logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${matched.key}"`);
+                                await handleSignal(kalshi, matched.key.toLowerCase(), matched.value, buyCount);
+                                removeFromIndex(keywordIndex, matched.key);
+                                logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
+                            }
+
+                            if (session.transcript.length % lastWordsCount === 0) {
+                                logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
+                            }
+                        }
+                    } catch (e) {
+                        logger.error({ err: e }, `[${sessionId}] Transcription error`);
+                    }
                 }
             }
-        }
-    });
+        });
 
-    child.on('close', (code) => {
-        logger.info(`[${sessionId}] Child process exited with code ${code}`);
+        child.on('close', (code) => {
+            clearInterval(watchdog);
+            process.removeListener('SIGINT', sigintHandler);
+            outputFile.end();
 
-        process.exit(0);
-    });
+            if (isShuttingDown) {
+                logger.info(`[${sessionId}] Child exited with code ${code} (shutdown)`);
+                process.exit(0);
+            }
 
+            logger.warn(`[${sessionId}] Child exited with code ${code}, respawning in ${RESPAWN_DELAY_MS / 1000}s...`);
+            setTimeout(() => spawnPipeline(), RESPAWN_DELAY_MS);
+        });
+    }
+
+    spawnPipeline();
 })();
