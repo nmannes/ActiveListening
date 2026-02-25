@@ -109,7 +109,7 @@ function spawnTranscriber() {
             if (line.trim() === 'READY') {
                 rl.removeListener('line', lineHandler);
                 // Set up the persistent line reader for transcription responses
-                const responseLines = [];earnings call?
+                const responseLines = [];
                 let responseResolve = null;
                 rl.on('line', (responseLine) => {
                     if (responseResolve) {
