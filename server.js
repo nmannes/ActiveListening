@@ -159,7 +159,7 @@ async function handleSignal(kalshi, word, ticker, buyCount) {
 
         logger.info(result, `[TRADE] result`);
     } else {
-        logger.info(`[TRADE] Not trading for real but ${word} was said`)
+        logger.info(`[TRADE] Not trading for real but ${word} was perceived at about ${new Date()}`)
     }
 
 };
@@ -185,6 +185,9 @@ function calculateRMS(buffer) {
 
     const streamsDir = path.join(__dirname, 'streams');
     if (!fs.existsSync(streamsDir)) fs.mkdirSync(streamsDir);
+
+    const { startOrderbookTracking } = require('./lib/orderbook_tracking');
+    const orderbook = startOrderbookTracking(market);
 
     const childArgs = [
         "./main.js",
@@ -213,6 +216,7 @@ function calculateRMS(buffer) {
             isShuttingDown = true;
             child.kill();
             if (transcriber && transcriber.kill) transcriber.kill();
+            if (orderbook && orderbook.stop) orderbook.stop();
             process.exit();
         };
         process.on('SIGINT', sigintHandler);
