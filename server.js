@@ -54,7 +54,7 @@ async function init() {
         const keywordIndex = buildKeywordIndex(market.keywords);
 
 
-        fs.writeFileSync(`debug/indexedKeywordsByLastWord-${market.slug}.json`, JSON.stringify(keywordIndex, null, 2));
+        fs.writeFileSync(`./debug/indexedKeywordsByLastWord-${market.slug}.json`, JSON.stringify(keywordIndex, null, 2));
 
 
 
