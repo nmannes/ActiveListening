@@ -4,6 +4,7 @@ const readline = require('readline');
 const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
+const { buildKeywordIndex, findKeywordMatch, removeFromIndex } = require('./lib/matching');
 
 const { args, KALSHI_ENV } = require('./lib/args');
 const { randomBytes } = require('crypto');
@@ -50,18 +51,10 @@ async function init() {
 
 
 
-        // const indexedKeywordsByLastWord = {};
-        // for (const [key, value] of Object.entries(market.keywords)) {
-        //     const words = key.toLowerCase().split(' ');
-        //     const lastWord = words[words.length - 1];
-        //     if (!indexedKeywordsByLastWord[lastWord]) {
-        //         indexedKeywordsByLastWord[lastWord] = [];
-        //     }
-        //     indexedKeywordsByLastWord[lastWord].push({ key, words, value });
-        // }
+        const keywordIndex = buildKeywordIndex(market.keywords);
 
 
-        // fs.writeFileSync('indexedKeywordsByLastWord.json', JSON.stringify(indexedKeywordsByLastWord, null, 2));
+        fs.writeFileSync(`debug/indexedKeywordsByLastWord-${market.slug}.json`, JSON.stringify(keywordIndex, null, 2));
 
 
 
@@ -77,6 +70,7 @@ async function init() {
             kalshi,
             market,
             transcriber,
+            keywordIndex,
             buyCount: args.buyCount || 5,
             lastWordsCount: args.lastWordsCount || 7,
         }
@@ -115,7 +109,7 @@ function spawnTranscriber() {
             if (line.trim() === 'READY') {
                 rl.removeListener('line', lineHandler);
                 // Set up the persistent line reader for transcription responses
-                const responseLines = [];
+                const responseLines = [];earnings call?
                 let responseResolve = null;
                 rl.on('line', (responseLine) => {
                     if (responseResolve) {
@@ -181,7 +175,7 @@ function calculateRMS(buffer) {
 }
 
 (async () => {
-    const { kalshi, market, transcriber, lastWordsCount, buyCount } = await init();
+    const { kalshi, market, transcriber, keywordIndex, lastWordsCount, buyCount } = await init();
     const state = new Map();
 
     const sessionId = market ? market.slug : `test-run-${randomBytes(4).toString('hex')}`;
@@ -277,7 +271,6 @@ function calculateRMS(buffer) {
                     if (!text) return;
 
                     const session = state.get(sessionId);
-                    const keywords = market['keywords'];
 
                     const words = text.split(' ');
                     for (const word of words) {
@@ -289,21 +282,12 @@ function calculateRMS(buffer) {
                             session.transcript.shift();
                         }
 
-                        for (const [key, value] of Object.entries(keywords)) {
-                            const keyLower = key.toLowerCase();
-                            const keyWords = keyLower.split(' ');
-                            const keyLen = keyWords.length;
-
-                            // Only check if we have enough words in transcript
-                            if (session.transcript.length >= keyLen) {
-                                const transcriptTail = session.transcript.slice(-keyLen).join(' ');
-                                if (keyLower === transcriptTail) {
-                                    logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${key}"`);
-                                    await handleSignal(kalshi, keyLower, value, buyCount);
-                                    delete keywords[keyLower];
-                                    logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`)
-                                }
-                            }
+                        const matched = findKeywordMatch(keywordIndex, session.transcript, token);
+                        if (matched) {
+                            logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${matched.key}"`);
+                            await handleSignal(kalshi, matched.key.toLowerCase(), matched.value, buyCount);
+                            removeFromIndex(keywordIndex, matched.key);
+                            logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
                         }
 
 

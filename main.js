@@ -6,7 +6,7 @@ const path = require('path');
 
 const { args } = require('./lib/args')
 
-const debugFramesDir = path.join(__dirname, 'debug_frames');
+const debugFramesDir = path.join(__dirname, 'debug');
 
 if (!fs.existsSync(debugFramesDir)) {
     fs.mkdirSync(debugFramesDir, { recursive: true });
@@ -118,7 +118,7 @@ async function runCaptureTvHeadEnd(url, retries) {
             '-ac', '1',      // Downmix to mono
             '-f', 'webm',
             'pipe:1',
-            // Output 2: Video frames to the debug_frames directory
+            // Output 2: Video frames to the debug directory
             '-map', '0:v',
             '-r', '0.5', // 1 frame every 2 seconds
             '-f', 'image2',
