@@ -4,6 +4,7 @@ const { findProgramsByZipAndKeyword } = require('./lib/tv_discovery.js');
 const { getTeamNames } = require('./lib/discover_markets.js');
 const { getChannelURLByBand } = require('./lib/xml.js');
 const logger = require('./lib/logger');
+const path = require('path');
 
 (async () => {
     try {
@@ -13,7 +14,7 @@ const logger = require('./lib/logger');
         // 1. Discover Kalshi Markets
         logger.info('--- 1. Fetching Kalshi Markets ---');
         let markets = [];
-        const marketsFile = 'latest_markets.json';
+        const marketsFile = path.join('cache', 'latest_markets.json');
         const cacheTTL = 60 * 60 * 1000; // 1 hour
 
         if (fs.existsSync(marketsFile)) {
@@ -38,7 +39,7 @@ const logger = require('./lib/logger');
         // 2. Discover TV Schedules (covering today and tomorrow)
         logger.info('--- 2. Fetching TV Schedules ---');
         let scheduleData = [];
-        const scheduleFile = 'latest_schedule.json';
+        const scheduleFile = path.join('cache', 'latest_schedule.json');
 
         if (fs.existsSync(scheduleFile)) {
             const stats = fs.statSync(scheduleFile);
@@ -94,12 +95,13 @@ const logger = require('./lib/logger');
         const marketsWithStreams = marketsWithMatches.filter(m => m.channelURL);
         logger.info(`Of those, ${marketsWithStreams.length} have valid stream URLs.`);
 
-        fs.writeFileSync('final_markets_with_streams.json', JSON.stringify(marketsWithMatches, null, 2));
+        fs.writeFileSync(path.join('cache', 'final_markets_with_streams.json'), JSON.stringify(marketsWithMatches, null, 2));
 
         if (marketsWithStreams.length > 0) {
-            logger.info('Sample matches:');
-            marketsWithStreams.slice(0, 5).forEach(m => {
-                logger.info(` - ${m.title} -> ${m.channelURL}`);
+            logger.info('All matches:');
+            marketsWithStreams.forEach(m => {
+                logger.info(` - ${m.title}`);
+
             });
         }
 

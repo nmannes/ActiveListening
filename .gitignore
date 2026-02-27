@@ -18,3 +18,5 @@ transcripts/
 .env.prod
 
 debug/
+
+cache/
