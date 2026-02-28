@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
 """
-Persistent transcription worker using faster-whisper (GPU-accelerated).
+Persistent transcription worker using faster-whisper.
 
-Protocol (stdin/stdout):
-  Node -> Python:  "AUDIO <num_bytes>\n" followed by <num_bytes> raw PCM bytes
-                   (16-bit signed LE, 16kHz, mono)
-  Python -> Node:  '{"text": "..."}\n' per transcription result
+Protocol (WebSocket):
+  Node -> Python:  Binary PCM frames (16-bit signed LE, 16kHz, mono)
+  Python -> Node:  '{"text": "..."}' per transcription result (text message)
 
-Env vars:
-  WHISPER_MODEL  - model size (default: "base.en")
-  WHISPER_DEVICE - "cuda" or "cpu" (default: "cuda")
+The worker starts a WebSocket server on the given --port, prints "READY <port>"
+to stdout, and then waits for a single client connection from server.js.
 """
 
 import sys
-import os
 import json
 import numpy as np
 from faster_whisper import WhisperModel
 import argparse
-import threading
-import queue
-import time # Added for time.time()
+import asyncio
+import websockets
+import time
+from concurrent.futures import ThreadPoolExecutor
 
-# Load environment variables from .env file
+
 def main():
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="base.en")
     parser.add_argument("--device", type=str, default="cpu")
-
+    parser.add_argument("--port", type=int, default=8089)
     args = parser.parse_args()
 
     model_size = args.model
     device = args.device
-    
+    port = args.port
     compute_type = "float16" if device == "cuda" else "int8"
 
     sys.stderr.write(f"[transcribe_worker] Loading model '{model_size}' on {device} ({compute_type})...\n")
@@ -44,136 +41,94 @@ def main():
     sys.stderr.write(f"[transcribe_worker] Model loaded.\n")
     sys.stderr.flush()
 
-    # Signal readiness to the parent process
-    sys.stdout.write("READY\n")
-    sys.stdout.flush()
+    # Thread pool for running CPU-bound transcription without blocking the event loop
+    executor = ThreadPoolExecutor(max_workers=1)
 
-    stdin = sys.stdin.buffer  # binary mode
-
-    # Sliding window streaming config
+    # Sliding window config
     SAMPLE_RATE = 16000
     BYTES_PER_SAMPLE = 2
-    WINDOW_SECS = 3.0           # 3-second rolling buffer
-    STEP_SECS = 0.3             # process every 300ms of new audio
-    
+    WINDOW_SECS = 3.0
+    STEP_SECS = 0.3
+
     window_bytes = int(WINDOW_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
-    step_bytes   = int(STEP_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
+    step_bytes = int(STEP_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
 
-    audio_buffer = b""
-    q = queue.Queue()
+    def transcribe_sync(samples):
+        """Run transcription synchronously — called from executor thread."""
+        segments, _info = model.transcribe(
+            samples,
+            beam_size=1,
+            language="en",
+            vad_filter=False,
+            condition_on_previous_text=False,
+            initial_prompt=None
+        )
+        return " ".join(seg.text.strip() for seg in segments).strip()
 
-    def reader_thread():
-        # Continuously read from stdin in small chunks and push to queue
-        while True:
-            try:
-                # read1() returns whatever is in the pipe buffer up to 4096 bytes without blocking for the full amount
-                chunk = sys.stdin.buffer.read1(4096)
-            except AttributeError:
-                import os
-                chunk = os.read(sys.stdin.fileno(), 4096)
-            
-            if not chunk:
-                q.put(None) # EOF sentinel
-                break
-            q.put(chunk)
+    async def handle_client(websocket):
+        sys.stderr.write(f"[transcribe_worker] Client connected.\n")
+        sys.stderr.flush()
 
-    t = threading.Thread(target=reader_thread, daemon=True)
-    t.start()
+        audio_buffer = b""
+        incoming = b""
+        loop = asyncio.get_event_loop()
 
-    incoming = b""
-
-    while True:
-        try:
-            got_new_audio = False
-            # Accumulate exactly `step_bytes` safely from the queue
-            while len(incoming) < step_bytes:
-                try:
-                    # Block waiting for audio
-                    chunk = q.get(timeout=0.1)
-                    if chunk is None:
-                        return # EOF
-                    incoming += chunk
-                    got_new_audio = True
-                except queue.Empty:
-                    # No audio arrived (VAD silence skip in JS)
-                    break
-                
-            if len(incoming) < step_bytes and not got_new_audio:
-                # We don't have enough audio for a full step, and no new audio arrived in 0.1s.
-                # Must be silence/VAD skipping. Output empty text to keep JS pipeline alive.
-                try:
-                    print('{"text": ""}', flush=True)
-                except:
-                    pass
+        async for message in websocket:
+            # Only accept binary messages (PCM audio)
+            if isinstance(message, str):
                 continue
 
-            # If we reach here, either we have >= step_bytes, or we got SOME new audio (but < step_bytes)
-            # and we should just process whatever we have to avoid lagging.
-            take = min(step_bytes, len(incoming))
-            if take == 0:
-                continue
+            incoming += message
 
-            process_chunk = incoming[:take]
-            incoming = incoming[take:]
-            
-            audio_buffer += process_chunk
+            # Process in step_bytes-sized chunks
+            while len(incoming) >= step_bytes:
+                process_chunk = incoming[:step_bytes]
+                incoming = incoming[step_bytes:]
 
-            # Keep only the last 3.0 seconds
-            if len(audio_buffer) > window_bytes:
-                audio_buffer = audio_buffer[-window_bytes:]
+                audio_buffer += process_chunk
 
-            # Ensure we have an even number of bytes for int16 parsing
-            safe_length = len(audio_buffer) - (len(audio_buffer) % 2)
-            if safe_length == 0:
-                continue
+                # Keep only the last WINDOW_SECS seconds
+                if len(audio_buffer) > window_bytes:
+                    audio_buffer = audio_buffer[-window_bytes:]
 
-            # Convert 16-bit signed LE PCM to float32 numpy array
-            samples = np.frombuffer(audio_buffer[:safe_length], dtype=np.int16).astype(np.float32) / 32768.0
+                # Ensure even number of bytes for int16 parsing
+                safe_length = len(audio_buffer) - (len(audio_buffer) % 2)
+                if safe_length == 0:
+                    continue
 
-            # VAD / Silence Check: Whisper hallucinates or hangs on absolute silence
-            rms = np.sqrt(np.mean(samples**2))
-            if rms < 0.005:
-                # Send empty result to unblock any JS listeners waiting for 1:1 chunk responses
-                try:
-                    print('{"text": ""}', flush=True)
-                except:
-                    pass
-                continue
+                # Convert 16-bit signed LE PCM to float32 numpy array
+                samples = np.frombuffer(audio_buffer[:safe_length], dtype=np.int16).astype(np.float32) / 32768.0
 
-            # Transcribe
-            # We use condition_on_previous_text=False to force it to treat the window independently
-            t0 = time.time()
-            segments, _info = model.transcribe(
-                samples, 
-                beam_size=1, 
-                language="en", 
-                vad_filter=False, 
-                condition_on_previous_text=False,
-                initial_prompt=None
-            )
-            t1 = time.time()
-            text = " ".join(seg.text.strip() for seg in segments).strip()
+                # Silence check: Whisper hallucinates on pure silence
+                rms = np.sqrt(np.mean(samples**2))
+                if rms < 0.005:
+                    await websocket.send('{"text": ""}')
+                    continue
 
-            if t1 - t0 > 0.3:
-                sys.stderr.write(f"[transcribe_worker] WARNING: transcribe took {t1 - t0:.2f}s (falling behind >0.3s window!)\n")
-                sys.stderr.flush()
+                # Transcribe in thread pool so we don't block the event loop
+                t0 = time.time()
+                text = await loop.run_in_executor(executor, transcribe_sync, samples)
+                t1 = time.time()
 
-            # Send partial/window result as JSON line
-            print(json.dumps({"text": text}), flush=True)
+                if t1 - t0 > 0.3:
+                    sys.stderr.write(f"[transcribe_worker] WARNING: transcribe took {t1 - t0:.2f}s (>0.3s window)\n")
+                    sys.stderr.flush()
 
-        except BrokenPipeError:
-            # Node.js closed the pipe, exit cleanly
-            sys.stderr.write("[transcribe_worker] BrokenPipeError: Node.js closed the pipe. Exiting.\n")
-            break
-        except Exception as e:
-            sys.stderr.write(f"[transcribe_worker] Error: {e}\n")
+                await websocket.send(json.dumps({"text": text}))
+
+        sys.stderr.write(f"[transcribe_worker] Client disconnected.\n")
+        sys.stderr.flush()
+
+    async def serve():
+        async with websockets.serve(handle_client, "127.0.0.1", port, ping_interval=None):
+            # Signal readiness to server.js
+            sys.stdout.write(f"READY {port}\n")
+            sys.stdout.flush()
+            sys.stderr.write(f"[transcribe_worker] WebSocket server listening on ws://127.0.0.1:{port}\n")
             sys.stderr.flush()
-            # Send empty so JS doesn't hang
-            try:
-                print(json.dumps({"text": ""}), flush=True)
-            except:
-                pass
+            await asyncio.Future()  # run forever
 
+    asyncio.run(serve())
 
 
 if __name__ == "__main__":

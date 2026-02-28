@@ -67,44 +67,55 @@ async function generateTestAudio() {
 
 // ── Step 2: Spawn transcription worker ───────────────────────────────────────
 function spawnTranscriber() {
+    const WS_PORT = 8090; // Use different port than server.js to avoid conflicts
     return new Promise((resolve, reject) => {
         const proc = spawn('python3', [
             path.join(__dirname, 'transcribe_worker.py'),
             '--model', MODEL,
             '--device', DEVICE,
-        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+            '--port', String(WS_PORT),
+        ], { stdio: ['ignore', 'pipe', 'pipe'] });
 
         proc.stderr.on('data', d => process.stderr.write(`  [worker] ${d}`));
         proc.on('error', err => reject(err));
 
+        const readyTimeout = setTimeout(() => reject(new Error('Worker not ready in 60s')), 60000);
+
         const rl = readline.createInterface({ input: proc.stdout });
+        rl.on('line', (line) => {
+            if (line.trim().startsWith('READY')) {
+                clearTimeout(readyTimeout);
+                const port = parseInt(line.trim().split(' ')[1]) || WS_PORT;
 
-        const lineHandler = (line) => {
-            if (line.trim() === 'READY') {
-                rl.removeListener('line', lineHandler);
+                const WebSocket = require('ws');
+                const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+                let _onTranscript = null;
 
-                rl.on('line', (responseLine) => {
-                    try {
-                        const result = JSON.parse(responseLine);
-                        if (proc._onTranscript && typeof result.text === 'string') {
-                            proc._onTranscript(result.text);
-                        }
-                    } catch (e) {
-                        // ignore parse errors
-                    }
+                ws.on('open', () => {
+                    const transcriber = {
+                        write: (pcmBuffer) => {
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(pcmBuffer);
+                            }
+                        },
+                        onTranscript: (cb) => { _onTranscript = cb; },
+                        kill: () => { ws.close(); proc.kill(); }
+                    };
+                    resolve(transcriber);
                 });
 
-                const transcriber = {
-                    write: (pcmBuffer) => proc.stdin.write(pcmBuffer),
-                    onTranscript: (cb) => { proc._onTranscript = cb; },
-                    kill: () => proc.kill()
-                };
-                resolve(transcriber);
-            }
-        };
-        rl.on('line', lineHandler);
+                ws.on('message', (data) => {
+                    try {
+                        const result = JSON.parse(data.toString());
+                        if (_onTranscript && typeof result.text === 'string') {
+                            _onTranscript(result.text);
+                        }
+                    } catch (e) { /* ignore */ }
+                });
 
-        setTimeout(() => reject(new Error('Worker not ready in 60s')), 60000);
+                ws.on('error', (err) => reject(err));
+            }
+        });
     });
 }
 

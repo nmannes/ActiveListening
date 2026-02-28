@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { spawn } = require('child_process');
 const readline = require('readline');
+const WebSocket = require('ws');
 const path = require('path');
 const logger = require('./lib/logger');
 const KalshiClient = require('./lib/kalshi');
@@ -81,16 +82,15 @@ async function init() {
 };
 
 function spawnTranscriber() {
+    const WS_PORT = 8089;
     return new Promise((resolve, reject) => {
         const proc = spawn('python3', [
-            path.join(__dirname,
-                'transcribe_worker.py'),
-            '--model',
-            process.env.WHISPER_MODEL,
-            '--device',
-            process.env.TRANSCRIPTION_HARDWARE || 'cpu'
+            path.join(__dirname, 'transcribe_worker.py'),
+            '--model', process.env.WHISPER_MODEL,
+            '--device', process.env.TRANSCRIPTION_HARDWARE || 'cpu',
+            '--port', String(WS_PORT)
         ], {
-            stdio: ['pipe', 'pipe', 'pipe'],
+            stdio: ['ignore', 'pipe', 'pipe'],
             env: { ...process.env },
         });
 
@@ -103,37 +103,57 @@ function spawnTranscriber() {
         proc.on('error', (err) => reject(new Error(`Failed to spawn transcribe_worker: ${err.message}`)));
         proc.on('close', (code) => logger.warn(`[transcribe_worker] exited with code ${code}`));
 
-        // Timeout if worker doesn't become ready
         const readyTimeout = setTimeout(() => reject(new Error('Transcription worker did not become ready in 60s')), 60000);
 
-        // Wait for the READY signal
+        // Wait for "READY <port>" on stdout
         const rl = readline.createInterface({ input: proc.stdout });
-        const lineHandler = (line) => {
-            if (line.trim() === 'READY') {
-                rl.removeListener('line', lineHandler);
+        rl.on('line', (line) => {
+            if (line.trim().startsWith('READY')) {
                 clearTimeout(readyTimeout);
+                const port = parseInt(line.trim().split(' ')[1]) || WS_PORT;
 
-                // Now, continuously listen for transcription results from Python
-                rl.on('line', (responseLine) => {
+                // Connect to the Python WebSocket server
+                const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+                let _onTranscript = null;
+
+                ws.on('open', () => {
+                    logger.info(`[transcribe_worker] WebSocket connected on port ${port}`);
+
+                    const transcriber = {
+                        write: (pcmBuffer) => {
+                            if (ws.readyState === WebSocket.OPEN) {
+                                ws.send(pcmBuffer);
+                            }
+                        },
+                        onTranscript: (cb) => { _onTranscript = cb; },
+                        kill: () => {
+                            ws.close();
+                            proc.kill();
+                        }
+                    };
+                    resolve(transcriber);
+                });
+
+                ws.on('message', (data) => {
                     try {
-                        const result = JSON.parse(responseLine);
-                        if (proc._onTranscript && result.text) {
-                            proc._onTranscript(result.text);
+                        const result = JSON.parse(data.toString());
+                        if (_onTranscript && result.text) {
+                            _onTranscript(result.text);
                         }
                     } catch (e) {
-                        logger.error(`Failed to parse worker response: ${responseLine}`);
+                        logger.error(`Failed to parse worker response: ${data}`);
                     }
                 });
 
-                const transcriber = {
-                    write: (pcmBuffer) => proc.stdin.write(pcmBuffer),
-                    onTranscript: (cb) => { proc._onTranscript = cb; },
-                    kill: () => proc.kill()
-                };
-                resolve(transcriber);
+                ws.on('error', (err) => {
+                    logger.error(`[transcribe_worker] WebSocket error: ${err.message}`);
+                });
+
+                ws.on('close', () => {
+                    logger.warn(`[transcribe_worker] WebSocket closed`);
+                });
             }
-        };
-        rl.on('line', lineHandler);
+        });
     });
 }
 
