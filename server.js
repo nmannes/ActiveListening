@@ -103,11 +103,15 @@ function spawnTranscriber() {
         proc.on('error', (err) => reject(new Error(`Failed to spawn transcribe_worker: ${err.message}`)));
         proc.on('close', (code) => logger.warn(`[transcribe_worker] exited with code ${code}`));
 
+        // Timeout if worker doesn't become ready
+        const readyTimeout = setTimeout(() => reject(new Error('Transcription worker did not become ready in 60s')), 60000);
+
         // Wait for the READY signal
         const rl = readline.createInterface({ input: proc.stdout });
         const lineHandler = (line) => {
             if (line.trim() === 'READY') {
                 rl.removeListener('line', lineHandler);
+                clearTimeout(readyTimeout);
 
                 // Now, continuously listen for transcription results from Python
                 rl.on('line', (responseLine) => {
@@ -130,9 +134,6 @@ function spawnTranscriber() {
             }
         };
         rl.on('line', lineHandler);
-
-        // Timeout if worker doesn't become ready
-        setTimeout(() => reject(new Error('Transcription worker did not become ready in 60s')), 60000);
     });
 }
 

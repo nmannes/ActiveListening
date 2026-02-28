@@ -65,7 +65,13 @@ def main():
     def reader_thread():
         # Continuously read from stdin in small chunks and push to queue
         while True:
-            chunk = sys.stdin.buffer.read(4096)
+            try:
+                # read1() returns whatever is in the pipe buffer up to 4096 bytes without blocking for the full amount
+                chunk = sys.stdin.buffer.read1(4096)
+            except AttributeError:
+                import os
+                chunk = os.read(sys.stdin.fileno(), 4096)
+            
             if not chunk:
                 q.put(None) # EOF sentinel
                 break
@@ -78,25 +84,37 @@ def main():
 
     while True:
         try:
+            got_new_audio = False
             # Accumulate exactly `step_bytes` safely from the queue
             while len(incoming) < step_bytes:
                 try:
-                    # Block briefly to wait for audio
-                    chunk = q.get(timeout=0.5)
+                    # Block waiting for audio
+                    chunk = q.get(timeout=0.1)
                     if chunk is None:
                         return # EOF
                     incoming += chunk
+                    got_new_audio = True
                 except queue.Empty:
-                    # No audio arrived in 0.5s, just break out to avoid infinite hang 
-                    # and process whatever we have (or just wait on next iteration)
-                    pass
+                    # No audio arrived (VAD silence skip in JS)
+                    break
                 
-            if not incoming:
+            if len(incoming) < step_bytes and not got_new_audio:
+                # We don't have enough audio for a full step, and no new audio arrived in 0.1s.
+                # Must be silence/VAD skipping. Output empty text to keep JS pipeline alive.
+                try:
+                    print('{"text": ""}', flush=True)
+                except:
+                    pass
                 continue
 
-            # Take exactly `step_bytes` from incoming
-            process_chunk = incoming[:step_bytes]
-            incoming = incoming[step_bytes:]
+            # If we reach here, either we have >= step_bytes, or we got SOME new audio (but < step_bytes)
+            # and we should just process whatever we have to avoid lagging.
+            take = min(step_bytes, len(incoming))
+            if take == 0:
+                continue
+
+            process_chunk = incoming[:take]
+            incoming = incoming[take:]
             
             audio_buffer += process_chunk
 
