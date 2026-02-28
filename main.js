@@ -111,19 +111,25 @@ async function runCaptureTvHeadEnd(url, retries) {
         // Sending it as webm/opus closely mimics the puppeteer approach.
         const args = [
             '-y',
+            // Low-latency input flags
+            '-fflags', 'nobuffer',
+            '-flags', 'low_delay',
+            '-probesize', '32',
+            '-analyzeduration', '0',
             '-reconnect', '1',
             '-reconnect_streamed', '1',
             '-reconnect_delay_max', '5',
             '-i', url,
-            // Output 1: Audio to stdout encoded as WebM/Opus so it seamlessly replaces MediaRecorder
-            '-map', '0:a:0', // Map first audio stream only
-            '-c:a', 'libopus',
-            '-ac', '1',      // Downmix to mono
-            '-f', 'webm',
+            // Output 1: Audio to stdout as raw PCM (skip WebM re-encoding)
+            '-map', '0:a:0',
+            '-f', 's16le',
+            '-acodec', 'pcm_s16le',
+            '-ar', '16000',
+            '-ac', '1',
             'pipe:1',
             // Output 2: Video frames to the debug directory
             '-map', '0:v',
-            '-r', '0.5', // 1 frame every 2 seconds
+            '-r', '0.5',
             '-f', 'image2',
             '-update', '1',
             path.join(debugFramesDir, `last_frame.jpg`)

@@ -195,7 +195,7 @@ function calculateRMS(buffer) {
         '--url', market.mediaStreamURL,
     ];
 
-    const CHUNK_THRESHOLD = 16000 * 2 * 2; // ~2 seconds of 16-bit audio (2 bytes/sample)
+    const CHUNK_THRESHOLD = 16000 * 2 * 1; // ~1 second of 16-bit audio (2 bytes/sample)
     const VAD_THRESHOLD = 0.005; // Lowered from 0.03 — quieter streams have RMS ~0.02
     const AUDIO_TIMEOUT_MS = 60_000; // 60 seconds with no audio = problem
     const RESPAWN_DELAY_MS = 3_000;
@@ -205,7 +205,7 @@ function calculateRMS(buffer) {
         let lastAudioTime = Date.now();
         let isShuttingDown = false;
 
-        const outputFile = fs.createWriteStream(path.join(streamsDir, `${Date.now()}-${sessionId}.webm`));
+        const isTvHeadEnd = market.mediaStreamURL.includes('localhost:9981') || market.mediaStreamURL.includes('127.0.0.1:9981');
 
         logger.info(`[${sessionId}] Spawning main.js...`);
 
@@ -235,25 +235,40 @@ function calculateRMS(buffer) {
             });
         });
 
-        // Setup FFmpeg: child.stdout (webm/opus) -> ffmpeg -> PCM
-        const ffmpeg = spawn('ffmpeg', [
-            '-i', 'pipe:0',
-            '-f', 's16le',
-            '-acodec', 'pcm_s16le',
-            '-ar', '16000',
-            '-ac', '1',
-            'pipe:1'
-        ]);
+        // PCM source: either child.stdout directly (TVHeadEnd) or via ffmpeg decode (browser/WebM)
+        let pcmSource;
+        let ffmpeg = null;
 
-        child.stdout.on('data', (chunk) => {
-            logger.trace(`[${sessionId}] Received ${chunk.length} bytes from child`);
-        });
-        child.stdout.pipe(ffmpeg.stdin);
-        child.stdout.pipe(outputFile);
+        if (isTvHeadEnd) {
+            // TVHeadEnd: child already outputs raw PCM (s16le, 16kHz, mono) — no ffmpeg needed
+            logger.info(`[${sessionId}] TVHeadEnd mode: reading PCM directly from child (skipping ffmpeg decode)`);
+            pcmSource = child.stdout;
+            child.stdout.on('data', (chunk) => {
+                logger.trace(`[${sessionId}] Received ${chunk.length} bytes PCM from child`);
+            });
+        } else {
+            // Browser path: child outputs WebM/Opus, need ffmpeg to decode to PCM
+            ffmpeg = spawn('ffmpeg', [
+                '-fflags', 'nobuffer',
+                '-flags', 'low_delay',
+                '-i', 'pipe:0',
+                '-f', 's16le',
+                '-acodec', 'pcm_s16le',
+                '-ar', '16000',
+                '-ac', '1',
+                'pipe:1'
+            ]);
+            pcmSource = ffmpeg.stdout;
 
-        ffmpeg.stderr.on('data', (data) => {
-            logger.trace(`[${sessionId}] [ffmpeg] ${data.toString()}`);
-        });
+            child.stdout.on('data', (chunk) => {
+                logger.trace(`[${sessionId}] Received ${chunk.length} bytes from child`);
+            });
+            child.stdout.pipe(ffmpeg.stdin);
+
+            ffmpeg.stderr.on('data', (data) => {
+                logger.trace(`[${sessionId}] [ffmpeg] ${data.toString()}`);
+            });
+        }
 
         // Watchdog: detect if audio stops flowing
         let pcmChunkCount = 0;
@@ -266,12 +281,12 @@ function calculateRMS(buffer) {
             }
         }, 30_000);
 
-        ffmpeg.on('close', (code) => {
+        if (ffmpeg) ffmpeg.on('close', (code) => {
             logger.warn(`[${sessionId}] [server ffmpeg] exited with code ${code}`);
         });
 
         let vadSkipCount = 0;
-        ffmpeg.stdout.on('data', async (chunk) => {
+        pcmSource.on('data', async (chunk) => {
             lastAudioTime = Date.now();
             pcmChunkCount++;
             pcmBuffer.push(chunk);
@@ -333,7 +348,6 @@ function calculateRMS(buffer) {
         child.on('close', (code) => {
             clearInterval(watchdog);
             process.removeListener('SIGINT', sigintHandler);
-            outputFile.end();
 
             if (isShuttingDown) {
                 logger.info(`[${sessionId}] Child exited with code ${code} (shutdown)`);
