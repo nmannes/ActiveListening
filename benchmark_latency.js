@@ -86,7 +86,7 @@ function spawnTranscriber() {
                 rl.on('line', (responseLine) => {
                     try {
                         const result = JSON.parse(responseLine);
-                        if (proc._onTranscript && result.text) {
+                        if (proc._onTranscript && typeof result.text === 'string') {
                             proc._onTranscript(result.text);
                         }
                     } catch (e) {
@@ -113,7 +113,7 @@ async function runBenchmark() {
     await generateTestAudio();
 
     console.log(`⏳ Loading model "${MODEL}" on ${DEVICE}...`);
-    const transcribe = await spawnTranscriber();
+    const transcriber = await spawnTranscriber();
     console.log('   → Model loaded.\n');
 
     // Warm-up run (model compilation / caching)

@@ -18,6 +18,9 @@ import json
 import numpy as np
 from faster_whisper import WhisperModel
 import argparse
+import threading
+import queue
+import time # Added for time.time()
 
 # Load environment variables from .env file
 def main():
@@ -57,47 +60,101 @@ def main():
     step_bytes   = int(STEP_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
 
     audio_buffer = b""
+    q = queue.Queue()
+
+    def reader_thread():
+        # Continuously read from stdin in small chunks and push to queue
+        while True:
+            chunk = sys.stdin.buffer.read(4096)
+            if not chunk:
+                q.put(None) # EOF sentinel
+                break
+            q.put(chunk)
+
+    t = threading.Thread(target=reader_thread, daemon=True)
+    t.start()
+
+    incoming = b""
 
     while True:
         try:
-            # Block until we get `step_bytes` of new audio
-            chunk = stdin.read(step_bytes)
-            if not chunk:
-                return  # EOF
+            # Accumulate exactly `step_bytes` safely from the queue
+            while len(incoming) < step_bytes:
+                try:
+                    # Block briefly to wait for audio
+                    chunk = q.get(timeout=0.5)
+                    if chunk is None:
+                        return # EOF
+                    incoming += chunk
+                except queue.Empty:
+                    # No audio arrived in 0.5s, just break out to avoid infinite hang 
+                    # and process whatever we have (or just wait on next iteration)
+                    pass
+                
+            if not incoming:
+                continue
 
-            audio_buffer += chunk
+            # Take exactly `step_bytes` from incoming
+            process_chunk = incoming[:step_bytes]
+            incoming = incoming[step_bytes:]
+            
+            audio_buffer += process_chunk
 
             # Keep only the last 3.0 seconds
             if len(audio_buffer) > window_bytes:
                 audio_buffer = audio_buffer[-window_bytes:]
 
-            # Only transcribe if we have a full buffer (or mostly full to start)
-            if len(audio_buffer) >= step_bytes:
-                # Convert 16-bit signed LE PCM to float32 numpy array
-                samples = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
+            # Ensure we have an even number of bytes for int16 parsing
+            safe_length = len(audio_buffer) - (len(audio_buffer) % 2)
+            if safe_length == 0:
+                continue
 
-                # Transcribe
-                # We use condition_on_previous_text=False to force it to treat the window independently
-                segments, _info = model.transcribe(
-                    samples, 
-                    beam_size=1, 
-                    language="en", 
-                    vad_filter=False, 
-                    condition_on_previous_text=False,
-                    initial_prompt=None
-                )
-                text = " ".join(seg.text.strip() for seg in segments).strip()
+            # Convert 16-bit signed LE PCM to float32 numpy array
+            samples = np.frombuffer(audio_buffer[:safe_length], dtype=np.int16).astype(np.float32) / 32768.0
 
-                # Send partial/window result as JSON line
-                sys.stdout.write(json.dumps({"text": text}) + "\n")
-                sys.stdout.flush()
+            # VAD / Silence Check: Whisper hallucinates or hangs on absolute silence
+            rms = np.sqrt(np.mean(samples**2))
+            if rms < 0.005:
+                # Send empty result to unblock any JS listeners waiting for 1:1 chunk responses
+                try:
+                    print('{"text": ""}', flush=True)
+                except:
+                    pass
+                continue
 
+            # Transcribe
+            # We use condition_on_previous_text=False to force it to treat the window independently
+            t0 = time.time()
+            segments, _info = model.transcribe(
+                samples, 
+                beam_size=1, 
+                language="en", 
+                vad_filter=False, 
+                condition_on_previous_text=False,
+                initial_prompt=None
+            )
+            t1 = time.time()
+            text = " ".join(seg.text.strip() for seg in segments).strip()
+
+            if t1 - t0 > 0.3:
+                sys.stderr.write(f"[transcribe_worker] WARNING: transcribe took {t1 - t0:.2f}s (falling behind >0.3s window!)\n")
+                sys.stderr.flush()
+
+            # Send partial/window result as JSON line
+            print(json.dumps({"text": text}), flush=True)
+
+        except BrokenPipeError:
+            # Node.js closed the pipe, exit cleanly
+            sys.stderr.write("[transcribe_worker] BrokenPipeError: Node.js closed the pipe. Exiting.\n")
+            break
         except Exception as e:
             sys.stderr.write(f"[transcribe_worker] Error: {e}\n")
             sys.stderr.flush()
             # Send empty so JS doesn't hang
-            sys.stdout.write(json.dumps({"text": ""}) + "\n")
-            sys.stdout.flush()
+            try:
+                print(json.dumps({"text": ""}), flush=True)
+            except:
+                pass
 
 
 

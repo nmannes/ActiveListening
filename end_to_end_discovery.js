@@ -100,7 +100,7 @@ const path = require('path');
         if (marketsWithStreams.length > 0) {
             logger.info('All matches:');
             marketsWithStreams.forEach(m => {
-                logger.info(` - ${m.title}`);
+                logger.info(` - ${m.title} ${new Date(m.eventStartTime).toLocaleString()}`);
 
             });
         }
