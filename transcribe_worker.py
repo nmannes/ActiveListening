@@ -47,55 +47,58 @@ def main():
 
     stdin = sys.stdin.buffer  # binary mode
 
+    # Sliding window streaming config
+    SAMPLE_RATE = 16000
+    BYTES_PER_SAMPLE = 2
+    WINDOW_SECS = 3.0           # 3-second rolling buffer
+    STEP_SECS = 0.3             # process every 300ms of new audio
+    
+    window_bytes = int(WINDOW_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
+    step_bytes   = int(STEP_SECS * SAMPLE_RATE * BYTES_PER_SAMPLE)
+
+    audio_buffer = b""
+
     while True:
         try:
-            # Read the header line (text): "AUDIO <num_bytes>\n"
-            header = b""
-            while True:
-                byte = stdin.read(1)
-                if not byte:
-                    # EOF — parent closed stdin, exit gracefully
-                    return
-                if byte == b"\n":
-                    break
-                header += byte
+            # Block until we get `step_bytes` of new audio
+            chunk = stdin.read(step_bytes)
+            if not chunk:
+                return  # EOF
 
-            header_str = header.decode("utf-8").strip()
-            if not header_str.startswith("AUDIO "):
-                sys.stderr.write(f"[transcribe_worker] Unknown header: {header_str}\n")
-                sys.stderr.flush()
-                continue
+            audio_buffer += chunk
 
-            num_bytes = int(header_str.split(" ", 1)[1])
+            # Keep only the last 3.0 seconds
+            if len(audio_buffer) > window_bytes:
+                audio_buffer = audio_buffer[-window_bytes:]
 
-            # Read exactly num_bytes of raw PCM data
-            pcm_data = b""
-            remaining = num_bytes
-            while remaining > 0:
-                chunk = stdin.read(remaining)
-                if not chunk:
-                    return  # EOF
-                pcm_data += chunk
-                remaining -= len(chunk)
+            # Only transcribe if we have a full buffer (or mostly full to start)
+            if len(audio_buffer) >= step_bytes:
+                # Convert 16-bit signed LE PCM to float32 numpy array
+                samples = np.frombuffer(audio_buffer, dtype=np.int16).astype(np.float32) / 32768.0
 
-            # Convert 16-bit signed LE PCM to float32 numpy array
-            samples = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32) / 32768.0
+                # Transcribe
+                # We use condition_on_previous_text=False to force it to treat the window independently
+                segments, _info = model.transcribe(
+                    samples, 
+                    beam_size=1, 
+                    language="en", 
+                    vad_filter=False, 
+                    condition_on_previous_text=False,
+                    initial_prompt=None
+                )
+                text = " ".join(seg.text.strip() for seg in segments).strip()
 
-            # Transcribe
-            segments, _info = model.transcribe(samples, beam_size=1, language="en", vad_filter=False)
-            text = " ".join(seg.text.strip() for seg in segments).strip()
-
-            # Send result as JSON line
-            result = json.dumps({"text": text})
-            sys.stdout.write(result + "\n")
-            sys.stdout.flush()
+                # Send partial/window result as JSON line
+                sys.stdout.write(json.dumps({"text": text}) + "\n")
+                sys.stdout.flush()
 
         except Exception as e:
             sys.stderr.write(f"[transcribe_worker] Error: {e}\n")
             sys.stderr.flush()
-            # Send empty result so Node doesn't hang waiting
+            # Send empty so JS doesn't hang
             sys.stdout.write(json.dumps({"text": ""}) + "\n")
             sys.stdout.flush()
+
 
 
 if __name__ == "__main__":

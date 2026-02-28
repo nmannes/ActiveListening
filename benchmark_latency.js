@@ -83,36 +83,23 @@ function spawnTranscriber() {
             if (line.trim() === 'READY') {
                 rl.removeListener('line', lineHandler);
 
-                const responseLines = [];
-                let responseResolve = null;
                 rl.on('line', (responseLine) => {
-                    if (responseResolve) {
-                        const cb = responseResolve;
-                        responseResolve = null;
-                        cb(responseLine);
-                    } else {
-                        responseLines.push(responseLine);
+                    try {
+                        const result = JSON.parse(responseLine);
+                        if (proc._onTranscript && result.text) {
+                            proc._onTranscript(result.text);
+                        }
+                    } catch (e) {
+                        // ignore parse errors
                     }
                 });
 
-                const transcribe = (pcmBuffer) => {
-                    return new Promise((res, rej) => {
-                        try {
-                            const header = `AUDIO ${pcmBuffer.length}\n`;
-                            proc.stdin.write(header);
-                            proc.stdin.write(pcmBuffer);
-                            if (responseLines.length > 0) {
-                                res(JSON.parse(responseLines.shift()));
-                            } else {
-                                responseResolve = (line) => {
-                                    try { res(JSON.parse(line)); } catch (e) { rej(e); }
-                                };
-                            }
-                        } catch (e) { rej(e); }
-                    });
+                const transcriber = {
+                    write: (pcmBuffer) => proc.stdin.write(pcmBuffer),
+                    onTranscript: (cb) => { proc._onTranscript = cb; },
+                    kill: () => proc.kill()
                 };
-                transcribe.kill = () => proc.kill();
-                resolve(transcribe);
+                resolve(transcriber);
             }
         };
         rl.on('line', lineHandler);
@@ -131,71 +118,70 @@ async function runBenchmark() {
 
     // Warm-up run (model compilation / caching)
     {
-        const warmup = Buffer.alloc(CHUNK_THRESHOLD, 0);
         console.log('🔥 Warm-up transcription (discarded)...');
+        const warmup = Buffer.alloc(16000 * 2 * 3, 0); // 3 seconds of silence
         const t0 = performance.now();
-        await transcribe(warmup);
+        await new Promise(res => {
+            transcriber.onTranscript(() => res());
+            transcriber.write(warmup);
+        });
         console.log(`   → ${(performance.now() - t0).toFixed(1)}ms\n`);
     }
 
     const pcmData = fs.readFileSync(TEST_AUDIO_PATH);
     const keywordLower = KEYWORD.toLowerCase();
 
-    // Split into chunks
+    // Split into 300ms chunks (to simulate continuous stream)
+    const STEP_SIZE = 16000 * 2 * 0.3;
     const chunks = [];
-    for (let offset = 0; offset < pcmData.length; offset += CHUNK_THRESHOLD) {
-        chunks.push(pcmData.subarray(offset, Math.min(offset + CHUNK_THRESHOLD, pcmData.length)));
+    for (let offset = 0; offset < pcmData.length; offset += STEP_SIZE) {
+        chunks.push(pcmData.subarray(offset, Math.min(offset + STEP_SIZE, pcmData.length)));
     }
-    console.log(`📊 Audio split into ${chunks.length} chunk(s) of ~2s each`);
+    console.log(`📊 Audio split into ${chunks.length} chunks of 300ms each`);
     console.log(`   Running ${RUNS} iterations...\n`);
 
     const allResults = [];
 
     for (let run = 0; run < RUNS; run++) {
-        const runResult = { chunks: [], totalMs: 0, detectedAt: null, detectedChunk: null };
-        const transcript = [];
-
+        const runResult = { chunks: [], totalMs: 0, detectedAt: null, firstDetectedText: null };
         const runStart = performance.now();
 
-        for (let i = 0; i < chunks.length; i++) {
-            const chunkStart = performance.now();
-
-            // ── Transcription ──
-            const result = await transcribe(chunks[i]);
-            const transcribeEnd = performance.now();
-            const transcribeMs = transcribeEnd - chunkStart;
-
-            const text = (result.text || '').trim();
-
-            // ── Keyword matching (mirrors server.js logic) ──
-            const matchStart = performance.now();
-            const words = text.split(' ');
+        await new Promise((resolveRun) => {
+            let chunkIdx = 0;
             let detected = false;
-            for (const word of words) {
-                const token = word.replace(/[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
-                if (!token) continue;
-                transcript.push(token);
-                if (token === keywordLower) {
-                    detected = true;
-                }
-            }
-            const matchMs = performance.now() - matchStart;
-            const totalChunkMs = performance.now() - chunkStart;
 
-            runResult.chunks.push({
-                chunk: i,
-                text,
-                transcribeMs,
-                matchMs,
-                totalChunkMs,
-                detected,
+            transcriber.onTranscript((text) => {
+                if (detected) return;
+
+                const words = text.split(' ');
+                for (const word of words) {
+                    const token = word.replace(/[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
+                    if (token === keywordLower) {
+                        detected = true;
+                        runResult.detectedAt = performance.now() - runStart;
+                        runResult.firstDetectedText = text;
+                        resolveRun();
+                        break;
+                    }
+                }
             });
 
-            if (detected && !runResult.detectedAt) {
-                runResult.detectedAt = performance.now() - runStart;
-                runResult.detectedChunk = i;
-            }
-        }
+            const feedNextChunk = () => {
+                if (detected || chunkIdx >= chunks.length) {
+                    if (!detected) resolveRun();
+                    return;
+                }
+
+                const chunkStart = performance.now();
+                transcriber.write(chunks[chunkIdx]);
+                chunkIdx++;
+
+                // Simulate real-time arrival of 300ms chunks
+                setTimeout(feedNextChunk, 300);
+            };
+
+            feedNextChunk();
+        });
 
         runResult.totalMs = performance.now() - runStart;
         allResults.push(runResult);
@@ -210,20 +196,16 @@ async function runBenchmark() {
     for (let r = 0; r < allResults.length; r++) {
         const run = allResults[r];
         console.log(`\n── Run ${r + 1} ──`);
-        for (const c of run.chunks) {
-            const flag = c.detected ? ' ✅ KEYWORD' : '';
-            console.log(`  Chunk ${c.chunk}: transcribe=${c.transcribeMs.toFixed(1)}ms  match=${c.matchMs.toFixed(2)}ms  text="${c.text}"${flag}`);
-        }
         if (run.detectedAt !== null) {
-            console.log(`  ⏱  Keyword detected at chunk ${run.detectedChunk} — ${run.detectedAt.toFixed(1)}ms from audio arrival`);
+            console.log(`  ⏱  Keyword detected at ${run.detectedAt.toFixed(1)}ms from audio start`);
+            console.log(`     Text: "${run.firstDetectedText}"`);
         } else {
             console.log(`  ⚠  Keyword "${KEYWORD}" not detected in transcription`);
         }
         summaryLines.push({
             run: r + 1,
             detectionMs: run.detectedAt,
-            totalMs: run.totalMs,
-            avgTranscribeMs: run.chunks.reduce((s, c) => s + c.transcribeMs, 0) / run.chunks.length,
+            totalMs: run.totalMs
         });
     }
 
@@ -232,7 +214,7 @@ async function runBenchmark() {
     console.log(' SUMMARY');
     console.log('═'.repeat(70));
     console.log(`  Model: ${MODEL} | Device: ${DEVICE} | Keyword: "${KEYWORD}"`);
-    console.log(`  Chunk size: ${(CHUNK_THRESHOLD / (16000 * 2)).toFixed(1)}s (${CHUNK_THRESHOLD} bytes)`);
+    console.log(`  Stream: 300ms continuous chunks`);
     console.log(`  Runs: ${RUNS} | Detected in: ${detected.length}/${RUNS}`);
 
     if (detected.length > 0) {
@@ -240,20 +222,18 @@ async function runBenchmark() {
         const avg = times.reduce((a, b) => a + b, 0) / times.length;
         const min = Math.min(...times);
         const max = Math.max(...times);
-        console.log(`\n  Audio-to-detection latency:`);
+        // We know the audio file is ~2.9s and the phrase "ankle" is around ~1.5s in.
+        // We measure absolute time from start of playback to detection.
+        console.log(`\n  Audio Start -> Keyword Detection latency:`);
         console.log(`    Min:  ${min.toFixed(1)}ms`);
         console.log(`    Avg:  ${avg.toFixed(1)}ms`);
         console.log(`    Max:  ${max.toFixed(1)}ms`);
-
-        const avgTranscribe = summaryLines.reduce((s, r) => s + r.avgTranscribeMs, 0) / summaryLines.length;
-        console.log(`\n  Avg transcription per 2s chunk: ${avgTranscribe.toFixed(1)}ms`);
-        console.log(`  Buffering overhead:             ${(CHUNK_THRESHOLD / (16000 * 2) * 1000).toFixed(0)}ms (fixed, waiting for audio to fill 2s)`);
-        console.log(`\n  ⏱  Total expected real-world latency = buffer (${(CHUNK_THRESHOLD / (16000 * 2) * 1000).toFixed(0)}ms) + transcription (~${avgTranscribe.toFixed(0)}ms) ≈ ${((CHUNK_THRESHOLD / (16000 * 2) * 1000) + avgTranscribe).toFixed(0)}ms`);
+        console.log(`\n  *Note: absolute latency includes the time it takes the TTS edge-voice to actually speak the word in the audio file (~1.5s) + model inference.*`);
     }
 
     console.log('');
 
-    transcribe.kill();
+    transcriber.kill();
     try { fs.unlinkSync(TEST_AUDIO_PATH); } catch { }
     process.exit(0);
 }

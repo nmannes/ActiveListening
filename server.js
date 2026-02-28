@@ -108,41 +108,25 @@ function spawnTranscriber() {
         const lineHandler = (line) => {
             if (line.trim() === 'READY') {
                 rl.removeListener('line', lineHandler);
-                // Set up the persistent line reader for transcription responses
-                const responseLines = [];
-                let responseResolve = null;
+
+                // Now, continuously listen for transcription results from Python
                 rl.on('line', (responseLine) => {
-                    if (responseResolve) {
-                        const cb = responseResolve;
-                        responseResolve = null;
-                        cb(responseLine);
-                    } else {
-                        responseLines.push(responseLine);
+                    try {
+                        const result = JSON.parse(responseLine);
+                        if (proc._onTranscript && result.text) {
+                            proc._onTranscript(result.text);
+                        }
+                    } catch (e) {
+                        logger.error(`Failed to parse worker response: ${responseLine}`);
                     }
                 });
-                const transcribe = (pcmBuffer) => {
-                    return new Promise((res, rej) => {
-                        try {
-                            const header = `AUDIO ${pcmBuffer.length}\n`;
-                            proc.stdin.write(header);
-                            proc.stdin.write(pcmBuffer);
-                            // Wait for the JSON response line
-                            if (responseLines.length > 0) {
-                                const line = responseLines.shift();
-                                res(JSON.parse(line));
-                            } else {
-                                responseResolve = (line) => {
-                                    try { res(JSON.parse(line)); } catch (e) { rej(e); }
-                                };
-                            }
-                        } catch (e) {
-                            rej(e);
-                        }
-                    });
+
+                const transcriber = {
+                    write: (pcmBuffer) => proc.stdin.write(pcmBuffer),
+                    onTranscript: (cb) => { proc._onTranscript = cb; },
+                    kill: () => proc.kill()
                 };
-                transcribe.kill = () => proc.kill();
-                transcribe.process = proc;
-                resolve(transcribe);
+                resolve(transcriber);
             }
         };
         rl.on('line', lineHandler);
@@ -195,7 +179,6 @@ function calculateRMS(buffer) {
         '--url', market.mediaStreamURL,
     ];
 
-    const CHUNK_THRESHOLD = 16000 * 2 * 1; // ~1 second of 16-bit audio (2 bytes/sample)
     const VAD_THRESHOLD = 0.005; // Lowered from 0.03 — quieter streams have RMS ~0.02
     const AUDIO_TIMEOUT_MS = 60_000; // 60 seconds with no audio = problem
     const RESPAWN_DELAY_MS = 3_000;
@@ -285,18 +268,66 @@ function calculateRMS(buffer) {
             logger.warn(`[${sessionId}] [server ffmpeg] exited with code ${code}`);
         });
 
+        // Set up the continuous receiver for transcription sliding window
+        if (transcriber) {
+            transcriber.onTranscript(async (text) => {
+                text = text.trim();
+                if (!text) return;
+
+                const session = state.get(sessionId);
+
+                // Because Python yields the *entire* 3-second window every 300ms,
+                // we see overlapping text. We only need to check if the keyword
+                // popped up. The exact alignment logic isn't strictly necessary 
+                // for simple keyword spotting since findKeywordMatch just checks the queue.
+                const words = text.split(' ');
+                for (const word of words) {
+                    const token = word.replace(/[!"#$%&'()*+,\-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
+                    if (!token) continue;
+
+                    // Deduplicate adjacent identical tokens (rudimentary overlapping fix)
+                    if (session.transcript.length > 0 && session.transcript[session.transcript.length - 1] === token) {
+                        continue;
+                    }
+
+                    session.transcript.push(token);
+                    if (session.transcript.length > 500) {
+                        session.transcript.shift();
+                    }
+
+                    const matched = findKeywordMatch(keywordIndex, session.transcript, token);
+                    if (matched) {
+                        logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${matched.key}"`);
+                        await handleSignal(kalshi, matched.key.toLowerCase(), matched.value, buyCount);
+                        removeFromIndex(keywordIndex, matched.key);
+                        logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
+                    }
+
+                    if (session.transcript.length % lastWordsCount === 0) {
+                        logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
+                    }
+                }
+            });
+        }
+
         let vadSkipCount = 0;
-        pcmSource.on('data', async (chunk) => {
+        let vadBuffer = [];
+        let vadBufferLen = 0;
+        // 16000 hz * 2 bytes = 32000 bytes/sec. We'll check VAD every 0.1 seconds (3200 bytes)
+        const VAD_CHUNK_SIZE = 3200;
+
+        pcmSource.on('data', (chunk) => {
             lastAudioTime = Date.now();
             pcmChunkCount++;
-            pcmBuffer.push(chunk);
-            const totalLength = pcmBuffer.reduce((acc, c) => acc + c.length, 0);
 
-            if (totalLength >= CHUNK_THRESHOLD) {
-                const fullBuffer = Buffer.concat(pcmBuffer);
-                pcmBuffer = [];
+            vadBuffer.push(chunk);
+            vadBufferLen += chunk.length;
 
-                // VAD Check
+            if (vadBufferLen >= VAD_CHUNK_SIZE) {
+                const fullBuffer = Buffer.concat(vadBuffer);
+                vadBuffer = [];
+                vadBufferLen = 0;
+
                 const rms = calculateRMS(fullBuffer);
                 if (rms < VAD_THRESHOLD) {
                     vadSkipCount++;
@@ -305,42 +336,11 @@ function calculateRMS(buffer) {
                     }
                     return;
                 }
+
+                // Active speech
                 vadSkipCount = 0;
-
                 if (transcriber) {
-                    try {
-                        const result = await transcriber(fullBuffer);
-                        const text = (result.text || '').trim();
-
-                        if (!text) return;
-
-                        const session = state.get(sessionId);
-
-                        const words = text.split(' ');
-                        for (const word of words) {
-                            const token = word.replace(/[!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~]/g, '').toLowerCase();
-                            if (!token) continue;
-
-                            session.transcript.push(token);
-                            if (session.transcript.length > 500) {
-                                session.transcript.shift();
-                            }
-
-                            const matched = findKeywordMatch(keywordIndex, session.transcript, token);
-                            if (matched) {
-                                logger.info(`[${sessionId}][SIGNAL] Detected keyword: "${matched.key}"`);
-                                await handleSignal(kalshi, matched.key.toLowerCase(), matched.value, buyCount);
-                                removeFromIndex(keywordIndex, matched.key);
-                                logger.info(`[${sessionId}][SIGNAL] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
-                            }
-
-                            if (session.transcript.length % lastWordsCount === 0) {
-                                logger.info(`[${sessionId}] last ${lastWordsCount} words: ${session.transcript.slice(-lastWordsCount).join(' ')}`);
-                            }
-                        }
-                    } catch (e) {
-                        logger.error({ err: e }, `[${sessionId}] Transcription error`);
-                    }
+                    transcriber.write(fullBuffer);
                 }
             }
         });
