@@ -114,13 +114,19 @@ echo "[5/6] Syncing code to remote instance..."
 # Ensure remote directory exists
 ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "mkdir -p $REMOTE_DIR"
 
-# Rsync (excluding node_modules and logs to save time)
+# Explicitly list files to copy
+FILES_TO_COPY=(
+    "remote_server.py"
+    "requirements.txt"
+    ".env.demo"
+    ".env.prod"
+    "demo_private_key.txt"
+    "prod_private_key.txt"
+)
+
 rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    --exclude "node_modules" \
-    --exclude "logs" \
-    --exclude ".git" \
-    --exclude "prod_private_key.txt" \
-    "$LOCAL_DIR/" "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
+    "${FILES_TO_COPY[@]}" \
+    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
 # --- 6. Start Server & Schedule Shutdown ---
 echo "[6/6] Starting server and scheduling auto-shutdown (30m)..."
@@ -141,8 +147,7 @@ ssh -i "$SSH_KEY_PATH" -f "$REMOTE_USER@$PUBLIC_IP" "bash -c '
 
     mkdir -p /home/ec2-user/kalshi/logs
     
-    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en --logFile /home/ec2-user/kalshi/logs/app.log &
-    echo \"Server started in background (\$DEVICE mode). Logs: /home/ec2-user/kalshi/logs/remote_gpu.log\"
+    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en &
 '"
 
 echo "--------------------------------------------------------"
