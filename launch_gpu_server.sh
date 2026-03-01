@@ -5,9 +5,34 @@
 set -e
 
 # --- Configuration ---
-ENV=${1:-demo} # Default to demo if no arg provided
+REGION="us-east-1"
+SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
+KEY_NAME="us-east-1" 
+SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
+LOCAL_DIR="$(pwd)"
+REMOTE_USER="ec2-user"
+REMOTE_DIR="/home/ec2-user/kalshi"
+
+# --- Subcommand: Destroy All ---
+if [[ "$1" == "--destroy-all" ]]; then
+    echo "Querying all instances in $REGION..."
+    INSTANCE_IDS=$(aws ec2 describe-instances \
+        --region "$REGION" \
+        --query 'Reservations[].Instances[?State.Name!=`terminated`].InstanceId' \
+        --output text)
+    if [ -z "$INSTANCE_IDS" ]; then
+        echo "No instances found to terminate."
+    else
+        echo "Terminating instances: $INSTANCE_IDS"
+        aws ec2 terminate-instances --region "$REGION" --instance-ids $INSTANCE_IDS
+    fi
+    exit 0
+fi
+
+# --- Environment Setup ---
+ENV=${1:-demo} 
 if [[ "$ENV" != "prod" && "$ENV" != "demo" ]]; then
-    echo "Usage: $0 [demo|prod]"
+    echo "Usage: $0 [demo|prod|--destroy-all]"
     exit 1
 fi
 
@@ -16,12 +41,6 @@ if [[ "$ENV" == "prod" ]]; then
 else
     INSTANCE_TYPE="t3.micro"
 fi
-REGION="us-east-1"
-SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
-KEY_NAME="us-east-1" 
-SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
-LOCAL_DIR="$(pwd)"
-REMOTE_USER="ec2-user"
 
 RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
 REMOTE_DIR="/home/ec2-user/kalshi"
@@ -81,19 +100,7 @@ AZ=$(echo "$DESCRIBE" | jq -r '.AZ')
 
 echo "Public IP: $PUBLIC_IP (AZ: $AZ)"
 
-# --- 4. Wait for SSH & Authorize via Instance Connect ---
-echo "[4/6] Authorizing SSH via Instance Connect..."
-
-# Derive public key from private key to ensure it matches
-PUB_KEY_FILE="/tmp/$(basename "$SSH_KEY_PATH").pub"
-ssh-keygen -y -f "$SSH_KEY_PATH" > "$PUB_KEY_FILE"
-
-aws ec2-instance-connect send-ssh-public-key \
-    --region "$REGION" \
-    --availability-zone "$AZ" \
-    --instance-id "$INSTANCE_ID" \
-    --instance-os-user "$REMOTE_USER" \
-    --ssh-public-key "file://$PUB_KEY_FILE"
+# --- 4. Wait for SSH
 
 echo "Waiting for SSH to become ready..."
 until nc -zvw3 "$PUBLIC_IP" 22 >/dev/null 2>&1; do
