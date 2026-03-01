@@ -140,10 +140,10 @@ function spawnFFmpeg() {
         '-i', STREAM_URL,
         // Output: raw AAC over UDP (matches RTP latency, no SDP required)
         '-map', '0:a:0',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-bsf:a', 'aac_adtstoasc',
-        '-f', 'mpegts', AUDIO_STREAM_OUT_URL.replace('rtp://', 'udp://')
+        '-c:a', 'pcm_s16le',
+        '-ar', '16000',
+        '-ac', '1',
+        '-f', 's16le', AUDIO_STREAM_OUT_URL.replace('rtp://', 'udp://')
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
