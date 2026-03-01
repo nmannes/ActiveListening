@@ -142,6 +142,7 @@ function spawnFFmpeg() {
         '-map', '0:a:0',
         '-c:a', 'aac',
         '-b:a', '128k',
+        '-bsf:a', 'aac_adtstoasc',
         '-f', 'mpegts', AUDIO_STREAM_OUT_URL.replace('rtp://', 'udp://')
     ];
 
