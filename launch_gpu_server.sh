@@ -19,28 +19,28 @@ fi
 REGION="us-east-1"
 SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
 KEY_NAME="us-east-1" 
-SSH_KEY_PATH="~/.ssh/us-east-1.pem" 
+SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
 LOCAL_DIR="$(pwd)"
 REMOTE_USER="ec2-user"
 
-RUN_ID=$(cat /proc/sys/kernel/random/uuid)
+RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
 REMOTE_DIR="/home/ec2-user/kalshi"
 
 echo "Deploying to environment: $ENV"
 
 # --- 0. Whitelist Current IP (Ephemeral) ---
-echo "[0/6] Ensuring local IP is whitelisted (ephemeral)..."
+echo "[0/6] Ensuring local IP is whitelisted (All Traffic)..."
 MY_IP=$(curl -s https://ifconfig.me)
 echo "Local IP: $MY_IP"
 
 
-# Attempt to authorize SSH
+# Attempt to authorize all traffic from current IP
 aws ec2 authorize-security-group-ingress \
     --region "$REGION" \
     --group-id "$SECURITY_GROUP" \
-    --protocol tcp \
-    --port 22 \
-    --cidr "${MY_IP}/32" 2>/dev/null || echo "Rule already exists (will still attempt to revoke on exit)"
+    --protocol -1 \
+    --port all \
+    --cidr "${MY_IP}/32" 2>/dev/null || echo "Rule already exists"
 
 # --- 1. Use Basic AMI ---
 echo "[1/6] Using basic Amazon Linux 2023 AMI..."
@@ -83,9 +83,6 @@ echo "Public IP: $PUBLIC_IP (AZ: $AZ)"
 
 # --- 4. Wait for SSH & Authorize via Instance Connect ---
 echo "[4/6] Authorizing SSH via Instance Connect..."
-
-# Re-enable ephemeral cleanup if it was removed
-trap cleanup EXIT
 
 # Derive public key from private key to ensure it matches
 PUB_KEY_FILE="/tmp/$(basename "$SSH_KEY_PATH").pub"
@@ -142,6 +139,7 @@ echo "--------------------------------------------------------"
 echo "Done! Server is running at $PUBLIC_IP:8090"
 echo "Environment: $ENV"
 echo "Instance will automatically stop in 30 minutes."
+echo "ssh -i \"$SSH_KEY_PATH\" $REMOTE_USER@$PUBLIC_IP"
 echo "To stop manually: aws ec2 terminate-instances --instance-ids $INSTANCE_ID"
 echo "--------------------------------------------------------"
 
