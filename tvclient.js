@@ -30,11 +30,6 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 const STREAM_URL = args.url;
 const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
 
-if (!STREAM_URL) {
-    console.error('Usage: node tvclient.js --url <tvheadend-url> --server <ws://host:port> --matchJSON <json>');
-    process.exit(1);
-}
-
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;
 if (args.fromFile) {
@@ -54,6 +49,13 @@ if (args.fromFile) {
     console.error('Must provide --matchJSON or --fromFile with market data');
     process.exit(1);
 }
+
+STREAM_URL = market.mediaStreamURL || market.channelURL || STREAM_URL;
+if (!STREAM_URL) {
+    console.error('Usage: node tvclient.js --url <tvheadend-url> --server <ws://host:port> --matchJSON <json>');
+    process.exit(1);
+}
+
 
 market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
 logger.info(`Market: ${market.title || market.slug}`);
