@@ -76,8 +76,6 @@ let isShuttingDown = false;
 
 // ── WebSocket connection with auto-reconnect ─────────────────────────
 let ws = null;
-let wsReady = false;
-let pendingChunks = [];
 
 function connectWebSocket() {
     if (isShuttingDown) return;
@@ -93,17 +91,6 @@ function connectWebSocket() {
             type: 'hello',
             market,
         }));
-
-        wsReady = true;
-
-        // Flush any audio chunks that arrived while disconnected
-        if (pendingChunks.length > 0) {
-            logger.info(`[ws] Flushing ${pendingChunks.length} buffered chunks`);
-            for (const chunk of pendingChunks) {
-                if (ws.readyState === WebSocket.OPEN) ws.send(chunk);
-            }
-            pendingChunks = [];
-        }
     });
 
     ws.on('message', (data) => {
@@ -123,31 +110,15 @@ function connectWebSocket() {
     });
 
     ws.on('close', (code) => {
-        wsReady = false;
         if (isShuttingDown) return;
         logger.warn(`[ws] Connection closed (code ${code}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`);
         setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
     });
 
     ws.on('error', (err) => {
-        wsReady = false;
         logger.error(`[ws] Error: ${err.message}`);
         // 'close' event will fire after this and trigger reconnect
     });
-}
-
-function sendAudio(chunk) {
-    if (wsReady && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(chunk);
-    } else {
-        // Buffer a limited amount while disconnected (keep last ~5s of compressed audio)
-        // Compressed AAC ≈ 3-6 KB/s, so ~30KB for 5s
-        pendingChunks.push(chunk);
-        const totalBytes = pendingChunks.reduce((sum, c) => sum + c.length, 0);
-        while (totalBytes > 30_000 && pendingChunks.length > 1) {
-            pendingChunks.shift();
-        }
-    }
 }
 
 // ── FFmpeg pipeline ──────────────────────────────────────────────────
@@ -178,26 +149,6 @@ function spawnFFmpeg() {
         stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    let lastAudioTime = Date.now();
-    let chunkCount = 0;
-
-    // Watchdog: detect stalled audio
-    const watchdog = setInterval(() => {
-        const silenceMs = Date.now() - lastAudioTime;
-        logger.info(`[health] silenceSec=${(silenceMs / 1000).toFixed(0)} chunks=${chunkCount} wsReady=${wsReady}`);
-        if (silenceMs > AUDIO_TIMEOUT_MS) {
-            logger.warn(`[health] No audio for ${(silenceMs / 1000).toFixed(0)}s — killing ffmpeg to respawn`);
-            ffmpeg.kill();
-        }
-    }, 30_000);
-
-    // Stream compressed audio to remote server
-    ffmpeg.stdout.on('data', (chunk) => {
-        lastAudioTime = Date.now();
-        chunkCount++;
-        sendAudio(chunk);
-    });
-
     ffmpeg.stderr.on('data', (data) => {
         const lines = data.toString().split('\n').filter(l => l.trim());
         for (const line of lines) {
@@ -206,7 +157,6 @@ function spawnFFmpeg() {
     });
 
     ffmpeg.on('close', (code) => {
-        clearInterval(watchdog);
         if (isShuttingDown) {
             logger.info(`[ffmpeg] Exited (code ${code}) — shutting down`);
             return;
