@@ -157,7 +157,7 @@ class AudioDecoder:
     thread-safe buffer, so the async event loop never blocks.
     """
 
-    def __init__(self, stream_url="udp://127.0.0.1:8092"):
+    def __init__(self, stream_url="udp://0.0.0.0:8092"):
         self.proc = subprocess.Popen(
             [
                 'ffmpeg',
@@ -477,7 +477,7 @@ async def main():
                                 decoder.kill()
 
                             # Start audio decoder listening for UDP on port 8092
-                            decoder = AudioDecoder(stream_url="udp://127.0.0.1:8092")
+                            decoder = AudioDecoder(stream_url="udp://0.0.0.0:8092")
 
                             # Start the background task that continuously processes the decoded PCM
                             audio_task = asyncio.create_task(audio_processing_loop(session_id, decoder, keyword_index))
