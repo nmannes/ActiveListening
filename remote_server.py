@@ -47,8 +47,7 @@ class KalshiClient:
     """Thin wrapper around the Kalshi Python sync SDK."""
 
     def __init__(self, key_id: str, private_key_path: str, environment: str = "prod"):
-        from kalshi_python_sync import Configuration, OrdersApi, MarketApi, PortfolioApi
-        from kalshi_python_sync.auth import KalshiAuth
+        from kalshi_python_sync import Configuration, ApiClient, OrdersApi, MarketApi, PortfolioApi
 
         self.key_id = key_id
         self.private_key_path = private_key_path
@@ -60,16 +59,16 @@ class KalshiClient:
             else "https://demo-api.kalshi.co/trade-api/v2"
         )
 
+        config = Configuration(host=base_path)
+        api_client = ApiClient(config)
+        
+        from kalshi_python_sync.auth import KalshiAuth
         private_key = Path(private_key_path).read_text()
-        config = Configuration(
-            base_path=base_path,
-            api_key=key_id,
-            private_key_pem=private_key,
-        )
+        api_client.kalshi_auth = KalshiAuth(key_id=key_id, private_key_pem=private_key)
 
-        self.orders_api = OrdersApi(config)
-        self.market_api = MarketApi(config)
-        self.portfolio_api = PortfolioApi(config)
+        self.orders_api = OrdersApi(api_client)
+        self.market_api = MarketApi(api_client)
+        self.portfolio_api = PortfolioApi(api_client)
         logger.info(f"Kalshi SDK initialized for {base_path}")
 
     def place_fill_or_kill_order(self, ticker: str, count: int, action: str = "buy",
