@@ -21,9 +21,10 @@ mkdir -p logs
 echo "$(date) —— Starting remote_setup.sh" > logs/remote_setup.log
 
 echo "Installing dependencies (this takes ~1-2 mins on fresh AMI)..."
-# On a base AMI, we also need to install python3-pip
-sudo dnf install -y python3-pip >> logs/remote_setup.log 2>&1
-pip3 install -r requirements.txt >> logs/remote_setup.log 2>&1
+# On Amazon Linux 2023, we need to enable the EPEL-like repos or just install ffmpeg
+# Actually, AL2023 has ffmpeg in some repos, but let's be safe.
+sudo dnf install -y python3-pip ffmpeg >> logs/remote_setup.log 2>&1
+pip3 install -r requirements.txt >> logs/remote_setup.log 2>&1 || (echo "Pip install failed" && exit 1)
 
 echo "Detecting hardware..."
 DEVICE="cpu"
