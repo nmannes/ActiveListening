@@ -27,7 +27,6 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
-const STREAM_URL = args.url;
 const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
 
 // ── Parse market data ────────────────────────────────────────────────
@@ -50,7 +49,7 @@ if (args.fromFile) {
     process.exit(1);
 }
 
-STREAM_URL = market.mediaStreamURL || market.channelURL || STREAM_URL;
+let STREAM_URL = args.url || market.mediaStreamURL || market.channelURL;
 if (!STREAM_URL) {
     console.error('Usage: node tvclient.js --url <tvheadend-url> --server <ws://host:port> --matchJSON <json>');
     process.exit(1);
