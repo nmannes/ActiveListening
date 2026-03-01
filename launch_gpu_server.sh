@@ -131,7 +131,7 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
 
 # --- 6. Start Server & Schedule Shutdown ---
 echo "[6/6] Running remote setup..."
-ssh -i "$SSH_KEY_PATH" "$REMOTE_USER@$PUBLIC_IP" "bash $REMOTE_DIR/remote_setup.sh $ENV $REMOTE_DIR"
+ssh -i "$SSH_KEY_PATH" "$REMOTE_USER@$PUBLIC_IP" "nohup bash $REMOTE_DIR/remote_setup.sh $ENV $REMOTE_DIR &"
 
 echo "--------------------------------------------------------"
 echo "Done! Server is running at $PUBLIC_IP:8090"
