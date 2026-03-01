@@ -119,6 +119,7 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     --exclude "node_modules" \
     --exclude "logs" \
     --exclude ".git" \
+    --exclude "prod_private_key.txt" 
     "$LOCAL_DIR/" "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
 # --- 6. Start Server & Schedule Shutdown ---
@@ -131,15 +132,17 @@ ssh -i "$SSH_KEY_PATH" -f "$REMOTE_USER@$PUBLIC_IP" "bash -c '
     echo \"Installing dependencies (this takes a moment on base AMI)...\"
     # On a base AMI, we also need to install python3-pip and potentially drivers
     sudo dnf install -y python3-pip > /dev/null
-    pip3 install -r requirements.txt --quiet
-    
+    pip3 install -r requirements.txt 
+
     echo \"Launching remote_server.py in environment: $ENV...\"
     # Note: On a base AMI with no drivers, we fallback to CPU for testing
     DEVICE=\"cpu\"
     if command -v nvidia-smi &> /dev/null; then DEVICE=\"cuda\"; fi
+
+    mkdir -p /home/ec2-user/kalshi/logs
     
-    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en > logs/remote_gpu.log 2>&1 &
-    echo \"Server started in background (\$DEVICE mode). Logs: $REMOTE_DIR/remote_gpu.log\"
+    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en -- logFile '/home/ec2-user/kalshi/logs/app.log' &
+    echo \"Server started in background (\$DEVICE mode). Logs: /home/ec2-user/kalshi/logs/remote_gpu.log\"
 '"
 
 echo "--------------------------------------------------------"
