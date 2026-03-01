@@ -142,7 +142,7 @@ function spawnFFmpeg() {
         '-map', '0:a:0',
         '-c:a', 'aac',
         '-b:a', '128k',
-        '-f', 'adts', AUDIO_STREAM_OUT_URL
+        '-f', 'adts', AUDIO_STREAM_OUT_URL.replace('rtp://', 'udp://')
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
