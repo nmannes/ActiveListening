@@ -139,7 +139,7 @@ ssh -i "$SSH_KEY_PATH" -f "$REMOTE_USER@$PUBLIC_IP" "bash -c '
     if command -v nvidia-smi &> /dev/null; then DEVICE=\"cuda\"; fi
     
     nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en > logs/remote_gpu.log 2>&1 &
-    echo \"Server started in background (\$DEVICE mode). Logs: $REMOTE_DIR/logs/remote_gpu.log\"
+    echo \"Server started in background (\$DEVICE mode). Logs: $REMOTE_DIR/remote_gpu.log\"
 '"
 
 echo "--------------------------------------------------------"
