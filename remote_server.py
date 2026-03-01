@@ -33,7 +33,7 @@ from faster_whisper import WhisperModel
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(message)s",
+    format="%(asctime)s.%(msecs)03d %(levelname)s [%(threadName)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stderr),
@@ -251,17 +251,23 @@ class Transcriber:
         self.sample_rate = 16000
         self.bytes_per_sample = 2
         self.window_secs = 3.0
-        self.step_secs = 0.3
+        self.step_secs = 1.0
         self.window_bytes = int(self.window_secs * self.sample_rate * self.bytes_per_sample)
         self.step_bytes = int(self.step_secs * self.sample_rate * self.bytes_per_sample)
 
         self.audio_buffer = b""
         self.incoming = b""
 
-    def feed(self, pcm_data: bytes) -> list[str]:
+    async def feed(self, pcm_data: bytes) -> list[str]:
         """Feed PCM data and return a list of transcription results (may be empty)."""
         self.incoming += pcm_data
         results = []
+
+        # Drop old audio if we are falling behind (max backlog 3 seconds)
+        max_backlog = int(3.0 * self.sample_rate * self.bytes_per_sample)
+        if len(self.incoming) > max_backlog:
+            logger.warning(f"Dropping {len(self.incoming) - max_backlog} bytes of backlog to catch up!")
+            self.incoming = self.incoming[-max_backlog:]
 
         while len(self.incoming) >= self.step_bytes:
             chunk = self.incoming[:self.step_bytes]
@@ -282,20 +288,23 @@ class Transcriber:
             if rms < 0.005:
                 continue
 
+            def do_transcribe():
+                segments, _ = self.model.transcribe(
+                    samples,
+                    beam_size=1,
+                    language="en",
+                    vad_filter=False,
+                    condition_on_previous_text=False,
+                    initial_prompt=None,
+                )
+                return " ".join(seg.text.strip() for seg in segments).strip()
+            
             t0 = time.time()
-            segments, _ = self.model.transcribe(
-                samples,
-                beam_size=1,
-                language="en",
-                vad_filter=False,
-                condition_on_previous_text=False,
-                initial_prompt=None,
-            )
-            text = " ".join(seg.text.strip() for seg in segments).strip()
+            text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
             t1 = time.time()
 
-            if t1 - t0 > 0.3:
-                logger.warning(f"Transcription took {t1 - t0:.2f}s (>0.3s window)")
+            if t1 - t0 > self.step_secs:
+                logger.warning(f"Transcription took {t1 - t0:.2f}s (>{self.step_secs}s step)")
 
             if text:
                 results.append(text)
@@ -427,7 +436,7 @@ async def main():
 
                     # Active speech — transcribe
                     vad_skip_count = 0
-                    texts = transcriber.feed(chunk)
+                    texts = await transcriber.feed(chunk)
 
                     for text in texts:
                         words = text.split()

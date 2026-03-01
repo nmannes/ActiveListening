@@ -27,7 +27,7 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
-const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
+const AUDIO_STREAM_OUT_URL = args.outUrl || 'rtp://100.114.211.32:8090';
 
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;
@@ -169,8 +169,7 @@ function spawnFFmpeg() {
         // Output: demux audio only, no transcoding
         '-map', '0:a:0',
         '-c:a', 'copy',
-        '-f', 'adts',
-        'pipe:1',
+        '-f', 'rtp', AUDIO_STREAM_OUT_URL
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
