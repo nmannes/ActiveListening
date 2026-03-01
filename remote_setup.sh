@@ -34,8 +34,4 @@ fi
 
 echo "Launching remote_server.py in environment: $ENV ($DEVICE mode)..."
 # Ensure the process survives the shell exit
-nohup python3 remote_server.py --env "$ENV" --device "$DEVICE" --model base.en >> "logs/remote_server.log" 2>&1 &
-disown
-
-echo "Server process started in background."
-echo "You can check progress with: tail -f $REMOTE_DIR/logs/remote_server.log"
+remote_server.py --env "$ENV" --device "$DEVICE" --model base.en >> "logs/remote_server.log" 2>&1
