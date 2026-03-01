@@ -30,7 +30,7 @@ if ! command -v ffmpeg &> /dev/null; then
     # URL for the BtbN build you mentioned
     URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
     curl -L -O "$URL"
-    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz
+    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz > /dev/null
     sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
     sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
     # Cleanup
