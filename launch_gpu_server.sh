@@ -141,7 +141,7 @@ ssh -i "$SSH_KEY_PATH" -f "$REMOTE_USER@$PUBLIC_IP" "bash -c '
 
     mkdir -p /home/ec2-user/kalshi/logs
     
-    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en --logFile '/home/ec2-user/kalshi/logs/app.log' &
+    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en --logFile /home/ec2-user/kalshi/logs/app.log &
     echo \"Server started in background (\$DEVICE mode). Logs: /home/ec2-user/kalshi/logs/remote_gpu.log\"
 '"
 
