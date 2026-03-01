@@ -19,11 +19,5 @@ fi
 echo "The following instances will be terminated:"
 echo "$INSTANCE_IDS"
 
-read -p "Are you sure you want to terminate these instances? (y/n) " -n 1 -r
-echo
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    aws ec2 terminate-instances --region "$REGION" --instance-ids $INSTANCE_IDS
-    echo "Termination signal sent."
-else
-    echo "Aborted."
-fi
+aws ec2 terminate-instances --region "$REGION" --instance-ids $INSTANCE_IDS
+echo "Termination signal sent."
