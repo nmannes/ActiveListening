@@ -3,8 +3,8 @@
  * tvclient.js — Local TVHeadEnd audio streamer
  *
  * Captures audio from a TVHeadEnd MPEG-TS stream via ffmpeg,
- * converts to raw PCM (s16le, 16kHz, mono), and streams it
- * over WebSocket to the remote trading server.
+ * demuxes the audio track (no transcoding), and streams the
+ * compressed audio over WebSocket to the remote server.
  *
  * Usage:
  *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --matchJSON <base64-or-json>
@@ -94,7 +94,7 @@ function connectWebSocket() {
 
         wsReady = true;
 
-        // Flush any PCM chunks that arrived while disconnected
+        // Flush any audio chunks that arrived while disconnected
         if (pendingChunks.length > 0) {
             logger.info(`[ws] Flushing ${pendingChunks.length} buffered chunks`);
             for (const chunk of pendingChunks) {
@@ -138,11 +138,11 @@ function sendAudio(chunk) {
     if (wsReady && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(chunk);
     } else {
-        // Buffer a limited amount while disconnected (keep last ~5s of audio)
-        // 16kHz * 2 bytes * 5s = 160,000 bytes
+        // Buffer a limited amount while disconnected (keep last ~5s of compressed audio)
+        // Compressed AAC ≈ 3-6 KB/s, so ~30KB for 5s
         pendingChunks.push(chunk);
         const totalBytes = pendingChunks.reduce((sum, c) => sum + c.length, 0);
-        while (totalBytes > 160_000 && pendingChunks.length > 1) {
+        while (totalBytes > 30_000 && pendingChunks.length > 1) {
             pendingChunks.shift();
         }
     }
@@ -165,12 +165,10 @@ function spawnFFmpeg() {
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
         '-i', STREAM_URL,
-        // Output: raw PCM to stdout
+        // Output: demux audio only, no transcoding
         '-map', '0:a:0',
-        '-f', 's16le',
-        '-acodec', 'pcm_s16le',
-        '-ar', '16000',
-        '-ac', '1',
+        '-c:a', 'copy',
+        '-f', 'adts',
         'pipe:1',
     ];
 
@@ -191,7 +189,7 @@ function spawnFFmpeg() {
         }
     }, 30_000);
 
-    // Stream PCM audio to remote server
+    // Stream compressed audio to remote server
     ffmpeg.stdout.on('data', (chunk) => {
         lastAudioTime = Date.now();
         chunkCount++;

@@ -2,8 +2,9 @@
 """
 remote_server.py — Remote WebSocket server for audio transcription & Kalshi trading
 
-Receives raw PCM audio (s16le, 16kHz, mono) from tvclient.js over WebSocket,
-transcribes in-process via faster-whisper, does keyword matching, and trades on Kalshi.
+Receives compressed audio (AAC/ADTS) from tvclient.js over WebSocket,
+decodes to PCM via ffmpeg, transcribes in-process via faster-whisper,
+does keyword matching, and trades on Kalshi.
 
 Usage:
     python3 remote_server.py --env prod --port 8090
@@ -18,6 +19,7 @@ import math
 import os
 import re
 import struct
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -141,6 +143,84 @@ def remove_from_index(index: dict, key: str):
 
 
 
+
+
+# ── Audio decoder ─────────────────────────────────────────────────────
+
+import os as _os
+import threading
+from collections import deque
+
+class AudioDecoder:
+    """Decodes compressed audio (AAC/ADTS) to raw PCM via ffmpeg subprocess.
+
+    Uses a background thread to read decoded PCM from ffmpeg stdout into a
+    thread-safe buffer, so the async event loop never blocks.
+    """
+
+    def __init__(self):
+        self.proc = subprocess.Popen(
+            [
+                'ffmpeg',
+                '-fflags', 'nobuffer',
+                '-flags', 'low_delay',
+                '-f', 'aac',
+                '-i', 'pipe:0',
+                '-f', 's16le',
+                '-acodec', 'pcm_s16le',
+                '-ar', '16000',
+                '-ac', '1',
+                'pipe:1',
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        self._pcm_chunks = deque()
+        self._lock = threading.Lock()
+        self._stopped = False
+
+        # Background thread reads decoded PCM continuously
+        self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader_thread.start()
+        logger.info("[decoder] ffmpeg audio decoder started")
+
+    def _reader_loop(self):
+        """Continuously read decoded PCM from ffmpeg stdout."""
+        while not self._stopped:
+            data = self.proc.stdout.read(3200)  # ~0.1s of 16kHz 16-bit mono
+            if not data:
+                break
+            with self._lock:
+                self._pcm_chunks.append(data)
+
+    def write(self, data: bytes):
+        """Feed compressed audio data to ffmpeg stdin."""
+        try:
+            self.proc.stdin.write(data)
+            self.proc.stdin.flush()
+        except BrokenPipeError:
+            logger.error("[decoder] ffmpeg stdin pipe broken")
+
+    def drain(self) -> bytes:
+        """Return all available decoded PCM without blocking."""
+        with self._lock:
+            if not self._pcm_chunks:
+                return b""
+            result = b"".join(self._pcm_chunks)
+            self._pcm_chunks.clear()
+            return result
+
+    def kill(self):
+        """Terminate the ffmpeg process."""
+        self._stopped = True
+        try:
+            self.proc.stdin.close()
+        except Exception:
+            pass
+        self.proc.kill()
+        self.proc.wait()
+        logger.info("[decoder] ffmpeg decoder stopped")
 
 
 # ── VAD ───────────────────────────────────────────────────────────────
@@ -271,6 +351,7 @@ async def main():
 
         session = None
         keyword_index = None
+        decoder = None
         transcript = []
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
@@ -303,6 +384,11 @@ async def main():
                                 json.dumps(keyword_index, indent=2, default=str)
                             )
 
+                            # Start audio decoder (compressed → PCM)
+                            if decoder:
+                                decoder.kill()
+                            decoder = AudioDecoder()
+
                             session = {
                                 "id": session_id,
                                 "market": market,
@@ -315,11 +401,19 @@ async def main():
                         logger.error(f"Handshake parse error: {e}")
                     continue
 
-                # ── Binary message: PCM audio ─────────────────────────
-                if session is None:
+                # ── Binary message: compressed audio ──────────────────
+                if session is None or decoder is None:
                     continue  # ignore audio before handshake
 
-                vad_buffer += message
+                # Feed compressed audio to ffmpeg decoder
+                decoder.write(message)
+
+                # Drain whatever PCM the background reader has decoded so far
+                pcm_data = decoder.drain()
+                if not pcm_data:
+                    continue
+
+                vad_buffer += pcm_data
 
                 while len(vad_buffer) >= VAD_CHUNK_SIZE:
                     chunk = vad_buffer[:VAD_CHUNK_SIZE]
@@ -393,6 +487,8 @@ async def main():
             pass
         finally:
             logger.info(f"[server] Client disconnected{f' ({session[\"id\"]})' if session else ''}")
+            if decoder:
+                decoder.kill()
 
     # ── Start server ──────────────────────────────────────────────────
     logger.info(f"WebSocket server listening on port {args.port}")
