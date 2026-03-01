@@ -151,27 +151,26 @@ import threading
 from collections import deque
 
 class AudioDecoder:
-    """Decodes compressed audio (AAC/ADTS) to raw PCM via ffmpeg subprocess.
+    """Decodes compressed audio (RTP/AAC) to raw PCM via ffmpeg subprocess.
 
     Uses a background thread to read decoded PCM from ffmpeg stdout into a
     thread-safe buffer, so the async event loop never blocks.
     """
 
-    def __init__(self):
+    def __init__(self, rtp_url="rtp://127.0.0.1:8092"):
         self.proc = subprocess.Popen(
             [
                 'ffmpeg',
-                '-fflags', 'nobuffer',
+                '-y',
+                '-fflags', 'nobuffer+genpts+discardcorrupt',
                 '-flags', 'low_delay',
-                '-f', 'aac',
-                '-i', 'pipe:0',
+                '-i', rtp_url,
                 '-f', 's16le',
                 '-acodec', 'pcm_s16le',
                 '-ar', '16000',
                 '-ac', '1',
                 'pipe:1',
             ],
-            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
@@ -182,7 +181,7 @@ class AudioDecoder:
         # Background thread reads decoded PCM continuously
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader_thread.start()
-        logger.info("[decoder] ffmpeg audio decoder started")
+        logger.info(f"[decoder] ffmpeg audio decoder started listening on {rtp_url}")
 
     def _reader_loop(self):
         """Continuously read decoded PCM from ffmpeg stdout."""
@@ -192,14 +191,6 @@ class AudioDecoder:
                 break
             with self._lock:
                 self._pcm_chunks.append(data)
-
-    def write(self, data: bytes):
-        """Feed compressed audio data to ffmpeg stdin."""
-        try:
-            self.proc.stdin.write(data)
-            self.proc.stdin.flush()
-        except BrokenPipeError:
-            logger.error("[decoder] ffmpeg stdin pipe broken")
 
     def drain(self) -> bytes:
         """Return all available decoded PCM without blocking."""
@@ -213,10 +204,6 @@ class AudioDecoder:
     def kill(self):
         """Terminate the ffmpeg process."""
         self._stopped = True
-        try:
-            self.proc.stdin.close()
-        except Exception:
-            pass
         self.proc.kill()
         self.proc.wait()
         logger.info("[decoder] ffmpeg decoder stopped")
@@ -363,11 +350,103 @@ async def main():
         transcript = []
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
-        # VAD state
-        VAD_THRESHOLD = 0.005
-        VAD_CHUNK_SIZE = 3200  # 0.1s at 16kHz 16-bit mono
-        vad_buffer = b""
-        vad_skip_count = 0
+        async def audio_processing_loop(session_id, decoder, keyword_index):
+            transcript.clear()
+            transcriber.reset()
+            logger.info(f"[{session_id}] Audio processing loop started")
+
+            vad_buffer = b""
+            vad_skip_count = 0
+            VAD_THRESHOLD = 0.005
+            VAD_CHUNK_SIZE = 3200  # 0.1s at 16kHz 16-bit mono
+
+            try:
+                while True:
+                    await asyncio.sleep(0.1) # Poll for decoded PCM periodically
+
+                    pcm_data = decoder.drain()
+                    if not pcm_data:
+                        continue
+
+                    vad_buffer += pcm_data
+
+                    while len(vad_buffer) >= VAD_CHUNK_SIZE:
+                        chunk = vad_buffer[:VAD_CHUNK_SIZE]
+                        vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
+
+                        rms = calculate_rms(chunk)
+                        if rms < VAD_THRESHOLD:
+                            vad_skip_count += 1
+                            if vad_skip_count % 50 == 1:
+                                logger.debug(f"[{session_id}] VAD silence skip #{vad_skip_count} (RMS: {rms:.4f})")
+                            continue
+
+                        # Active speech — transcribe
+                        vad_skip_count = 0
+                        texts = await transcriber.feed(chunk)
+
+                        for text in texts:
+                            words = text.split()
+                            for word in words:
+                                token = punct_re.sub("", word).lower()
+                                if not token:
+                                    continue
+
+                                # Deduplicate adjacent
+                                if transcript and transcript[-1] == token:
+                                    continue
+
+                                transcript.append(token)
+                                if len(transcript) > 500:
+                                    transcript.pop(0)
+
+                                matched = find_keyword_match(keyword_index, transcript, token)
+                                if matched:
+                                    logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
+
+                                    if trade_for_real:
+                                        try:
+                                            result = kalshi.place_fill_or_kill_order(
+                                                ticker=matched["value"],
+                                                count=args.buy_count,
+                                            )
+                                            logger.info(f"[TRADE] result: {result}")
+                                        except Exception as e:
+                                            logger.error(f"[TRADE] error: {e}")
+                                    else:
+                                        logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
+
+                                    remove_from_index(keyword_index, matched["key"])
+                                    logger.info(
+                                        f"[{session_id}][SIGNAL] last {args.last_words_count} words: "
+                                        f"{' '.join(transcript[-args.last_words_count:])}"
+                                    )
+
+                                    # Notify client
+                                    try:
+                                        await websocket.send(json.dumps({
+                                            "type": "signal",
+                                            "keyword": matched["key"],
+                                            "ticker": matched["value"],
+                                        }))
+                                    except websockets.exceptions.ConnectionClosed:
+                                        pass
+
+                                if len(transcript) % args.last_words_count == 0:
+                                    recent = " ".join(transcript[-args.last_words_count:])
+                                    logger.info(f"[{session_id}] last {args.last_words_count} words: {recent}")
+
+                                    try:
+                                        await websocket.send(json.dumps({
+                                            "type": "transcript",
+                                            "text": recent,
+                                        }))
+                                    except websockets.exceptions.ConnectionClosed:
+                                        pass
+            except asyncio.CancelledError:
+                logger.info(f"[{session_id}] Audio processing loop cancelled")
+
+        audio_task = None
 
         try:
             async for message in websocket:
@@ -392,109 +471,36 @@ async def main():
                                 json.dumps(keyword_index, indent=2, default=str)
                             )
 
-                            # Start audio decoder (compressed → PCM)
+                            if audio_task:
+                                audio_task.cancel()
                             if decoder:
                                 decoder.kill()
-                            decoder = AudioDecoder()
+
+                            # Start audio decoder listening for RTP on port 8092
+                            decoder = AudioDecoder(rtp_url="rtp://127.0.0.1:8092")
+
+                            # Start the background task that continuously processes the decoded PCM
+                            audio_task = asyncio.create_task(audio_processing_loop(session_id, decoder, keyword_index))
 
                             session = {
                                 "id": session_id,
                                 "market": market,
                             }
-                            transcript.clear()
-                            transcriber.reset()
 
-                            logger.info(f"[{session_id}] Session ready — waiting for audio")
+                            logger.info(f"[{session_id}] Session ready — waiting for RTP audio")
                     except Exception as e:
                         logger.error(f"Handshake parse error: {e}")
                     continue
 
-                # ── Binary message: compressed audio ──────────────────
-                if session is None or decoder is None:
-                    continue  # ignore audio before handshake
-
-                # Feed compressed audio to ffmpeg decoder
-                decoder.write(message)
-
-                # Drain whatever PCM the background reader has decoded so far
-                pcm_data = decoder.drain()
-                if not pcm_data:
-                    continue
-
-                vad_buffer += pcm_data
-
-                while len(vad_buffer) >= VAD_CHUNK_SIZE:
-                    chunk = vad_buffer[:VAD_CHUNK_SIZE]
-                    vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
-
-                    rms = calculate_rms(chunk)
-                    if rms < VAD_THRESHOLD:
-                        vad_skip_count += 1
-                        if vad_skip_count % 50 == 1:
-                            logger.debug(f"[{session['id']}] VAD silence skip #{vad_skip_count} (RMS: {rms:.4f})")
-                        continue
-
-                    # Active speech — transcribe
-                    vad_skip_count = 0
-                    texts = await transcriber.feed(chunk)
-
-                    for text in texts:
-                        words = text.split()
-                        for word in words:
-                            token = punct_re.sub("", word).lower()
-                            if not token:
-                                continue
-
-                            # Deduplicate adjacent
-                            if transcript and transcript[-1] == token:
-                                continue
-
-                            transcript.append(token)
-                            if len(transcript) > 500:
-                                transcript.pop(0)
-
-                            matched = find_keyword_match(keyword_index, transcript, token)
-                            if matched:
-                                logger.info(f"[{session['id']}][SIGNAL] Detected: \"{matched['key']}\"")
-
-                                if trade_for_real:
-                                    try:
-                                        result = kalshi.place_fill_or_kill_order(
-                                            ticker=matched["value"],
-                                            count=args.buy_count,
-                                        )
-                                        logger.info(f"[TRADE] result: {result}")
-                                    except Exception as e:
-                                        logger.error(f"[TRADE] error: {e}")
-                                else:
-                                    logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
-
-                                remove_from_index(keyword_index, matched["key"])
-                                logger.info(
-                                    f"[{session['id']}][SIGNAL] last {args.last_words_count} words: "
-                                    f"{' '.join(transcript[-args.last_words_count:])}"
-                                )
-
-                                # Notify client
-                                await websocket.send(json.dumps({
-                                    "type": "signal",
-                                    "keyword": matched["key"],
-                                    "ticker": matched["value"],
-                                }))
-
-                            if len(transcript) % args.last_words_count == 0:
-                                recent = " ".join(transcript[-args.last_words_count:])
-                                logger.info(f"[{session['id']}] last {args.last_words_count} words: {recent}")
-
-                                await websocket.send(json.dumps({
-                                    "type": "transcript",
-                                    "text": recent,
-                                }))
+                # ── Binary message: Ignored ───────────────────────────
+                logger.debug("Ignoring binary websocket message (audio should arrive via RTP)")
 
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
             logger.info(f"[server] Client disconnected{f' ({session['id']})' if session else ''}")
+            if audio_task:
+                audio_task.cancel()
             if decoder:
                 decoder.kill()
 

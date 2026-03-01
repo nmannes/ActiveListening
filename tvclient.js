@@ -59,7 +59,7 @@ if (!STREAM_URL) {
 market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
 logger.info(`Market: ${market.title || market.slug}`);
 logger.info(`Stream: ${STREAM_URL}`);
-logger.info(`Remote: ${SERVER_URL}`);
+logger.info(`Remote: ${AUDIO_STREAM_OUT_URL}`);
 
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require('./lib/orderbook_tracking');
@@ -81,8 +81,8 @@ let pendingChunks = [];
 function connectWebSocket() {
     if (isShuttingDown) return;
 
-    logger.info(`[ws] Connecting to ${SERVER_URL}...`);
-    ws = new WebSocket(SERVER_URL);
+    logger.info(`[ws] Connecting to ${AUDIO_STREAM_OUT_URL}...`);
+    ws = new WebSocket(AUDIO_STREAM_OUT_URL);
 
     ws.on('open', () => {
         logger.info(`[ws] Connected to remote server`);
