@@ -28,7 +28,7 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 }, {});
 
 const STREAM_URL = args.url;
-const SERVER_URL = args.server || 'ws://localhost:8090';
+const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
 
 if (!STREAM_URL) {
     console.error('Usage: node tvclient.js --url <tvheadend-url> --server <ws://host:port> --matchJSON <json>');
