@@ -27,7 +27,8 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
-const AUDIO_STREAM_OUT_URL = args.outUrl || 'rtp://100.114.211.32:8090';
+const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
+const AUDIO_STREAM_OUT_URL = args.outUrl || 'rtp://100.114.211.32:8092';
 
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;
@@ -81,8 +82,8 @@ let pendingChunks = [];
 function connectWebSocket() {
     if (isShuttingDown) return;
 
-    logger.info(`[ws] Connecting to ${AUDIO_STREAM_OUT_URL}...`);
-    ws = new WebSocket(AUDIO_STREAM_OUT_URL);
+    logger.info(`[ws] Connecting to ${SERVER_URL}...`);
+    ws = new WebSocket(SERVER_URL);
 
     ws.on('open', () => {
         logger.info(`[ws] Connected to remote server`);
