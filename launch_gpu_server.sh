@@ -99,6 +99,7 @@ PUBLIC_IP=$(echo "$DESCRIBE" | jq -r '.IP')
 AZ=$(echo "$DESCRIBE" | jq -r '.AZ')
 
 echo "Public IP: $PUBLIC_IP (AZ: $AZ)"
+echo "$PUBLIC_IP" > remote_server_ip.txt
 
 # --- 4. Wait for SSH
 

@@ -27,8 +27,14 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
-const SERVER_URL = args.server || 'ws://100.114.211.32:8090';
-const AUDIO_STREAM_OUT_URL = args.outUrl || 'rtp://100.114.211.32:8092';
+
+let REMOTE_IP_ADDRESS = args.ip;
+if (fs.existsSync('remote_server_ip.txt')) {
+    REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
+}
+
+
+const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
 
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;
@@ -60,7 +66,7 @@ if (!STREAM_URL) {
 market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
 logger.info(`Market: ${market.title || market.slug}`);
 logger.info(`Stream: ${STREAM_URL}`);
-logger.info(`Remote: ${AUDIO_STREAM_OUT_URL}`);
+logger.info(`Remote: ${REMOTE_URL}`);
 
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require('./lib/orderbook_tracking');
@@ -80,8 +86,8 @@ let ws = null;
 function connectWebSocket() {
     if (isShuttingDown) return;
 
-    logger.info(`[ws] Connecting to ${SERVER_URL}...`);
-    ws = new WebSocket(SERVER_URL);
+    logger.info(`[ws] Connecting to ${REMOTE_URL}...`);
+    ws = new WebSocket(REMOTE_URL);
 
     ws.on('open', () => {
         logger.info(`[ws] Connected to remote server`);
@@ -143,7 +149,7 @@ function spawnFFmpeg() {
         '-c:a', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
-        '-f', 's16le', AUDIO_STREAM_OUT_URL.replace('rtp://', 'udp://')
+        '-f', 's16le', REMOTE_URL.replace('rtp://', 'udp://')
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
