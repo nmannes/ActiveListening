@@ -23,7 +23,21 @@ echo "$(date) —— Starting remote_setup.sh" > logs/remote_setup.log
 echo "Installing dependencies (this takes ~1-2 mins on fresh AMI)..."
 # On Amazon Linux 2023, we need to enable the EPEL-like repos or just install ffmpeg
 # Actually, AL2023 has ffmpeg in some repos, but let's be safe.
-sudo dnf install -y python3-pip ffmpeg >> logs/remote_setup.log 2>&1
+
+# In remote_setup.sh, you could add something like this:
+if ! command -v ffmpeg &> /dev/null; then
+    echo "FFmpeg not found. Downloading static build..."
+    # URL for the BtbN build you mentioned
+    URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+    curl -L -O "$URL"
+    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz
+    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
+    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
+    # Cleanup
+    rm -rf ffmpeg-master-latest-linux64-gpl*
+fi
+
+sudo dnf install -y python3-pip >> logs/remote_setup.log 2>&1
 pip3 install -r requirements.txt >> logs/remote_setup.log 2>&1 || (echo "Pip install failed" && exit 1)
 
 echo "Detecting hardware..."

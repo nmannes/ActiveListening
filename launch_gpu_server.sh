@@ -11,7 +11,7 @@ KEY_NAME="us-east-1"
 SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
 LOCAL_DIR="$(pwd)"
 REMOTE_USER="ec2-user"
-REMOTE_DIR="/home/ec2-user/kalshi"
+REMOTE_DIR="/home/ec2-user"
 
 # --- Subcommand: Destroy All ---
 if [[ "$1" == "--destroy-all" ]]; then
@@ -43,7 +43,7 @@ else
 fi
 
 RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
-REMOTE_DIR="/home/ec2-user/kalshi"
+REMOTE_DIR="/home/ec2-user"
 
 echo "Deploying to environment: $ENV"
 
