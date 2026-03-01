@@ -501,7 +501,7 @@ async def main():
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            logger.info(f"[server] Client disconnected{f' ({session['id']})' if session else ''}")
+            logger.info(f"[server] Client disconnected {session['id'] if session else ''}")
             if audio_task:
                 audio_task.cancel()
             if decoder:
