@@ -157,14 +157,14 @@ class AudioDecoder:
     thread-safe buffer, so the async event loop never blocks.
     """
 
-    def __init__(self, rtp_url="rtp://127.0.0.1:8092"):
+    def __init__(self, stream_url="udp://127.0.0.1:8092"):
         self.proc = subprocess.Popen(
             [
                 'ffmpeg',
                 '-y',
                 '-fflags', 'nobuffer+genpts+discardcorrupt',
                 '-flags', 'low_delay',
-                '-i', rtp_url,
+                '-i', stream_url,
                 '-f', 's16le',
                 '-acodec', 'pcm_s16le',
                 '-ar', '16000',
@@ -181,7 +181,7 @@ class AudioDecoder:
         # Background thread reads decoded PCM continuously
         self._reader_thread = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader_thread.start()
-        logger.info(f"[decoder] ffmpeg audio decoder started listening on {rtp_url}")
+        logger.info(f"[decoder] ffmpeg audio decoder started listening on {stream_url}")
 
     def _reader_loop(self):
         """Continuously read decoded PCM from ffmpeg stdout."""
@@ -476,8 +476,8 @@ async def main():
                             if decoder:
                                 decoder.kill()
 
-                            # Start audio decoder listening for RTP on port 8092
-                            decoder = AudioDecoder(rtp_url="rtp://127.0.0.1:8092")
+                            # Start audio decoder listening for UDP on port 8092
+                            decoder = AudioDecoder(stream_url="udp://127.0.0.1:8092")
 
                             # Start the background task that continuously processes the decoded PCM
                             audio_task = asyncio.create_task(audio_processing_loop(session_id, decoder, keyword_index))
@@ -487,13 +487,13 @@ async def main():
                                 "market": market,
                             }
 
-                            logger.info(f"[{session_id}] Session ready — waiting for RTP audio")
+                            logger.info(f"[{session_id}] Session ready — waiting for UDP audio")
                     except Exception as e:
                         logger.error(f"Handshake parse error: {e}")
                     continue
 
                 # ── Binary message: Ignored ───────────────────────────
-                logger.debug("Ignoring binary websocket message (audio should arrive via RTP)")
+                logger.debug("Ignoring binary websocket message (audio should arrive via UDP)")
 
         except websockets.exceptions.ConnectionClosed:
             pass

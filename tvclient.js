@@ -167,10 +167,11 @@ function spawnFFmpeg() {
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
         '-i', STREAM_URL,
-        // Output: properly transcode to AAC to support ADTS container
+        // Output: raw AAC over UDP (matches RTP latency, no SDP required)
         '-map', '0:a:0',
-        '-c:a', 'copy',
-        '-f', 'rtp', AUDIO_STREAM_OUT_URL
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-f', 'adts', AUDIO_STREAM_OUT_URL
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
