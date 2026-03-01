@@ -165,6 +165,8 @@ class AudioDecoder:
                 '-fflags', 'nobuffer+genpts+discardcorrupt',
                 '-flags', 'low_delay',
                 '-i', stream_url,
+                '-vn',
+                '-map', '0:a',
                 '-f', 's16le',
                 '-acodec', 'pcm_s16le',
                 '-ar', '16000',
