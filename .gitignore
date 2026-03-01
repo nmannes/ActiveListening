@@ -6,6 +6,8 @@ received_stream.webm
 models/
 
 *.txt
+!requirements.txt
+
 *.json
 *.db
 *.log
