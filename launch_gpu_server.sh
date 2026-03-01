@@ -118,6 +118,7 @@ ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "mk
 FILES_TO_COPY=(
     "remote_server.py"
     "requirements.txt"
+    "remote_setup.sh"
     ".env.demo"
     ".env.prod"
     "demo_private_key.txt"
@@ -129,26 +130,8 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
 # --- 6. Start Server & Schedule Shutdown ---
-echo "[6/6] Starting server and scheduling auto-shutdown (30m)..."
-ssh -i "$SSH_KEY_PATH" -f "$REMOTE_USER@$PUBLIC_IP" "bash -c '
-    cd $REMOTE_DIR
-    echo \"Scheduling shutdown in 30 minutes...\"
-    sudo shutdown -h +30
-    
-    echo \"Installing dependencies (this takes a moment on base AMI)...\"
-    # On a base AMI, we also need to install python3-pip and potentially drivers
-    sudo dnf install -y python3-pip > /dev/null
-    pip3 install -r requirements.txt 
-
-    echo \"Launching remote_server.py in environment: $ENV...\"
-    # Note: On a base AMI with no drivers, we fallback to CPU for testing
-    DEVICE=\"cpu\"
-    if command -v nvidia-smi &> /dev/null; then DEVICE=\"cuda\"; fi
-
-    mkdir -p /home/ec2-user/kalshi/logs
-    
-    nohup python3 remote_server.py --env $ENV --device \$DEVICE --model base.en &
-'"
+echo "[6/6] Running remote setup..."
+ssh -i "$SSH_KEY_PATH" "$REMOTE_USER@$PUBLIC_IP" "bash $REMOTE_DIR/remote_setup.sh $ENV $REMOTE_DIR"
 
 echo "--------------------------------------------------------"
 echo "Done! Server is running at $PUBLIC_IP:8090"
