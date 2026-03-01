@@ -172,7 +172,6 @@ class AudioDecoder:
                 'pipe:1',
             ],
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
         )
         self._pcm_chunks = deque()
         self._lock = threading.Lock()
