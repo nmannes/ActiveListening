@@ -157,10 +157,11 @@ function spawnFFmpeg() {
 
     const ffmpegArgs = [
         '-y',
-        // Increased probesize/analyzeduration for MPEG-TS reliability
-        '-fflags', '+genpts+discardcorrupt',
-        '-probesize', '100M',
-        '-analyzeduration', '100M',
+        // Minimize latency
+        '-fflags', 'nobuffer+genpts+discardcorrupt',
+        '-flags', 'low_delay',
+        '-probesize', '32',
+        '-analyzeduration', '0',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
@@ -171,6 +172,7 @@ function spawnFFmpeg() {
         '-b:a', '128k',
         '-ac', '2',
         '-f', 'adts',
+        '-flush_packets', '1',
         'pipe:1',
     ];
 
