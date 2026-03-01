@@ -157,8 +157,8 @@ function spawnFFmpeg() {
 
     const ffmpegArgs = [
         '-y',
-        // Low-latency input flags
-        '-fflags', 'nobuffer',
+        // Minimize latency
+        '-fflags', 'nobuffer+genpts+discardcorrupt',
         '-flags', 'low_delay',
         '-probesize', '32',
         '-analyzeduration', '0',
@@ -166,7 +166,7 @@ function spawnFFmpeg() {
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
         '-i', STREAM_URL,
-        // Output: demux audio only, no transcoding
+        // Output: properly transcode to AAC to support ADTS container
         '-map', '0:a:0',
         '-c:a', 'copy',
         '-f', 'rtp', AUDIO_STREAM_OUT_URL
