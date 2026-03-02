@@ -31,12 +31,16 @@ fi
 
 # --- Environment Setup ---
 ENV=${1:-demo} 
-if [[ "$ENV" != "prod" && "$ENV" != "demo" ]]; then
-    echo "Usage: $0 [demo|prod|--destroy-all]"
+INSTANCE_TYPE_ARG=$2
+
+if [[ "$ENV" != "prod" && "$ENV" != "demo" && "$ENV" != "--destroy-all" ]]; then
+    echo "Usage: $0 [demo|prod|--destroy-all] [instance_type]"
     exit 1
 fi
 
-if [[ "$ENV" == "prod" ]]; then
+if [[ -n "$INSTANCE_TYPE_ARG" ]]; then
+    INSTANCE_TYPE="$INSTANCE_TYPE_ARG"
+elif [[ "$ENV" == "prod" ]]; then
     INSTANCE_TYPE="g6.xlarge"
 else
     INSTANCE_TYPE="t3.micro"
