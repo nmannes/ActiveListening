@@ -391,20 +391,86 @@ async def main():
         async def audio_processing_loop(session_id, decoder, keyword_index):
             transcript.clear()
             transcriber.reset()
-            logger.info(f"[{session_id}] Audio processing loop started")
+            logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
             vad_buffer = b""
-            vad_skip_count = 0
+            speech_buffer = b""
+            silence_counter = 0
+
+            # Constants
             VAD_THRESHOLD = 0.005
             VAD_CHUNK_SIZE = 3200  # 0.1s at 16kHz 16-bit mono
+            # Strategy parameters for Real-Time (GPU) mode
+            MAX_SILENCE_CHUNKS = 3  # ~0.3s pause triggers transcription
+            MAX_SPEECH_CHUNKS = 25  # ~2.5s force transcription if talking continuously
+
+            async def process_text(text: str):
+                if not text:
+                    return
+                
+                words = text.split()
+                new_tokens = []
+                for word in words:
+                    token = punct_re.sub("", word).lower()
+                    if not token:
+                        continue
+
+                    # Deduplicate adjacent
+                    if transcript and transcript[-1] == token:
+                        continue
+                    if new_tokens and new_tokens[-1] == token:
+                        continue
+
+                    transcript.append(token)
+                    new_tokens.append(token)
+                    if len(transcript) > 500:
+                        transcript.pop(0)
+
+                    matched = find_keyword_match(keyword_index, transcript, token)
+                    if matched:
+                        logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
+
+                        if trade_for_real:
+                            try:
+                                kalshi.place_fill_or_kill_order(
+                                    ticker=matched["value"],
+                                    count=args.buy_count,
+                                )
+                                logger.info(f"[TRADE] Successfully placed order for {matched['value']}")
+                            except Exception as e:
+                                logger.error(f"[TRADE] Error placing order: {e}")
+                        else:
+                            logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
+
+                        remove_from_index(keyword_index, matched["key"])
+                        
+                        # Notify client
+                        try:
+                            await websocket.send(json.dumps({
+                                "type": "signal",
+                                "keyword": matched["key"],
+                                "ticker": matched["value"],
+                            }))
+                        except websockets.exceptions.ConnectionClosed:
+                            pass
+
+                if new_tokens:
+                    recent = " ".join(transcript[-args.last_words_count:])
+                    logger.info(f"[{session_id}] Transcript: {text} (Last {args.last_words_count}: {recent})")
+                    try:
+                        await websocket.send(json.dumps({
+                            "type": "transcript",
+                            "text": " ".join(new_tokens),
+                        }))
+                    except websockets.exceptions.ConnectionClosed:
+                        pass
 
             async def telemetry_loop():
                 while True:
                     await asyncio.sleep(5)
                     try:
-                        # VAD backlog in ms
+                        # Backlog in ms
                         vad_lag_ms = (len(vad_buffer) / (16000 * 2)) * 1000
-                        # Decoder backlog in ms (approx)
                         with decoder._lock:
                             decoder_lag_ms = (len(decoder._pcm_chunks) * 3200 / (16000 * 2)) * 1000
                         
@@ -421,95 +487,58 @@ async def main():
 
             try:
                 while True:
-                    await asyncio.sleep(0.1) # Poll for decoded PCM periodically
+                    await asyncio.sleep(0.05) # Poll faster for lower latency
 
                     pcm_data = decoder.drain()
                     if not pcm_data:
+                        # Even if no data, check if we need to flush the GPU speech buffer
+                        if transcriber.device == "cuda" and speech_buffer and silence_counter >= MAX_SILENCE_CHUNKS:
+                            text = await transcriber.transcribe_raw(speech_buffer)
+                            speech_buffer = b""
+                            silence_counter = 0
+                            await process_text(text)
                         continue
 
                     vad_buffer += pcm_data
 
-                    # Cap VAD backlog to ~2 seconds (32000 samples @ 16kHz)
-                    # This prevents the system from trying to "catch up" on minutes of old audio
-                    MAX_VAD_BACKLOG = VAD_CHUNK_SIZE * 20 
-                    if len(vad_buffer) > MAX_VAD_BACKLOG:
-                        logger.warning(f"[{session_id}] VAD backlog too large ({len(vad_buffer)} bytes), truncating to last {VAD_CHUNK_SIZE * 5} bytes")
-                        vad_buffer = vad_buffer[-(VAD_CHUNK_SIZE * 5):]
-
+                    # Buffer management (safety cap)
+                    if len(vad_buffer) > VAD_CHUNK_SIZE * 50:
+                        vad_buffer = vad_buffer[-(VAD_CHUNK_SIZE * 10):]
 
                     while len(vad_buffer) >= VAD_CHUNK_SIZE:
                         chunk = vad_buffer[:VAD_CHUNK_SIZE]
                         vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
 
                         rms = calculate_rms(chunk)
-                        if rms < VAD_THRESHOLD:
-                            vad_skip_count += 1
-                            if vad_skip_count % 50 == 1:
-                                logger.debug(f"[{session_id}] VAD silence skip #{vad_skip_count} (RMS: {rms:.4f})")
-                            continue
-
-                        # Active speech — transcribe
-                        vad_skip_count = 0
-                        texts = await transcriber.feed(chunk)
-
-                        for text in texts:
-                            words = text.split()
-                            for word in words:
-                                token = punct_re.sub("", word).lower()
-                                if not token:
-                                    continue
-
-                                # Deduplicate adjacent
-                                if transcript and transcript[-1] == token:
-                                    continue
-
-                                transcript.append(token)
-                                if len(transcript) > 500:
-                                    transcript.pop(0)
-
-                                matched = find_keyword_match(keyword_index, transcript, token)
-                                if matched:
-                                    logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
-
-                                    if trade_for_real:
-                                        try:
-                                            result = kalshi.place_fill_or_kill_order(
-                                                ticker=matched["value"],
-                                                count=args.buy_count,
-                                            )
-                                            logger.info(f"[TRADE] result: {result}")
-                                        except Exception as e:
-                                            logger.error(f"[TRADE] error: {e}")
-                                    else:
-                                        logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
-
-                                    remove_from_index(keyword_index, matched["key"])
-                                    logger.info(
-                                        f"[{session_id}][SIGNAL] last {args.last_words_count} words: "
-                                        f"{' '.join(transcript[-args.last_words_count:])}"
-                                    )
-
-                                    # Notify client
-                                    try:
-                                        await websocket.send(json.dumps({
-                                            "type": "signal",
-                                            "keyword": matched["key"],
-                                            "ticker": matched["value"],
-                                        }))
-                                    except websockets.exceptions.ConnectionClosed:
-                                        pass
-
-                                if len(transcript) % args.last_words_count == 0:
-                                    recent = " ".join(transcript[-args.last_words_count:])
-                                    logger.info(f"[{session_id}] last {args.last_words_count} words: {recent}")
-
-                                    try:
-                                        await websocket.send(json.dumps({
-                                            "type": "transcript",
-                                            "text": recent,
-                                        }))
-                                    except websockets.exceptions.ConnectionClosed:
-                                        pass
+                        
+                        if transcriber.device == "cuda":
+                            # --- GPU REAL-TIME MODE (Accumulate phrases) ---
+                            if rms >= VAD_THRESHOLD:
+                                speech_buffer += chunk
+                                silence_counter = 0
+                                
+                                # Force transcription if speech segment is getting long
+                                if len(speech_buffer) >= VAD_CHUNK_SIZE * MAX_SPEECH_CHUNKS:
+                                    text = await transcriber.transcribe_raw(speech_buffer)
+                                    # Clear buffer but keep a small overlap? For now just clear.
+                                    speech_buffer = b"" 
+                                    await process_text(text)
+                            else:
+                                if speech_buffer:
+                                    speech_buffer += chunk # include trailing silence
+                                    silence_counter += 1
+                                    if silence_counter >= MAX_SILENCE_CHUNKS:
+                                        text = await transcriber.transcribe_raw(speech_buffer)
+                                        speech_buffer = b""
+                                        silence_counter = 0
+                                        await process_text(text)
+                        else:
+                            # --- CPU SLIDING WINDOW MODE ---
+                            if rms < VAD_THRESHOLD:
+                                continue
+                            texts = await transcriber.feed(chunk)
+                            for t in texts:
+                                await process_text(t)
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
             finally:
