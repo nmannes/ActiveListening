@@ -320,6 +320,7 @@ async def main():
     parser.add_argument("--port", type=int, default=8090, help="WebSocket listen port")
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
     parser.add_argument("--model", type=str, default="base.en", help="Whisper model name")
+    parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
     parser.add_argument("--buy-count", type=int, default=5)
     parser.add_argument("--last-words-count", type=int, default=7)
     args = parser.parse_args()
@@ -337,9 +338,8 @@ async def main():
     logger.info(f"Environment: {args.env}")
     logger.info(f"Trading enabled: {trade_for_real}")
 
-    use_device = os.environ.get("DEVICE", "cpu")
     # Init transcriber
-    transcriber = Transcriber(model_size=args.model, device=use_device)
+    transcriber = Transcriber(model_size=args.model, device=args.device)
 
     # Init Kalshi client
     kalshi = KalshiClient(
