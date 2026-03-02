@@ -350,7 +350,7 @@ async def main():
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
     parser.add_argument("--model", type=str, default="base.en", help="Whisper model name")
     parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
-    parser.add_argument("--buy-count", type=int, default=5)
+    parser.add_argument("--buy-count", type=int, default=1)
     parser.add_argument("--last-words-count", type=int, default=7)
     args = parser.parse_args()
 
@@ -541,6 +541,8 @@ async def main():
                                 await process_text(t)
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
+            except Exception as e:
+                logger.exception(f"[{session_id}] Unexpected error in audio_processing_loop: {e}")
             finally:
                 if 'telemetry_task' in locals():
                     telemetry_task.cancel()

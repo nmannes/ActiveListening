@@ -42,6 +42,14 @@ DEVICE="cpu"
 if command -v nvidia-smi &> /dev/null; then 
     DEVICE="cuda"
     echo "Found GPU, setting DEVICE to cuda"
+    echo "Installing CUDA libraries via pip..."
+    pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12 >> logs/remote_setup.log 2>&1
+    
+    # Configure LD_LIBRARY_PATH for the remote_server.py process
+    CUDA_PATHS=$(python3 -c 'import os; import nvidia.cublas.lib; import nvidia.cudnn.lib; print(os.path.dirname(nvidia.cublas.lib.__file__) + ":" + os.path.dirname(nvidia.cudnn.lib.__file__))' 2>/dev/null)
+    if [ ! -z "$CUDA_PATHS" ]; then
+        echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" >> ~/.bashrc
+    fi
 fi
 
 echo "export ENV=$ENV" >> ~/.bashrc
