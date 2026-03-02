@@ -30,11 +30,21 @@ if [[ "$1" == "--destroy-all" ]]; then
 fi
 
 # --- Environment Setup ---
-ENV=${1:-demo} 
-INSTANCE_TYPE_ARG=$2
+ENV="demo"
+INSTANCE_TYPE_ARG=""
+USE_SPOT=false
+
+for arg in "$@"; do
+    case $arg in
+        prod|demo) ENV=$arg ;;
+        --spot) USE_SPOT=true ;;
+        --destroy-all) ENV="--destroy-all" ;;
+        *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
+    esac
+done
 
 if [[ "$ENV" != "prod" && "$ENV" != "demo" && "$ENV" != "--destroy-all" ]]; then
-    echo "Usage: $0 [demo|prod|--destroy-all] [instance_type]"
+    echo "Usage: $0 [demo|prod|--destroy-all] [instance_type] [--spot]"
     exit 1
 fi
 
@@ -44,6 +54,11 @@ elif [[ "$ENV" == "prod" ]]; then
     INSTANCE_TYPE="g6.xlarge"
 else
     INSTANCE_TYPE="t3.micro"
+fi
+
+SPOT_OPTIONS=""
+if [[ "$USE_SPOT" == true ]]; then
+    SPOT_OPTIONS="--instance-market-options '{\"MarketType\": \"spot\"}'"
 fi
 
 RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
@@ -72,17 +87,18 @@ AMI_ID="ami-0f3caa1cf4417e51b"
 echo "Using AMI: $AMI_ID"
 
 # --- 2. Launch Instance ---
-echo "[2/6] Launching $INSTANCE_TYPE in $REGION..."
-RUN_INSTANCES=$(aws ec2 run-instances \
+echo "[2/6] Launching $INSTANCE_TYPE in $REGION (Spot: $USE_SPOT)..."
+RUN_INSTANCES=$(eval aws ec2 run-instances \
     --region "$REGION" \
     --image-id "$AMI_ID" \
     --instance-type "$INSTANCE_TYPE" \
     --security-group-ids "$SECURITY_GROUP" \
     --key-name "$KEY_NAME" \
     --count 1 \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=Kalshi-Worker-$RUN_ID}]" \
-    --metadata-options '{"HttpEndpoint":"enabled","HttpTokens":"required"}' \
-    --query 'Instances[0].[InstanceId]' \
+    --tag-specifications "'ResourceType=instance,Tags=[{Key=Name,Value=Kalshi-Worker-$RUN_ID}]'" \
+    --metadata-options "'{\"HttpEndpoint\":\"enabled\",\"HttpTokens\":\"required\"}'" \
+    $SPOT_OPTIONS \
+    --query "'Instances[0].[InstanceId]'" \
     --output text)
 
 INSTANCE_ID=$(echo "$RUN_INSTANCES" | tail -n1)
