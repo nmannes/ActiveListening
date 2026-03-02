@@ -142,4 +142,4 @@ echo "To stop manually: aws ec2 terminate-instances --instance-ids $INSTANCE_ID"
 echo "--------------------------------------------------------"
 
 
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP
+ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "cd $REMOTE_DIR && bash remote_setup.sh $ENV $REMOTE_DIR"

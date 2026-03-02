@@ -48,8 +48,3 @@ fi
 
 echo "export ENV=$ENV" >> ~/.bashrc
 echo "export DEVICE=$DEVICE" >> ~/.bashrc
-
-
-echo "Launching remote_server.py in environment: $ENV ($DEVICE mode)..."
-# Ensure the process survives the shell exit
-python3 remote_server.py --env "$ENV" --device "$DEVICE" --model base.en >> "logs/remote_server.log" 2>&1 &
