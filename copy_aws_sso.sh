@@ -35,6 +35,8 @@ rsync -avz --exclude 'cli/cache' -e "ssh -o StrictHostKeyChecking=no" \
     "$LOCAL_AWS_DIR/" \
     "$REMOTE_USER@$REMOTE_HOST:~/.aws/"
 
+scp $HOME/.ssh/us-east-1.pem $REMOTE_USER@$REMOTE_HOST:~/.ssh/
+
 echo "--------------------------------------------------------"
 echo "Success! AWS configurations synced to $REMOTE_HOST"
 echo "--------------------------------------------------------"
