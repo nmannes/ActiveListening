@@ -158,6 +158,7 @@ class AudioDecoder:
     """
 
     def __init__(self, stream_url="udp://0.0.0.0:8092"):
+        self.ffmpeg_log = open("ffmpeg.log", "a")
         self.proc = subprocess.Popen(
             [
                 'ffmpeg',
@@ -176,6 +177,7 @@ class AudioDecoder:
                 'pipe:1',
             ],
             stdout=subprocess.PIPE,
+            stderr=self.ffmpeg_log,
         )
         self._pcm_chunks = deque()
         self._lock = threading.Lock()
@@ -209,6 +211,8 @@ class AudioDecoder:
         self._stopped = True
         self.proc.kill()
         self.proc.wait()
+        if hasattr(self, 'ffmpeg_log'):
+            self.ffmpeg_log.close()
         logger.info("[decoder] ffmpeg decoder stopped")
 
 
@@ -294,7 +298,7 @@ class Transcriber:
             t1 = time.time()
 
             if t1 - t0 > self.step_secs:
-                logger.warning(f"Transcription took {t1 - t0:.2f}s (>{self.step_secs}s step)")
+                logger.debug(f"Transcription took {t1 - t0:.2f}s (>{self.step_secs}s step)")
 
             if text:
                 results.append(text)
