@@ -159,7 +159,7 @@ ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c './remote_setup.sh $ENV'
 
 echo "[7/7] Starting server (cleaning up old processes first)..."
 ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c 'pkill -f remote_server.py || true; pkill -f ffmpeg || true'"
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c 'source ~/.cuda_env 2>/dev/null; nohup python3 remote_server.py > logs/server.log 2>&1 &'"
+ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP 'source ~/.cuda_env 2>/dev/null || true; cd ~; nohup python3 remote_server.py > logs/server.log 2>&1 </dev/null &'
 
 echo "--------------------------------------------------------"
 echo "Done! Server is running at $PUBLIC_IP:8090"
