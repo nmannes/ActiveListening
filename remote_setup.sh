@@ -39,7 +39,7 @@ pip3 install -r requirements.txt >> logs/remote_setup.log 2>&1 || (echo "Pip ins
 
 echo "Detecting hardware..."
 DEVICE="cpu"
-if command -v nvidia-smi &> /dev/null; then 
+if [[ "$ENV" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
     DEVICE="cuda"
     echo "Found GPU, setting DEVICE to cuda"
     echo "Installing CUDA libraries via pip..."
