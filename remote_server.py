@@ -234,6 +234,7 @@ class Transcriber:
     """In-process faster-whisper transcription with sliding window."""
 
     def __init__(self, model_size: str = "base.en", device: str = "cpu"):
+        self.device = device
         compute_type = "float16" if device == "cuda" else "int8"
         logger.info(f"Loading Whisper model '{model_size}' on {device} ({compute_type})...")
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
@@ -242,7 +243,7 @@ class Transcriber:
         self.last_proc_time = 0
         self.executor = ThreadPoolExecutor(max_workers=1)
 
-        # Sliding window config
+        # Sliding window config (primarily for CPU mode)
         self.sample_rate = 16000
         self.bytes_per_sample = 2
         self.window_secs = 3.0
@@ -252,6 +253,34 @@ class Transcriber:
 
         self.audio_buffer = b""
         self.incoming = b""
+
+    async def transcribe_raw(self, pcm_data: bytes) -> str:
+        """Directly transcribe a PCM chunk without sliding window."""
+        if not pcm_data:
+            return ""
+        
+        safe_len = len(pcm_data) - (len(pcm_data) % 2)
+        if safe_len == 0:
+            return ""
+            
+        samples = np.frombuffer(pcm_data[:safe_len], dtype=np.int16).astype(np.float32) / 32768.0
+
+        def do_transcribe():
+            segments, _ = self.model.transcribe(
+                samples,
+                beam_size=1,
+                language="en",
+                vad_filter=False,
+                condition_on_previous_text=False,
+                initial_prompt=None,
+            )
+            return " ".join(seg.text.strip() for seg in segments).strip()
+
+        t0 = time.time()
+        text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
+        t1 = time.time()
+        self.last_proc_time = t1 - t0
+        return text
 
     async def feed(self, pcm_data: bytes) -> list[str]:
         """Feed PCM data and return a list of transcription results (may be empty)."""
