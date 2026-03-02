@@ -41,6 +41,7 @@ echo "Detecting hardware..."
 DEVICE="cpu"
 if command -v nvidia-smi &> /dev/null; then 
     DEVICE="cuda"
+    echo "Found GPU, setting DEVICE to cuda"
 fi
 
 echo "export ENV=$ENV" >> ~/.bashrc
