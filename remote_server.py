@@ -179,7 +179,7 @@ class AudioDecoder:
             stdout=subprocess.PIPE,
             stderr=self.ffmpeg_log,
         )
-        self._pcm_chunks = deque()
+        self._pcm_chunks = deque(maxlen=50) # Cap at ~5s of audio to prevent stale backlog
         self._lock = threading.Lock()
         self._stopped = False
 
@@ -376,6 +376,14 @@ async def main():
                         continue
 
                     vad_buffer += pcm_data
+
+                    # Cap VAD backlog to ~2 seconds (32000 samples @ 16kHz)
+                    # This prevents the system from trying to "catch up" on minutes of old audio
+                    MAX_VAD_BACKLOG = VAD_CHUNK_SIZE * 20 
+                    if len(vad_buffer) > MAX_VAD_BACKLOG:
+                        logger.warning(f"[{session_id}] VAD backlog too large ({len(vad_buffer)} bytes), truncating to last {VAD_CHUNK_SIZE * 5} bytes")
+                        vad_buffer = vad_buffer[-(VAD_CHUNK_SIZE * 5):]
+
 
                     while len(vad_buffer) >= VAD_CHUNK_SIZE:
                         chunk = vad_buffer[:VAD_CHUNK_SIZE]
