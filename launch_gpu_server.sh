@@ -5,13 +5,13 @@
 set -e
 
 # --- Configuration ---
-REGION="us-east-1"
-SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
-KEY_NAME="us-east-1" 
-SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
-LOCAL_DIR="$(pwd)"
-REMOTE_USER="ec2-user"
-REMOTE_DIR="/home/ec2-user"
+export REGION="us-east-1"
+export SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
+export KEY_NAME="us-east-1" 
+export SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
+export LOCAL_DIR="$(pwd)"
+export REMOTE_USER="ec2-user"
+export REMOTE_DIR="/home/ec2-user"
 
 # --- Subcommand: Destroy All ---
 if [[ "$1" == "--destroy-all" ]]; then
@@ -142,4 +142,4 @@ echo "To stop manually: aws ec2 terminate-instances --instance-ids $INSTANCE_ID"
 echo "--------------------------------------------------------"
 
 
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "cd $REMOTE_DIR && bash remote_setup.sh $ENV $REMOTE_DIR"
+ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP

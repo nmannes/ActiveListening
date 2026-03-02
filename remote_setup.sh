@@ -5,14 +5,11 @@
 set -e
 
 ENV=$1
-REMOTE_DIR=$2
 
-if [ -z "$ENV" ] || [ -z "$REMOTE_DIR" ]; then
-    echo "Usage: $0 [demo|prod] [remote_dir]"
+if [ -z "$ENV" ]; then
+    echo "Usage: $0 [demo|prod]"
     exit 1
 fi
-
-cd "$REMOTE_DIR"
 
 echo "Scheduling shutdown in 30 minutes..."
 sudo shutdown -h +30
