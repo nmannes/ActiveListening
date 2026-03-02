@@ -149,7 +149,7 @@ function spawnFFmpeg() {
         '-c:a', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
-        '-f', 's16le', REMOTE_URL.replace('rtp://', 'udp://')
+        '-f', 's16le', `udp://${new URL(REMOTE_URL).hostname}:8092`
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
