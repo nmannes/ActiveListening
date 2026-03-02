@@ -239,6 +239,7 @@ class Transcriber:
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         logger.info("Whisper model loaded.")
 
+        self.last_proc_time = 0
         self.executor = ThreadPoolExecutor(max_workers=1)
 
         # Sliding window config
@@ -296,6 +297,7 @@ class Transcriber:
             t0 = time.time()
             text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
             t1 = time.time()
+            self.last_proc_time = t1 - t0
 
             if t1 - t0 > self.step_secs:
                 logger.debug(f"Transcription took {t1 - t0:.2f}s (>{self.step_secs}s step)")
@@ -366,6 +368,27 @@ async def main():
             vad_skip_count = 0
             VAD_THRESHOLD = 0.005
             VAD_CHUNK_SIZE = 3200  # 0.1s at 16kHz 16-bit mono
+
+            async def telemetry_loop():
+                while True:
+                    await asyncio.sleep(5)
+                    try:
+                        # VAD backlog in ms
+                        vad_lag_ms = (len(vad_buffer) / (16000 * 2)) * 1000
+                        # Decoder backlog in ms (approx)
+                        with decoder._lock:
+                            decoder_lag_ms = (len(decoder._pcm_chunks) * 3200 / (16000 * 2)) * 1000
+                        
+                        await websocket.send(json.dumps({
+                            "type": "telemetry",
+                            "vad_lag_ms": int(vad_lag_ms),
+                            "decoder_lag_ms": int(decoder_lag_ms),
+                            "last_proc_ms": int(transcriber.last_proc_time * 1000)
+                        }))
+                    except Exception:
+                        break
+
+            telemetry_task = asyncio.create_task(telemetry_loop())
 
             try:
                 while True:
@@ -460,6 +483,9 @@ async def main():
                                         pass
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
+            finally:
+                if 'telemetry_task' in locals():
+                    telemetry_task.cancel()
 
         audio_task = None
 
@@ -469,6 +495,13 @@ async def main():
                 if isinstance(message, str):
                     try:
                         msg = json.loads(message)
+                        if msg.get("type") == "ping":
+                            await websocket.send(json.dumps({
+                                "type": "pong",
+                                "ts": msg.get("ts")
+                            }))
+                            continue
+
                         if msg.get("type") == "hello" and "market" in msg:
                             market = msg["market"]
                             session_id = market.get("slug", f"session-{int(time.time())}")

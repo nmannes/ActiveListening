@@ -97,6 +97,13 @@ function connectWebSocket() {
             type: 'hello',
             market,
         }));
+
+        // Start heartbeat
+        this.heartbeatInterval = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
+            }
+        }, 2000);
     });
 
     ws.on('message', (data) => {
@@ -107,15 +114,21 @@ function connectWebSocket() {
                 logger.info(`[remote] SIGNAL: ${msg.keyword} → ${msg.ticker}`);
             } else if (msg.type === 'transcript') {
                 logger.debug(`[remote] transcript: ${msg.text}`);
+            } else if (msg.type === 'pong') {
+                const rtt = Date.now() - msg.ts;
+                logger.info(`[ws] RTT: ${rtt}ms`);
+            } else if (msg.type === 'telemetry') {
+                logger.info(`[remote] Lag: ${msg.vad_lag_ms}ms (VAD) + ${msg.decoder_lag_ms}ms (Decoder) | Last Proc: ${msg.last_proc_ms}ms`);
             } else {
                 logger.debug(`[remote] ${JSON.stringify(msg)}`);
             }
-        } catch {
-            logger.debug(`[remote] ${data.toString()}`);
+        } catch (e) {
+            logger.debug(`[remote] data error: ${e.message}`);
         }
     });
 
     ws.on('close', (code) => {
+        if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
         if (isShuttingDown) return;
         logger.warn(`[ws] Connection closed (code ${code}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`);
         setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
