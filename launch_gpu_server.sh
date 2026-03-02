@@ -83,7 +83,8 @@ aws ec2 authorize-security-group-ingress \
 # --- 1. Use Basic AMI ---
 echo "[1/6] Using basic Amazon Linux 2023 AMI..."
 # Reusing the AMI from your aws_main_script.sh
-AMI_ID="ami-0f3caa1cf4417e51b" 
+AMI_ID="ami-073d9221f657bc5ff" 
+
 echo "Using AMI: $AMI_ID"
 
 # --- 2. Launch Instance ---
@@ -160,6 +161,8 @@ echo "Instance will automatically stop in 30 minutes."
 echo "ssh -i \"$SSH_KEY_PATH\" $REMOTE_USER@$PUBLIC_IP"
 echo "To stop manually: aws ec2 terminate-instances --instance-ids $INSTANCE_ID"
 echo "--------------------------------------------------------"
+
+
 
 
 ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c './remote_setup.sh $ENV'"
