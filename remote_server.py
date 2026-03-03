@@ -236,6 +236,27 @@ def calculate_rms(pcm_bytes: bytes) -> float:
 class Transcriber:
     """In-process faster-whisper transcription with sliding window."""
 
+    # Common Whisper hallucination phrases to filter out
+    HALLUCINATION_PHRASES = {
+        "i will see you in the next video",
+        "ill see you in the next video",
+        "and i will see you in the next video",
+        "and we will see you in the next video",
+        "i hope you enjoy the video",
+        "see you in the next video",
+        "thank you for watching",
+        "thanks for watching",
+        "i would like to thank you for your support",
+        "like to thank you for your support",
+        "and i want to thank you for your support",
+        "please subscribe",
+        "please like and subscribe",
+        "well see you in a few minutes",
+        "ill see you in a few minutes",
+        "and well see you in a few minutes",
+        "i will see you in a little bit",
+    }
+
     def __init__(self, model_size: str = "base.en", device: str = "cpu"):
         self.device = device
         compute_type = "float16" if device == "cuda" else "int8"
@@ -245,6 +266,13 @@ class Transcriber:
 
         self.last_proc_time = 0
         self.executor = ThreadPoolExecutor(max_workers=1)
+
+        # Transcription params tuned per device
+        self.beam_size = 5 if device == "cuda" else 1
+        self.initial_prompt = (
+            "Live NBA basketball game broadcast. "
+            "Sports commentators discussing plays, players, scores, fouls, and timeouts."
+        ) if device == "cuda" else None
 
         # Sliding window config (primarily for CPU mode)
         self.sample_rate = 16000
@@ -269,15 +297,30 @@ class Transcriber:
         samples = np.frombuffer(pcm_data[:safe_len], dtype=np.int16).astype(np.float32) / 32768.0
 
         def do_transcribe():
-            segments, _ = self.model.transcribe(
+            segments, info = self.model.transcribe(
                 samples,
-                beam_size=1,
+                beam_size=self.beam_size,
                 language="en",
-                vad_filter=False,
+                vad_filter=True if self.device == "cuda" else False,
                 condition_on_previous_text=False,
-                initial_prompt=None,
+                initial_prompt=self.initial_prompt,
+                log_prob_threshold=-0.8,
+                no_speech_threshold=0.5,
+                compression_ratio_threshold=2.2,
             )
-            return " ".join(seg.text.strip() for seg in segments).strip()
+            parts = []
+            for seg in segments:
+                text = seg.text.strip()
+                # Filter hallucinations by log probability
+                if seg.avg_logprob < -1.0:
+                    logger.debug(f"Dropping low-confidence segment (avg_logprob={seg.avg_logprob:.2f}): {text}")
+                    continue
+                if text.lower() in self.HALLUCINATION_PHRASES:
+                    logger.debug(f"Dropping hallucinated phrase: {text}")
+                    continue
+                if text:
+                    parts.append(text)
+            return " ".join(parts).strip()
 
         t0 = time.time()
         text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
@@ -316,15 +359,29 @@ class Transcriber:
                 continue
 
             def do_transcribe():
-                segments, _ = self.model.transcribe(
+                segments, info = self.model.transcribe(
                     samples,
-                    beam_size=1,
+                    beam_size=self.beam_size,
                     language="en",
-                    vad_filter=False,
+                    vad_filter=True if self.device == "cuda" else False,
                     condition_on_previous_text=False,
-                    initial_prompt=None,
+                    initial_prompt=self.initial_prompt,
+                    log_prob_threshold=-0.8,
+                    no_speech_threshold=0.5,
+                    compression_ratio_threshold=2.2,
                 )
-                return " ".join(seg.text.strip() for seg in segments).strip()
+                parts = []
+                for seg in segments:
+                    text = seg.text.strip()
+                    if seg.avg_logprob < -1.0:
+                        logger.debug(f"Dropping low-confidence segment (avg_logprob={seg.avg_logprob:.2f}): {text}")
+                        continue
+                    if text.lower() in self.HALLUCINATION_PHRASES:
+                        logger.debug(f"Dropping hallucinated phrase: {text}")
+                        continue
+                    if text:
+                        parts.append(text)
+                return " ".join(parts).strip()
             
             t0 = time.time()
             text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
@@ -351,11 +408,16 @@ async def main():
     parser = argparse.ArgumentParser(description="Remote transcription & trading server")
     parser.add_argument("--port", type=int, default=8090, help="WebSocket listen port")
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
-    parser.add_argument("--model", type=str, default="base.en", help="Whisper model name")
+    parser.add_argument("--model", type=str, default=None, help="Whisper model name (default: small.en for cuda, base.en for cpu)")
     parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
     parser.add_argument("--buy-count", type=int, default=1)
     parser.add_argument("--last-words-count", type=int, default=7)
     args = parser.parse_args()
+
+    # Auto-select model based on device if not specified
+    if args.model is None:
+        args.model = "small.en" if args.device == "cuda" else "base.en"
+        logger.info(f"Auto-selected model '{args.model}' for device '{args.device}'")
 
     # Load env file
     env_file = Path(__file__).parent / f".env.{args.env}"

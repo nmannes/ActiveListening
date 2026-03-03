@@ -167,7 +167,7 @@ ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c '
   source ~/.bashrc 2>/dev/null || true
   source ~/.cuda_env 2>/dev/null || true
   cd ~
-  nohup python3 remote_server.py --env \${ENV:-demo} --device \${DEVICE:-cpu} > logs/server.log 2>&1 </dev/null &
+  nohup python3 remote_server.py > logs/server.log 2>&1 </dev/null &
   disown
   sleep 1
 '"
