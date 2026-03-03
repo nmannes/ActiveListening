@@ -31,12 +31,15 @@ from faster_whisper import WhisperModel
 
 # ── Logging ───────────────────────────────────────────────────────────
 
+os.makedirs("logs", exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s.%(msecs)03d %(levelname)s [%(threadName)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
         logging.StreamHandler(sys.stderr),
+        logging.FileHandler("logs/remote_server.log"),
     ],
 )
 logger = logging.getLogger("remote_server")

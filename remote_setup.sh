@@ -5,14 +5,15 @@
 set -e
 
 ENV=$1
+SHUTDOWN_MINUTES=${2:-30}
 
 if [ -z "$ENV" ]; then
-    echo "Usage: $0 [demo|prod]"
+    echo "Usage: $0 [demo|prod] [shutdown_minutes]"
     exit 1
 fi
 
-echo "Scheduling shutdown in 30 minutes..."
-sudo shutdown -h +30
+echo "Scheduling shutdown in $SHUTDOWN_MINUTES minutes..."
+sudo shutdown -h +$SHUTDOWN_MINUTES
 
 mkdir -p logs
 echo "$(date) —— Starting remote_setup.sh" > logs/remote_setup.log

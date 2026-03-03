@@ -33,12 +33,16 @@ fi
 ENV="demo"
 INSTANCE_TYPE_ARG=""
 USE_SPOT=false
+SHUTDOWN_MINUTES=30
 
-for arg in "$@"; do
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    arg="${args[$i]}"
     case $arg in
         prod|demo) ENV=$arg ;;
         --spot) USE_SPOT=true ;;
         --destroy-all) ENV="--destroy-all" ;;
+        --shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
         *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
     esac
 done
@@ -155,7 +159,7 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
 # --- 6. Start Server & Schedule Shutdown ---
 echo "[6/6] Running remote setup..."
 
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c './remote_setup.sh $ENV'"
+ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c './remote_setup.sh $ENV $SHUTDOWN_MINUTES'"
 
 echo "[7/7] Starting server (cleaning up old processes first)..."
 ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c 'pkill -f remote_server.py || true; pkill -f ffmpeg || true'"
