@@ -5,6 +5,7 @@
 # Usage:
 #   bash schedule_run.sh cava.json
 #   bash schedule_run.sh cava.json --dry-run
+#   bash schedule_run.sh cava.json --now
 #
 # Timeline:
 #   T-7min:  Launch GPU instance (with shutdown scheduled 30min after start)
@@ -17,16 +18,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # --- Parse arguments ---
 JSON_FILE=""
 DRY_RUN=false
+RUN_NOW=false
 
 for arg in "$@"; do
     case $arg in
         --dry-run) DRY_RUN=true ;;
+        --now) RUN_NOW=true ;;
         *) if [[ -z "$JSON_FILE" ]]; then JSON_FILE="$arg"; fi ;;
     esac
 done
 
 if [[ -z "$JSON_FILE" ]]; then
-    echo "Usage: $0 <market-file.json> [--dry-run]"
+    echo "Usage: $0 <market-file.json> [--dry-run|--now]"
     exit 1
 fi
 
@@ -81,6 +84,15 @@ fi
 
 # Resolve to absolute path for the at job
 ABS_JSON_FILE="$(cd "$(dirname "$JSON_FILE")" && pwd)/$(basename "$JSON_FILE")"
+
+if [[ "$RUN_NOW" == true ]]; then
+    # --- Run everything immediately ---
+    echo "[$(date '+%H:%M:%S')] Launching GPU instance now..."
+    bash "$SCRIPT_DIR/launch_gpu_server.sh" prod --shutdown-minutes 30 2>&1 | tee -a "$SCRIPT_DIR/schedule_run.log"
+
+    echo "[$(date '+%H:%M:%S')] Starting tvclient.js now..."
+    cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE"
+fi
 
 # --- Schedule GPU launch at T-7min ---
 echo "$SCRIPT_DIR/launch_gpu_server.sh prod --shutdown-minutes $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
