@@ -13,6 +13,8 @@ models/
 *.log
 *.xml
 
+*.wav
+
 transcripts/
 
 .env

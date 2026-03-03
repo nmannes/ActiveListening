@@ -121,7 +121,7 @@ function connectWebSocket() {
                 const rtt = Date.now() - msg.ts;
                 logger.info(`[ws] RTT: ${rtt}ms`);
             } else if (msg.type === 'telemetry') {
-                logger.info(`[remote] Lag: ${msg.vad_lag_ms}ms (VAD) + ${msg.decoder_lag_ms}ms (Decoder) | Last Proc: ${msg.last_proc_ms}ms`);
+                logger.info(`[remote] Buffer: ${msg.buffer_ms}ms | Proc: ${msg.last_proc_ms}ms`);
             } else {
                 logger.debug(`[remote] ${JSON.stringify(msg)}`);
             }

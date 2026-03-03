@@ -469,8 +469,14 @@ async def main():
                 while True:
                     await asyncio.sleep(5)
                     try:
+                        # Audio buffer backlog in ms
+                        with audio_inbox_lock:
+                            inbox_ms = int(len(audio_inbox) / (16000 * 2) * 1000)
+                        buffer_ms = int(len(audio_buffer) / (16000 * 2) * 1000)
+
                         await websocket.send(json.dumps({
                             "type": "telemetry",
+                            "buffer_ms": inbox_ms + buffer_ms,
                             "last_proc_ms": int(transcriber.last_proc_time * 1000)
                         }))
                     except Exception:
