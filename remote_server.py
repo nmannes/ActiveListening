@@ -236,27 +236,6 @@ def calculate_rms(pcm_bytes: bytes) -> float:
 class Transcriber:
     """In-process faster-whisper transcription with sliding window."""
 
-    # Common Whisper hallucination phrases to filter out
-    HALLUCINATION_PHRASES = {
-        "i will see you in the next video",
-        "ill see you in the next video",
-        "and i will see you in the next video",
-        "and we will see you in the next video",
-        "i hope you enjoy the video",
-        "see you in the next video",
-        "thank you for watching",
-        "thanks for watching",
-        "i would like to thank you for your support",
-        "like to thank you for your support",
-        "and i want to thank you for your support",
-        "please subscribe",
-        "please like and subscribe",
-        "well see you in a few minutes",
-        "ill see you in a few minutes",
-        "and well see you in a few minutes",
-        "i will see you in a little bit",
-    }
-
     def __init__(self, model_size: str = "base.en", device: str = "cpu"):
         self.device = device
         compute_type = "float16" if device == "cuda" else "int8"
@@ -266,13 +245,6 @@ class Transcriber:
 
         self.last_proc_time = 0
         self.executor = ThreadPoolExecutor(max_workers=1)
-
-        # Transcription params tuned per device
-        self.beam_size = 5 if device == "cuda" else 1
-        self.initial_prompt = (
-            "Live NBA basketball game broadcast. "
-            "Sports commentators discussing plays, players, scores, fouls, and timeouts."
-        ) if device == "cuda" else None
 
         # Sliding window config (primarily for CPU mode)
         self.sample_rate = 16000
@@ -297,30 +269,14 @@ class Transcriber:
         samples = np.frombuffer(pcm_data[:safe_len], dtype=np.int16).astype(np.float32) / 32768.0
 
         def do_transcribe():
-            segments, info = self.model.transcribe(
+            segments, _ = self.model.transcribe(
                 samples,
-                beam_size=self.beam_size,
+                beam_size=1,
                 language="en",
-                vad_filter=True if self.device == "cuda" else False,
+                vad_filter=False,
                 condition_on_previous_text=False,
-                initial_prompt=self.initial_prompt,
-                log_prob_threshold=-0.8,
-                no_speech_threshold=0.5,
-                compression_ratio_threshold=2.2,
             )
-            parts = []
-            for seg in segments:
-                text = seg.text.strip()
-                # Filter hallucinations by log probability
-                if seg.avg_logprob < -1.0:
-                    logger.debug(f"Dropping low-confidence segment (avg_logprob={seg.avg_logprob:.2f}): {text}")
-                    continue
-                if text.lower() in self.HALLUCINATION_PHRASES:
-                    logger.debug(f"Dropping hallucinated phrase: {text}")
-                    continue
-                if text:
-                    parts.append(text)
-            return " ".join(parts).strip()
+            return " ".join(seg.text.strip() for seg in segments).strip()
 
         t0 = time.time()
         text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
@@ -359,29 +315,14 @@ class Transcriber:
                 continue
 
             def do_transcribe():
-                segments, info = self.model.transcribe(
+                segments, _ = self.model.transcribe(
                     samples,
-                    beam_size=self.beam_size,
+                    beam_size=1,
                     language="en",
-                    vad_filter=True if self.device == "cuda" else False,
+                    vad_filter=False,
                     condition_on_previous_text=False,
-                    initial_prompt=self.initial_prompt,
-                    log_prob_threshold=-0.8,
-                    no_speech_threshold=0.5,
-                    compression_ratio_threshold=2.2,
                 )
-                parts = []
-                for seg in segments:
-                    text = seg.text.strip()
-                    if seg.avg_logprob < -1.0:
-                        logger.debug(f"Dropping low-confidence segment (avg_logprob={seg.avg_logprob:.2f}): {text}")
-                        continue
-                    if text.lower() in self.HALLUCINATION_PHRASES:
-                        logger.debug(f"Dropping hallucinated phrase: {text}")
-                        continue
-                    if text:
-                        parts.append(text)
-                return " ".join(parts).strip()
+                return " ".join(seg.text.strip() for seg in segments).strip()
             
             t0 = time.time()
             text = await asyncio.get_running_loop().run_in_executor(self.executor, do_transcribe)
@@ -453,21 +394,15 @@ async def main():
         transcript = []
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
-        async def audio_processing_loop(session_id, decoder, keyword_index):
+        async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index):
             transcript.clear()
             transcriber.reset()
             logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
-            vad_buffer = b""
-            speech_buffer = b""
-            silence_counter = 0
-
-            # Constants
-            VAD_THRESHOLD = 0.005
-            VAD_CHUNK_SIZE = 3200  # 0.1s at 16kHz 16-bit mono
-            # Strategy parameters for Real-Time (GPU) mode
-            MAX_SILENCE_CHUNKS = 3  # ~0.3s pause triggers transcription
-            MAX_SPEECH_CHUNKS = 25  # ~2.5s force transcription if talking continuously
+            # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
+            CHUNK_SECS = 3.0
+            CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
+            audio_buffer = b""
 
             async def process_text(text: str):
                 if not text:
@@ -534,15 +469,8 @@ async def main():
                 while True:
                     await asyncio.sleep(5)
                     try:
-                        # Backlog in ms
-                        vad_lag_ms = (len(vad_buffer) / (16000 * 2)) * 1000
-                        with decoder._lock:
-                            decoder_lag_ms = (len(decoder._pcm_chunks) * 3200 / (16000 * 2)) * 1000
-                        
                         await websocket.send(json.dumps({
                             "type": "telemetry",
-                            "vad_lag_ms": int(vad_lag_ms),
-                            "decoder_lag_ms": int(decoder_lag_ms),
                             "last_proc_ms": int(transcriber.last_proc_time * 1000)
                         }))
                     except Exception:
@@ -552,58 +480,34 @@ async def main():
 
             try:
                 while True:
-                    await asyncio.sleep(0.05) # Poll faster for lower latency
+                    await asyncio.sleep(0.1)
 
-                    pcm_data = decoder.drain()
-                    if not pcm_data:
-                        # Even if no data, check if we need to flush the GPU speech buffer
-                        if transcriber.device == "cuda" and speech_buffer and silence_counter >= MAX_SILENCE_CHUNKS:
-                            text = await transcriber.transcribe_raw(speech_buffer)
-                            speech_buffer = b""
-                            silence_counter = 0
-                            await process_text(text)
-                        continue
+                    # Drain audio from WebSocket inbox
+                    with audio_inbox_lock:
+                        if not audio_inbox:
+                            continue
+                        pcm_data = bytes(audio_inbox)
+                        audio_inbox.clear()
 
-                    vad_buffer += pcm_data
+                    audio_buffer += pcm_data
 
-                    # Buffer management (safety cap)
-                    if len(vad_buffer) > VAD_CHUNK_SIZE * 50:
-                        vad_buffer = vad_buffer[-(VAD_CHUNK_SIZE * 10):]
+                    # Cap buffer to avoid runaway memory
+                    if len(audio_buffer) > CHUNK_BYTES * 3:
+                        audio_buffer = audio_buffer[-CHUNK_BYTES:]
 
-                    while len(vad_buffer) >= VAD_CHUNK_SIZE:
-                        chunk = vad_buffer[:VAD_CHUNK_SIZE]
-                        vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
+                    # Transcribe every CHUNK_SECS
+                    if len(audio_buffer) >= CHUNK_BYTES:
+                        chunk = audio_buffer[:CHUNK_BYTES]
+                        audio_buffer = audio_buffer[CHUNK_BYTES:]
 
+                        # Skip silence — don't transcribe noise/music
                         rms = calculate_rms(chunk)
-                        
-                        if transcriber.device == "cuda":
-                            # --- GPU REAL-TIME MODE (Accumulate phrases) ---
-                            if rms >= VAD_THRESHOLD:
-                                speech_buffer += chunk
-                                silence_counter = 0
-                                
-                                # Force transcription if speech segment is getting long
-                                if len(speech_buffer) >= VAD_CHUNK_SIZE * MAX_SPEECH_CHUNKS:
-                                    text = await transcriber.transcribe_raw(speech_buffer)
-                                    # Clear buffer but keep a small overlap? For now just clear.
-                                    speech_buffer = b"" 
-                                    await process_text(text)
-                            else:
-                                if speech_buffer:
-                                    speech_buffer += chunk # include trailing silence
-                                    silence_counter += 1
-                                    if silence_counter >= MAX_SILENCE_CHUNKS:
-                                        text = await transcriber.transcribe_raw(speech_buffer)
-                                        speech_buffer = b""
-                                        silence_counter = 0
-                                        await process_text(text)
-                        else:
-                            # --- CPU SLIDING WINDOW MODE ---
-                            if rms < VAD_THRESHOLD:
-                                continue
-                            texts = await transcriber.feed(chunk)
-                            for t in texts:
-                                await process_text(t)
+                        if rms < 0.01:
+                            continue
+
+                        text = await transcriber.transcribe_raw(chunk)
+                        await process_text(text)
+
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
             except Exception as e:
@@ -611,6 +515,10 @@ async def main():
             finally:
                 if 'telemetry_task' in locals():
                     telemetry_task.cancel()
+
+        # Simple thread-safe audio buffer — receives PCM from WebSocket binary messages
+        audio_inbox = bytearray()
+        audio_inbox_lock = threading.Lock()
 
         audio_task = None
 
@@ -646,27 +554,28 @@ async def main():
 
                             if audio_task:
                                 audio_task.cancel()
-                            if decoder:
-                                decoder.kill()
 
-                            # Start audio decoder listening for UDP on port 8092
-                            decoder = AudioDecoder(stream_url="udp://0.0.0.0:8092")
-
-                            # Start the background task that continuously processes the decoded PCM
-                            audio_task = asyncio.create_task(audio_processing_loop(session_id, decoder, keyword_index))
+                            # Start the background task that processes PCM from audio_inbox
+                            audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index))
 
                             session = {
                                 "id": session_id,
                                 "market": market,
                             }
 
-                            logger.info(f"[{session_id}] Session ready — waiting for UDP audio")
+                            logger.info(f"[{session_id}] Session ready — receiving audio over WebSocket")
                     except Exception as e:
                         logger.error(f"Handshake parse error: {e}")
                     continue
 
-                # ── Binary message: Ignored ───────────────────────────
-                logger.debug("Ignoring binary websocket message (audio should arrive via UDP)")
+                # ── Binary message: PCM audio data ───────────────────
+                if isinstance(message, bytes):
+                    with audio_inbox_lock:
+                        audio_inbox.extend(message)
+                        # Cap at ~10s to prevent memory blowup
+                        max_bytes = 16000 * 2 * 10
+                        if len(audio_inbox) > max_bytes:
+                            del audio_inbox[:len(audio_inbox) - max_bytes]
 
         except websockets.exceptions.ConnectionClosed:
             pass
@@ -674,8 +583,6 @@ async def main():
             logger.info(f"[server] Client disconnected {session['id'] if session else ''}")
             if audio_task:
                 audio_task.cancel()
-            if decoder:
-                decoder.kill()
 
     # ── Start server ──────────────────────────────────────────────────
     logger.info(f"WebSocket server listening on port {args.port}")

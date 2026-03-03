@@ -63,10 +63,13 @@ if (!STREAM_URL) {
 }
 
 
+const LISTEN = !!args.listen;
+
 market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
 logger.info(`Market: ${market.title || market.slug}`);
 logger.info(`Stream: ${STREAM_URL}`);
 logger.info(`Remote: ${REMOTE_URL}`);
+if (LISTEN) logger.info(`[listen] Local audio playback enabled`);
 
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require('./lib/orderbook_tracking');
@@ -148,25 +151,32 @@ function spawnFFmpeg() {
 
     const ffmpegArgs = [
         '-y',
-        // Minimize latency
+        // Minimize latency (but probe enough to detect AC3 stream params)
         '-fflags', 'nobuffer+genpts+discardcorrupt',
         '-flags', 'low_delay',
-        '-probesize', '32',
-        '-analyzeduration', '0',
+        '-probesize', '1000000',
+        '-analyzeduration', '1000000',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
         '-i', STREAM_URL,
-        // Output: raw AAC over UDP (matches RTP latency, no SDP required)
+        // Output: raw PCM to stdout — send over WebSocket (reliable TCP)
         '-map', '0:a:0',
         '-c:a', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
-        '-f', 's16le', `udp://${new URL(REMOTE_URL).hostname}:8092`
+        '-f', 's16le', 'pipe:1'
     ];
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
         stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // Send PCM audio to remote server over WebSocket (binary frames)
+    ffmpeg.stdout.on('data', (data) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+        }
     });
 
     ffmpeg.stderr.on('data', (data) => {
@@ -192,6 +202,30 @@ function spawnFFmpeg() {
     return ffmpeg;
 }
 
+// ── Local audio debug recording (--listen) ──────────────────────────
+let listenProc = null;
+function spawnListener() {
+    if (!LISTEN || isShuttingDown) return;
+    const outFile = path.join(__dirname, 'debug_audio.wav');
+    logger.info(`[listen] Recording 30s of audio to ${outFile}`);
+    listenProc = spawn('ffmpeg', [
+        '-y',
+        '-probesize', '1000000',
+        '-analyzeduration', '1000000',
+        '-i', STREAM_URL,
+        '-map', '0:a:0',
+        '-c:a', 'pcm_s16le',
+        '-ar', '16000',
+        '-ac', '1',
+        '-t', '30',
+        outFile,
+    ], { stdio: ['ignore', 'ignore', 'pipe'] });
+    listenProc.stderr.on('data', () => { });
+    listenProc.on('close', (code) => {
+        logger.info(`[listen] Saved debug audio to ${outFile} (exit ${code})`);
+    });
+}
+
 // ── Startup ──────────────────────────────────────────────────────────
 let ffmpegProc = null;
 
@@ -200,6 +234,7 @@ connectWebSocket();
 // Small delay to let WS connect before starting audio, but don't block on it
 setTimeout(() => {
     ffmpegProc = spawnFFmpeg();
+    if (LISTEN) spawnListener();
 }, 500);
 
 // ── Cleanup ──────────────────────────────────────────────────────────
@@ -207,6 +242,7 @@ process.on('SIGINT', () => {
     logger.info('Received SIGINT, shutting down...');
     isShuttingDown = true;
     if (ffmpegProc) ffmpegProc.kill();
+    if (listenProc) listenProc.kill();
     if (ws) ws.close();
     if (orderbook && orderbook.stop) orderbook.stop();
     process.exit(0);
@@ -216,6 +252,7 @@ process.on('SIGTERM', () => {
     logger.info('Received SIGTERM, shutting down...');
     isShuttingDown = true;
     if (ffmpegProc) ffmpegProc.kill();
+    if (listenProc) listenProc.kill();
     if (ws) ws.close();
     if (orderbook && orderbook.stop) orderbook.stop();
     process.exit(0);
