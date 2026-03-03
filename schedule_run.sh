@@ -89,6 +89,10 @@ if [[ "$RUN_NOW" == true ]]; then
     # --- Run everything immediately ---
     echo "[$(date '+%H:%M:%S')] Launching GPU instance now..."
     bash "$SCRIPT_DIR/launch_gpu_server.sh" prod --shutdown-minutes 30 --spot 2>&1 | tee -a "$SCRIPT_DIR/schedule_run.log"
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "ERROR: launch_gpu_server.sh failed. Aborting."
+        exit 1
+    fi
 
     echo "[$(date '+%H:%M:%S')] Starting tvclient.js now..."
     cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE"
