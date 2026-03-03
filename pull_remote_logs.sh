@@ -28,6 +28,6 @@ fi
 mkdir -p "$LOCAL_LOG_DIR"
 
 rsync -az -e "ssh -i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=5" \
-    "$REMOTE_USER@$IP:~/logs/" "$LOCAL_LOG_DIR/" 2>/dev/null
+    "$REMOTE_USER@$IP:/home/ec2-user/logs/" "$LOCAL_LOG_DIR/" 2>/dev/null
 
 echo "$(date) — Pulled logs from $IP" >> "$SCRIPT_DIR/logs/pull_logs.log"
