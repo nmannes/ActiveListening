@@ -49,11 +49,11 @@ fi
 START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
 NOW_EPOCH=$(date +%s)
 
-# Compute launch time = 7 minutes before start
-LAUNCH_EPOCH=$((START_EPOCH - 7 * 60))
+# Compute launch time = 3 minutes before start
+LAUNCH_EPOCH=$((START_EPOCH - 3 * 60))
 
-# Shutdown delay = 37 minutes from launch (= 30 minutes after start)
-SHUTDOWN_MINUTES=37
+# Shutdown delay = 33 minutes from launch (= 30 minutes after start)
+SHUTDOWN_MINUTES=33
 
 # Format times for `at` (HH:MM YYYY-MM-DD)
 LAUNCH_AT=$(date -d "@$LAUNCH_EPOCH" '+%H:%M %Y-%m-%d')
@@ -68,7 +68,7 @@ echo "  Schedule Run"
 echo "========================================"
 echo "  File:         $JSON_FILE"
 echo "  Event start:  $START_HUMAN"
-echo "  GPU launch:   $LAUNCH_HUMAN (T-7min)"
+echo "  GPU launch:   $LAUNCH_HUMAN (T-3min)"
 echo "  GPU shutdown:  30 min after start (${SHUTDOWN_MINUTES}min from launch)"
 echo "========================================"
 
@@ -98,7 +98,7 @@ if [[ "$RUN_NOW" == true ]]; then
     cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE"
 fi
 
-# --- Schedule GPU launch at T-7min ---
+# --- Schedule GPU launch at T-3min ---
 echo "$SCRIPT_DIR/launch_gpu_server.sh prod --shutdown-minutes $SHUTDOWN_MINUTES --spot >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$LAUNCH_AT"
 
