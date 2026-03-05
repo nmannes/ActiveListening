@@ -574,14 +574,20 @@ async def main():
                         logger.error(f"Handshake parse error: {e}")
                     continue
 
-                # ── Binary message: PCM audio data ───────────────────
+                # ── Binary message: PCM audio or video frame ─────────
                 if isinstance(message, bytes):
-                    with audio_inbox_lock:
-                        audio_inbox.extend(message)
-                        # Cap at ~10s to prevent memory blowup
-                        max_bytes = 16000 * 2 * 10
-                        if len(audio_inbox) > max_bytes:
-                            del audio_inbox[:len(audio_inbox) - max_bytes]
+                    if len(message) > 0 and message[0] == 0x01:
+                        # Video frame (JPEG) — tagged with 0x01 prefix
+                        frame_data = message[1:]
+                        logger.info(f"frame received ({len(frame_data)} bytes)")
+                    else:
+                        # Audio PCM data
+                        with audio_inbox_lock:
+                            audio_inbox.extend(message)
+                            # Cap at ~10s to prevent memory blowup
+                            max_bytes = 16000 * 2 * 10
+                            if len(audio_inbox) > max_bytes:
+                                del audio_inbox[:len(audio_inbox) - max_bytes]
 
         except websockets.exceptions.ConnectionClosed:
             pass

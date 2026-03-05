@@ -202,6 +202,72 @@ function spawnFFmpeg() {
     return ffmpeg;
 }
 
+// ── Video frame grabber (1 frame every 2s) ──────────────────────────
+let frameGrabberProc = null;
+
+function spawnFrameGrabber() {
+    if (isShuttingDown) return;
+
+    logger.info(`[frames] Starting frame grabber: ${STREAM_URL}`);
+
+    const ffmpeg = spawn('ffmpeg', [
+        '-y',
+        '-fflags', 'nobuffer+genpts+discardcorrupt+lowdelay',
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+        '-i', STREAM_URL,
+        '-vf', 'fps=0.5',
+        '-f', 'image2pipe',
+        '-vcodec', 'mjpeg',
+        '-q:v', '5',
+        'pipe:1'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let jpegBuffer = Buffer.alloc(0);
+
+    ffmpeg.stdout.on('data', (data) => {
+        jpegBuffer = Buffer.concat([jpegBuffer, data]);
+
+        // JPEG frames end with FF D9 — extract complete frames
+        let endIdx;
+        while ((endIdx = jpegBuffer.indexOf(Buffer.from([0xFF, 0xD9]))) !== -1) {
+            const frame = jpegBuffer.slice(0, endIdx + 2);
+            jpegBuffer = jpegBuffer.slice(endIdx + 2);
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Tag with 0x01 prefix so server can distinguish from audio
+                const header = Buffer.from([0x01]);
+                ws.send(Buffer.concat([header, frame]));
+                logger.info(`[frames] Sent frame: ${frame.length} bytes`);
+            }
+        }
+    });
+
+    ffmpeg.stderr.on('data', (data) => {
+        const lines = data.toString().split('\n').filter(l => l.trim());
+        for (const line of lines) {
+            logger.trace(`[frames] ${line}`);
+        }
+    });
+
+    ffmpeg.on('close', (code) => {
+        if (isShuttingDown) {
+            logger.info(`[frames] Exited (code ${code}) — shutting down`);
+            return;
+        }
+        logger.warn(`[frames] Exited (code ${code}), respawning in ${RESPAWN_DELAY_MS / 1000}s...`);
+        setTimeout(spawnFrameGrabber, RESPAWN_DELAY_MS);
+    });
+
+    ffmpeg.on('error', (err) => {
+        logger.error(`[frames] Spawn error: ${err.message}`);
+    });
+
+    frameGrabberProc = ffmpeg;
+    return ffmpeg;
+}
+
 // ── Local audio debug recording (--listen) ──────────────────────────
 let listenProc = null;
 function spawnListener() {
@@ -234,6 +300,7 @@ connectWebSocket();
 // Small delay to let WS connect before starting audio, but don't block on it
 setTimeout(() => {
     ffmpegProc = spawnFFmpeg();
+    spawnFrameGrabber();
     if (LISTEN) spawnListener();
 }, 500);
 
@@ -242,6 +309,7 @@ process.on('SIGINT', () => {
     logger.info('Received SIGINT, shutting down...');
     isShuttingDown = true;
     if (ffmpegProc) ffmpegProc.kill();
+    if (frameGrabberProc) frameGrabberProc.kill();
     if (listenProc) listenProc.kill();
     if (ws) ws.close();
     if (orderbook && orderbook.stop) orderbook.stop();
@@ -252,6 +320,7 @@ process.on('SIGTERM', () => {
     logger.info('Received SIGTERM, shutting down...');
     isShuttingDown = true;
     if (ffmpegProc) ffmpegProc.kill();
+    if (frameGrabberProc) frameGrabberProc.kill();
     if (listenProc) listenProc.kill();
     if (ws) ws.close();
     if (orderbook && orderbook.stop) orderbook.stop();
