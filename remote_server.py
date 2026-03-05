@@ -28,6 +28,7 @@ from pathlib import Path
 import numpy as np
 import websockets
 from faster_whisper import WhisperModel
+from clip import FrameClassifier
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -375,6 +376,7 @@ async def main():
 
     # Init transcriber
     transcriber = Transcriber(model_size=args.model, device=args.device)
+    frame_classifier = FrameClassifier(device=args.device)
 
     # Init Kalshi client
     kalshi = KalshiClient(
@@ -580,6 +582,26 @@ async def main():
                         # Video frame (JPEG) — tagged with 0x01 prefix
                         frame_data = message[1:]
                         logger.info(f"frame received ({len(frame_data)} bytes)")
+                        # Save debug frame
+                        debug_dir = Path(__file__).parent / "debug"
+                        debug_dir.mkdir(exist_ok=True)
+                        (debug_dir / f"frame-{session_id}.jpg").write_bytes(frame_data)
+                        (debug_dir / "last_frame.jpg").write_bytes(frame_data)
+
+                        # Classify frame
+                        try:
+                            result = frame_classifier.classify(frame_data)
+                            logger.info(
+                                f"[clip] basketball={result['is_basketball']} "
+                                f"conf={result['confidence']:.2f} "
+                                f"({result['elapsed_ms']}ms)"
+                            )
+                            await websocket.send(json.dumps({
+                                "type": "frame_classification",
+                                **result,
+                            }))
+                        except Exception as e:
+                            logger.error(f"[clip] classification error: {e}")
                     else:
                         # Audio PCM data
                         with audio_inbox_lock:
