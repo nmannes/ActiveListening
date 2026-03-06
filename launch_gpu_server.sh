@@ -57,7 +57,7 @@ if [[ -n "$INSTANCE_TYPE_ARG" ]]; then
 elif [[ "$ENV" == "prod" ]]; then
     INSTANCE_TYPE="g6.xlarge"
 else
-    INSTANCE_TYPE="t3.micro"
+    INSTANCE_TYPE="t3.large"
 fi
 
 SPOT_OPTIONS=""
