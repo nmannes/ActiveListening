@@ -102,7 +102,7 @@ RUN_INSTANCES=$(eval aws ec2 run-instances \
     --count 1 \
     --tag-specifications "'ResourceType=instance,Tags=[{Key=Name,Value=Kalshi-Worker-$RUN_ID}]'" \
     --metadata-options "'{\"HttpEndpoint\":\"enabled\",\"HttpTokens\":\"required\"}'" \
-    --block-device-mappings "'[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":25,\"VolumeType\":\"gp3\"}}]'" \
+    --block-device-mappings "'[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":50,\"VolumeType\":\"gp3\"}}]'" \
     $SPOT_OPTIONS \
     --query "'Instances[0].[InstanceId]'" \
     --output text)
