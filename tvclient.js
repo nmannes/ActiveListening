@@ -212,7 +212,7 @@ function spawnFrameGrabber() {
 
     const ffmpeg = spawn('ffmpeg', [
         '-y',
-        '-fflags', 'nobuffer+genpts+discardcorrupt+lowdelay',
+        '-fflags', 'nobuffer+genpts+discardcorrupt',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
@@ -244,9 +244,8 @@ function spawnFrameGrabber() {
             jpegBuffer = jpegBuffer.slice(endIdx + 2);
 
             if (ws && ws.readyState === WebSocket.OPEN) {
-                // Tag with 4-byte magic header so server can distinguish from audio
-                // "FRM\x01" — unlikely to appear in PCM audio data
-                const header = Buffer.from([0x46, 0x52, 0x4D, 0x01]);
+                // Tag with 0x01 prefix so server can distinguish from audio
+                const header = Buffer.from([0x01]);
                 ws.send(Buffer.concat([header, frame]));
                 logger.info(`[frames] Sent frame: ${frame.length} bytes`);
             }

@@ -578,10 +578,10 @@ async def main():
 
                 # ── Binary message: PCM audio or video frame ─────────
                 if isinstance(message, bytes):
-                    FRAME_MAGIC = b'FRM\x01'
-                    if len(message) >= 4 and message[:4] == FRAME_MAGIC:
-                        # Video frame (JPEG) — tagged with 4-byte magic header
-                        frame_data = message[4:]
+                    # Video frames are tagged with 0x01 prefix + JPEG data (starts with FF D8)
+                    if len(message) > 3 and message[0] == 0x01 and message[1] == 0xFF and message[2] == 0xD8:
+                        # Video frame (JPEG) — confirmed by SOI marker
+                        frame_data = message[1:]
                         logger.info(f"frame received ({len(frame_data)} bytes)")
                         # Save debug frame
                         debug_dir = Path(__file__).parent / "debug"
