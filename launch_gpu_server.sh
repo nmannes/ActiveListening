@@ -144,6 +144,7 @@ ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "mk
 # Explicitly list files to copy
 FILES_TO_COPY=(
     "remote_server.py"
+    "clip.py"
     "requirements.txt"
     "remote_setup.sh"
     ".env.demo"
