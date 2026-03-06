@@ -45,6 +45,9 @@ CONTENT_PROFILES = {
             "a TV commercial or advertisement",
             "a news anchor at a desk in a studio",
             "reporters sitting in an audience without a speaker at the podium",
+            "reporters taking pictures or asking questions from their seats",
+            "a wide shot of journalists sitting in the White House briefing room",
+            "an audience of news correspondents looking at the camera",
             "an empty podium or lectern with no speaker",
             "a non-news television program",
         ],
@@ -125,9 +128,9 @@ class FrameClassifier:
             # Cosine similarity with all prompts
             similarities = (image_features @ self.text_features.T).squeeze(0)
 
-            # Average similarity for positive vs negative prompt groups
-            pos_score = similarities[: self.n_positive].mean().item()
-            neg_score = similarities[self.n_positive :].mean().item()
+            # Max similarity for positive vs negative prompt groups (better for zero-shot)
+            pos_score = similarities[: self.n_positive].max(-1).values.item()
+            neg_score = similarities[self.n_positive :].max(-1).values.item()
 
             # Softmax over [positive, negative] to get probability
             scores = torch.tensor([pos_score, neg_score])
