@@ -32,7 +32,7 @@ from clip import FrameClassifier
 
 # ── Logging ───────────────────────────────────────────────────────────
 
-os.makedirs("logs", exist_ok=True)
+os.makedirs("debug", exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -529,6 +529,7 @@ async def main():
         audio_inbox_lock = threading.Lock()
 
         audio_task = None
+        frame_task = None
 
         try:
             async for message in websocket:
@@ -563,6 +564,41 @@ async def main():
                             if audio_task:
                                 audio_task.cancel()
 
+                            # Background task: classify last_frame.jpg every 2s
+                            async def frame_classification_loop(sid):
+                                frame_path = Path(__file__).parent / "debug" / "last_frame.jpg"
+                                last_mtime = 0
+                                while True:
+                                    await asyncio.sleep(2)
+                                    try:
+                                        if not frame_path.exists():
+                                            continue
+                                        mtime = frame_path.stat().st_mtime
+                                        if mtime == last_mtime:
+                                            continue
+                                        last_mtime = mtime
+                                        data = frame_path.read_bytes()
+                                        if len(data) < 3 or data[0] != 0xFF or data[1] != 0xD8:
+                                            continue
+                                        result = await asyncio.get_running_loop().run_in_executor(
+                                            None, frame_classifier.classify, data
+                                        )
+                                        logger.info(
+                                            f"[clip] basketball={result['is_basketball']} "
+                                            f"conf={result['confidence']:.2f} "
+                                            f"({result['elapsed_ms']}ms)"
+                                        )
+                                        await websocket.send(json.dumps({
+                                            "type": "frame_classification",
+                                            **result,
+                                        }))
+                                    except websockets.exceptions.ConnectionClosed:
+                                        break
+                                    except Exception as e:
+                                        logger.error(f"[clip] classification error: {e}")
+
+                            frame_task = asyncio.create_task(frame_classification_loop(session_id))
+
                             # Start the background task that processes PCM from audio_inbox
                             audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index))
 
@@ -588,21 +624,6 @@ async def main():
                         debug_dir.mkdir(exist_ok=True)
                         (debug_dir / f"frame-{session_id}.jpg").write_bytes(frame_data)
                         (debug_dir / "last_frame.jpg").write_bytes(frame_data)
-
-                        # Classify frame
-                        try:
-                            result = frame_classifier.classify(frame_data)
-                            logger.info(
-                                f"[clip] basketball={result['is_basketball']} "
-                                f"conf={result['confidence']:.2f} "
-                                f"({result['elapsed_ms']}ms)"
-                            )
-                            await websocket.send(json.dumps({
-                                "type": "frame_classification",
-                                **result,
-                            }))
-                        except Exception as e:
-                            logger.error(f"[clip] classification error: {e}")
                     else:
                         # Audio PCM data
                         with audio_inbox_lock:
@@ -618,6 +639,8 @@ async def main():
             logger.info(f"[server] Client disconnected {session['id'] if session else ''}")
             if audio_task:
                 audio_task.cancel()
+            if frame_task:
+                frame_task.cancel()
 
     # ── Start server ──────────────────────────────────────────────────
     logger.info(f"WebSocket server listening on port {args.port}")
