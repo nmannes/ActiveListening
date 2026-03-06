@@ -394,6 +394,7 @@ async def main():
         keyword_index = None
         decoder = None
         transcript = []
+        is_currently_basketball = False
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
         async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index):
@@ -432,7 +433,9 @@ async def main():
                     if matched:
                         logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
 
-                        if trade_for_real:
+                        if not is_currently_basketball:
+                            logger.info(f"[TRADE] Skipping trade because basketball not on screen")
+                        elif trade_for_real:
                             try:
                                 kalshi.place_fill_or_kill_order(
                                     ticker=matched["value"],
@@ -583,6 +586,8 @@ async def main():
                                         result = await asyncio.get_running_loop().run_in_executor(
                                             None, frame_classifier.classify, data
                                         )
+                                        nonlocal is_currently_basketball
+                                        is_currently_basketball = result['is_basketball']
                                         logger.info(
                                             f"[clip] basketball={result['is_basketball']} "
                                             f"conf={result['confidence']:.2f} "
