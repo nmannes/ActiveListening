@@ -229,15 +229,24 @@ function spawnFrameGrabber() {
     ffmpeg.stdout.on('data', (data) => {
         jpegBuffer = Buffer.concat([jpegBuffer, data]);
 
-        // JPEG frames end with FF D9 — extract complete frames
+        // Extract complete JPEG frames (SOI FF D8 … EOI FF D9)
         let endIdx;
         while ((endIdx = jpegBuffer.indexOf(Buffer.from([0xFF, 0xD9]))) !== -1) {
-            const frame = jpegBuffer.slice(0, endIdx + 2);
+            // Find the JPEG start-of-image marker
+            const startIdx = jpegBuffer.indexOf(Buffer.from([0xFF, 0xD8]));
+            if (startIdx === -1 || startIdx > endIdx) {
+                // No valid SOI before this EOI — discard up to past the EOI
+                jpegBuffer = jpegBuffer.slice(endIdx + 2);
+                continue;
+            }
+
+            const frame = jpegBuffer.slice(startIdx, endIdx + 2);
             jpegBuffer = jpegBuffer.slice(endIdx + 2);
 
             if (ws && ws.readyState === WebSocket.OPEN) {
-                // Tag with 0x01 prefix so server can distinguish from audio
-                const header = Buffer.from([0x01]);
+                // Tag with 4-byte magic header so server can distinguish from audio
+                // "FRM\x01" — unlikely to appear in PCM audio data
+                const header = Buffer.from([0x46, 0x52, 0x4D, 0x01]);
                 ws.send(Buffer.concat([header, frame]));
                 logger.info(`[frames] Sent frame: ${frame.length} bytes`);
             }
