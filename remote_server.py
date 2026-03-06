@@ -354,6 +354,7 @@ async def main():
     parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
     parser.add_argument("--buy-count", type=int, default=1)
     parser.add_argument("--last-words-count", type=int, default=7)
+    parser.add_argument("--content-profile", type=str, default="basketball", help="CLIP content profile (default: basketball)")
     args = parser.parse_args()
 
     # Auto-select model based on device if not specified
@@ -376,7 +377,7 @@ async def main():
 
     # Init transcriber
     transcriber = Transcriber(model_size=args.model, device=args.device)
-    frame_classifier = FrameClassifier(device=args.device)
+    frame_classifier = FrameClassifier(device=args.device, content_profile=args.content_profile)
 
     # Init Kalshi client
     kalshi = KalshiClient(
@@ -394,7 +395,7 @@ async def main():
         keyword_index = None
         decoder = None
         transcript = []
-        is_currently_basketball = False
+        is_content_visible = False
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
         async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index):
@@ -433,8 +434,8 @@ async def main():
                     if matched:
                         logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
 
-                        if not is_currently_basketball:
-                            logger.info(f"[TRADE] Skipping trade because basketball not on screen")
+                        if not is_content_visible:
+                            logger.info(f"[TRADE] Skipping trade because desired content not on screen")
                         elif trade_for_real:
                             try:
                                 kalshi.place_fill_or_kill_order(
@@ -586,10 +587,11 @@ async def main():
                                         result = await asyncio.get_running_loop().run_in_executor(
                                             None, frame_classifier.classify, data
                                         )
-                                        nonlocal is_currently_basketball
-                                        is_currently_basketball = result['is_basketball']
+                                        nonlocal is_content_visible
+                                        is_content_visible = result['is_desired_content_visible']
                                         logger.info(
-                                            f"[clip] basketball={result['is_basketball']} "
+                                            f"[clip] content_visible={result['is_desired_content_visible']} "
+                                            f"profile={result['content_profile']} "
                                             f"conf={result['confidence']:.2f} "
                                             f"({result['elapsed_ms']}ms)"
                                         )

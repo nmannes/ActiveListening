@@ -1,8 +1,9 @@
 """
-clip.py — CLIP-based frame classifier for detecting basketball broadcasts.
+clip.py — CLIP-based frame classifier for detecting desired broadcast content.
 
 Uses OpenAI's CLIP (via open_clip) to zero-shot classify TV frames as
-basketball broadcast vs. non-basketball content.
+desired content vs. non-desired content. Supports multiple content profiles
+(e.g. basketball, white house press briefing).
 """
 
 import io
@@ -15,34 +16,68 @@ import open_clip
 
 logger = logging.getLogger("clip_classifier")
 
-# Text prompts for zero-shot classification
-POSITIVE_PROMPTS = [
-    "a live basketball game on television",
-    "an NBA basketball broadcast",
-    "a college basketball game being played on a court",
-    "basketball players on a court during a live game",
-]
+# ── Content profiles ─────────────────────────────────────────────────
 
-NEGATIVE_PROMPTS = [
-    "a TV commercial or advertisement",
-    "a news anchor at a desk",
-    "a halftime show or studio analysis",
-    "a scoreboard or statistics graphic",
-    "a non-sports television program",
-]
+CONTENT_PROFILES = {
+    "basketball": {
+        "positive": [
+            "a live basketball game on television",
+            "an NBA basketball broadcast",
+            "a college basketball game being played on a court",
+            "basketball players on a court during a live game",
+        ],
+        "negative": [
+            "a TV commercial or advertisement",
+            "a news anchor at a desk",
+            "a halftime show or studio analysis",
+            "a scoreboard or statistics graphic",
+            "a non-sports television program",
+        ],
+    },
+    "white_house_briefing": {
+        "positive": [
+            "a person speaking at a podium during a White House press briefing",
+            "a White House press secretary at the lectern addressing reporters",
+            "a government official standing at a podium with the White House logo",
+            "a speaker at a White House press conference behind a lectern",
+        ],
+        "negative": [
+            "a TV commercial or advertisement",
+            "a news anchor at a desk in a studio",
+            "reporters sitting in an audience without a speaker at the podium",
+            "an empty podium or lectern with no speaker",
+            "a non-news television program",
+        ],
+    },
+}
+
+DEFAULT_PROFILE = "basketball"
 
 
 class FrameClassifier:
-    """Zero-shot CLIP classifier for basketball broadcast detection."""
+    """Zero-shot CLIP classifier for detecting desired broadcast content."""
 
-    def __init__(self, device: str = "cpu", threshold: float = 0.55):
+    def __init__(self, device: str = "cpu", threshold: float = 0.55,
+                 content_profile: str = DEFAULT_PROFILE):
         """
         Args:
             device: 'cpu' or 'cuda'
-            threshold: probability threshold above which we classify as basketball
+            threshold: probability threshold above which we classify as desired content
+            content_profile: key into CONTENT_PROFILES (default: 'basketball')
         """
+        if content_profile not in CONTENT_PROFILES:
+            raise ValueError(
+                f"Unknown content profile '{content_profile}'. "
+                f"Available: {list(CONTENT_PROFILES.keys())}"
+            )
+
         self.device = device
         self.threshold = threshold
+        self.content_profile = content_profile
+
+        profile = CONTENT_PROFILES[content_profile]
+        self.positive_prompts = profile["positive"]
+        self.negative_prompts = profile["negative"]
 
         logger.info(f"Loading CLIP model (ViT-B-32) on {device}...")
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
@@ -52,14 +87,17 @@ class FrameClassifier:
         self.model.eval()
 
         # Pre-encode text prompts
-        all_prompts = POSITIVE_PROMPTS + NEGATIVE_PROMPTS
+        all_prompts = self.positive_prompts + self.negative_prompts
         with torch.no_grad():
             text_tokens = self.tokenizer(all_prompts).to(device)
             self.text_features = self.model.encode_text(text_tokens)
             self.text_features /= self.text_features.norm(dim=-1, keepdim=True)
 
-        self.n_positive = len(POSITIVE_PROMPTS)
-        logger.info("CLIP model loaded and text prompts encoded.")
+        self.n_positive = len(self.positive_prompts)
+        logger.info(
+            f"CLIP model loaded — profile='{content_profile}', "
+            f"{self.n_positive} positive / {len(self.negative_prompts)} negative prompts."
+        )
 
     def classify(self, frame_bytes: bytes) -> dict:
         """
@@ -70,9 +108,10 @@ class FrameClassifier:
 
         Returns:
             dict with keys:
-                - is_basketball (bool): True if classified as basketball broadcast
+                - is_desired_content_visible (bool): True if classified as desired content
                 - confidence (float): probability score (0-1)
                 - elapsed_ms (int): inference time in milliseconds
+                - content_profile (str): which profile was used
         """
         t0 = time.time()
 
@@ -93,14 +132,15 @@ class FrameClassifier:
             # Softmax over [positive, negative] to get probability
             scores = torch.tensor([pos_score, neg_score])
             probs = torch.softmax(scores * 100, dim=0)  # temperature-scaled
-            basketball_prob = probs[0].item()
+            content_prob = probs[0].item()
 
         elapsed_ms = int((time.time() - t0) * 1000)
 
-        is_basketball = basketball_prob >= self.threshold
+        is_desired_content_visible = content_prob >= self.threshold
 
         return {
-            "is_basketball": is_basketball,
-            "confidence": round(basketball_prob, 4),
+            "is_desired_content_visible": is_desired_content_visible,
+            "confidence": round(content_prob, 4),
             "elapsed_ms": elapsed_ms,
+            "content_profile": self.content_profile,
         }
