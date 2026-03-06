@@ -595,6 +595,17 @@ async def main():
                                             f"conf={result['confidence']:.2f} "
                                             f"({result['elapsed_ms']}ms)"
                                         )
+                                        # Save frame and result for debugging
+                                        frames_dir = Path(__file__).parent / "debug" / "frames"
+                                        frames_dir.mkdir(exist_ok=True, parents=True)
+                                        
+                                        # Use a timestamp to keep them ordered
+                                        ts = int(time.time() * 1000)
+                                        prefix = f"{sid}_{ts}"
+                                        
+                                        (frames_dir / f"{prefix}.jpg").write_bytes(data)
+                                        (frames_dir / f"{prefix}.json").write_text(json.dumps(result, indent=2))
+
                                         await websocket.send(json.dumps({
                                             "type": "frame_classification",
                                             **result,
