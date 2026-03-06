@@ -7,7 +7,7 @@ models/
 
 *.txt
 !requirements.txt
-
+__pycache__/
 *.json
 *.db
 *.log
