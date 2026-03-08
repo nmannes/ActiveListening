@@ -8,7 +8,7 @@
  *
  * Usage:
  *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --matchJSON <base64-or-json>
- *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --fromFile market.json
+ *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --fromFile market.json --duration 30
  */
 
 const { spawn } = require('child_process');
@@ -311,6 +311,24 @@ setTimeout(() => {
     spawnFrameGrabber();
     if (LISTEN) spawnListener();
 }, 500);
+
+// Setup shutdown timer if duration is provided
+if (args.duration) {
+    const durationMs = parseInt(args.duration, 10) * 60 * 1000;
+    if (!isNaN(durationMs)) {
+        logger.info(`Shutdown scheduled in ${args.duration} minutes`);
+        setTimeout(() => {
+            logger.info('Duration reached, shutting down...');
+            isShuttingDown = true;
+            if (ffmpegProc) ffmpegProc.kill();
+            if (frameGrabberProc) frameGrabberProc.kill();
+            if (listenProc) listenProc.kill();
+            if (ws) ws.close();
+            if (orderbook && orderbook.stop) orderbook.stop();
+            process.exit(0);
+        }, durationMs);
+    }
+}
 
 // ── Cleanup ──────────────────────────────────────────────────────────
 process.on('SIGINT', () => {

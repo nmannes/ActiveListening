@@ -456,7 +456,7 @@ async def main():
                                     count=args.buy_count,
                                 )
                                 t1_trade = time.time()
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.3f}s)")
+                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
                             except Exception as e:
                                 logger.error(f"[TRADE] Error placing order: {e}")
                         else:
