@@ -96,11 +96,13 @@ class KalshiClient:
         # Default prices for market orders
         if order_type == "market" and yes_price is None and no_price is None:
             if side.lower() == "yes":
-                params["yes_price"] = 95
+                params["yes_price"] = 90
             else:
                 params["no_price"] = 60
 
-        return self.orders_api.create_order(params)
+        from kalshi_python_sync.models.create_order_request import CreateOrderRequest
+        req = CreateOrderRequest(**params)
+        return self.orders_api.create_order(create_order_request=req)
 
 
 # ── Keyword matching (port of lib/matching.js) ────────────────────────
@@ -382,7 +384,7 @@ async def main():
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip())
 
-    trade_for_real = os.environ.get("TRADE_FOR_REAL", "false").lower() == "true"
+    trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
     logger.info(f"Environment: {args.env}")
     logger.info(f"Trading enabled: {trade_for_real}")
 

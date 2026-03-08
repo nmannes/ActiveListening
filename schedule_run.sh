@@ -88,7 +88,7 @@ ABS_JSON_FILE="$(cd "$(dirname "$JSON_FILE")" && pwd)/$(basename "$JSON_FILE")"
 if [[ "$RUN_NOW" == true ]]; then
     # --- Run everything immediately ---
     echo "[$(date '+%H:%M:%S')] Launching GPU instance now..."
-    bash "$SCRIPT_DIR/launch_gpu_server.sh" prod --shutdown-minutes 30 --spot 2>&1 | tee -a "$SCRIPT_DIR/schedule_run.log"
+    bash "$SCRIPT_DIR/launch_gpu_server.sh" prod --spot --shutdown-minutes 30  2>&1 | tee -a "$SCRIPT_DIR/schedule_run.log"
     if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
         echo "ERROR: launch_gpu_server.sh failed. Aborting."
         exit 1
@@ -96,10 +96,11 @@ if [[ "$RUN_NOW" == true ]]; then
 
     echo "[$(date '+%H:%M:%S')] Starting tvclient.js now..."
     cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE"
+    exit 0
 fi
 
 # --- Schedule GPU launch at T-3min ---
-echo "$SCRIPT_DIR/launch_gpu_server.sh prod --shutdown-minutes $SHUTDOWN_MINUTES --spot >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+echo "$SCRIPT_DIR/launch_gpu_server.sh prod --shutdown-minutes $SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$LAUNCH_AT"
 
 # --- Schedule tvclient.js at start time ---
