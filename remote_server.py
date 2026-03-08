@@ -144,6 +144,17 @@ def remove_from_index(index: dict, key: str):
         if not index[last_word]:
             del index[last_word]
 
+def remove_market_from_index(index: dict, value: str):
+    """Remove all keywords from the index that correspond to the given market (value)."""
+    empty_keys = []
+    for last_word, candidates in index.items():
+        index[last_word] = [c for c in candidates if c["value"] != value]
+        if not index[last_word]:
+            empty_keys.append(last_word)
+            
+    for k in empty_keys:
+        del index[k]
+
 
 
 
@@ -438,17 +449,19 @@ async def main():
                             logger.info(f"[TRADE] Skipping trade because desired content not on screen")
                         elif trade_for_real:
                             try:
+                                t0_trade = time.time()
                                 kalshi.place_fill_or_kill_order(
                                     ticker=matched["value"],
                                     count=args.buy_count,
                                 )
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']}")
+                                t1_trade = time.time()
+                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.3f}s)")
                             except Exception as e:
                                 logger.error(f"[TRADE] Error placing order: {e}")
                         else:
                             logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
 
-                        remove_from_index(keyword_index, matched["key"])
+                        remove_market_from_index(keyword_index, matched["value"])
                         
                         # Notify client
                         try:
