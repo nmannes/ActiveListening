@@ -24,6 +24,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from kalshi_python_sync.models.create_order_request import CreateOrderRequest
 
 import numpy as np
 import websockets
@@ -98,11 +99,9 @@ class KalshiClient:
             if side.lower() == "yes":
                 params["yes_price"] = 90
             else:
-                params["no_price"] = 60
+                params["no_price"] = 10
 
-        from kalshi_python_sync.models.create_order_request import CreateOrderRequest
-        req = CreateOrderRequest(**params)
-        return self.orders_api.create_order(create_order_request=req)
+        return self.orders_api.create_order(**params)
 
 
 # ── Keyword matching (port of lib/matching.js) ────────────────────────
