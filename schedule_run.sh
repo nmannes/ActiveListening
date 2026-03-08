@@ -115,7 +115,7 @@ if [[ "$RUN_NOW" == true ]]; then
     fi
 
     echo "[$(date '+%H:%M:%S')] Starting tvclient.js now..."
-    cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE" --duration "$DURATION_MINUTES"
+    cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE" --duration 45
     exit 0
 fi
 
@@ -126,7 +126,7 @@ if [[ "$CLIENT_ONLY" != true ]]; then
 fi
 
 # --- Schedule tvclient.js at start time ---
-echo "cd $SCRIPT_DIR && bun run tvclient.js --fromFile $ABS_JSON_FILE --duration $DURATION_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+echo "cd $SCRIPT_DIR && bun run tvclient.js --fromFile $ABS_JSON_FILE --duration 45 >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""
