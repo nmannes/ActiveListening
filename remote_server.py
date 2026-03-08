@@ -454,6 +454,7 @@ async def main():
                             try:
                                 t0_trade = time.time()
                                 kalshi.place_fill_or_kill_order(
+                                    yes_price=95
                                     ticker=matched["value"],
                                     count=args.buy_count,
                                 )
