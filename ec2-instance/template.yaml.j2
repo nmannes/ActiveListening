@@ -200,11 +200,6 @@ Resources:
       ResourceSignal:
         Timeout: PT20M
 
-Outputs:
-  InstanceId:
-    Value: !Ref KalshiWorkerInstance
-  PublicIp:
-    Value: !GetAtt KalshiWorkerInstance.PublicIp
 
   KalshiWorkerLogGroup:
     Type: AWS::Logs::LogGroup
@@ -212,7 +207,6 @@ Outputs:
     Properties:
       LogGroupName: !Sub "/kalshi/worker/${AWS::StackName}"
       RetentionInDays: 7
-
 
   KalshiWorkerInstanceRole:
     Type: AWS::IAM::Role
@@ -232,4 +226,10 @@ Outputs:
     Properties:
       Roles:
         - !Ref KalshiWorkerInstanceRole
+
+Outputs:
+  InstanceId:
+    Value: !Ref KalshiWorkerInstance
+  PublicIp:
+    Value: !GetAtt KalshiWorkerInstance.PublicIp
 

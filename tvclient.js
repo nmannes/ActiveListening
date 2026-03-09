@@ -41,15 +41,9 @@ if (!REMOTE_IP_ADDRESS) {
             REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
             logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
         } catch (e) {
-            logger.error('Discovery: No running worker found via discover_instance.sh');
-            process.exit(1);
+            logger.warn('Discovery: No running worker found via discover_instance.sh');
         }
     }
-}
-
-if (!REMOTE_IP_ADDRESS || REMOTE_IP_ADDRESS === 'None') {
-    logger.error('Error: Could not determine remote server IP. Start an instance or use --ip.');
-    process.exit(1);
 }
 
 
