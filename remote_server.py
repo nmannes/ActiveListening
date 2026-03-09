@@ -24,6 +24,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from kalshi_python_sync.models.create_order_request import CreateOrderRequest
 
 import numpy as np
 import websockets
@@ -96,11 +97,11 @@ class KalshiClient:
         # Default prices for market orders
         if order_type == "market" and yes_price is None and no_price is None:
             if side.lower() == "yes":
-                params["yes_price"] = 95
+                params["yes_price"] = 90
             else:
-                params["no_price"] = 60
+                params["no_price"] = 10
 
-        return self.orders_api.create_order(params)
+        return self.orders_api.create_order(**params)
 
 
 # ── Keyword matching (port of lib/matching.js) ────────────────────────
@@ -143,6 +144,17 @@ def remove_from_index(index: dict, key: str):
         index[last_word] = [c for c in index[last_word] if c["key"] != key]
         if not index[last_word]:
             del index[last_word]
+
+def remove_market_from_index(index: dict, value: str):
+    """Remove all keywords from the index that correspond to the given market (value)."""
+    empty_keys = []
+    for last_word, candidates in index.items():
+        index[last_word] = [c for c in candidates if c["value"] != value]
+        if not index[last_word]:
+            empty_keys.append(last_word)
+            
+    for k in empty_keys:
+        del index[k]
 
 
 
@@ -371,13 +383,14 @@ async def main():
                 key, _, value = line.partition("=")
                 os.environ.setdefault(key.strip(), value.strip())
 
-    trade_for_real = os.environ.get("TRADE_FOR_REAL", "false").lower() == "true"
+    trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
     logger.info(f"Environment: {args.env}")
     logger.info(f"Trading enabled: {trade_for_real}")
 
     # Init transcriber
     transcriber = Transcriber(model_size=args.model, device=args.device)
     frame_classifier = FrameClassifier(device=args.device, content_profile=args.content_profile)
+    clip_executor = ThreadPoolExecutor(max_workers=1)
 
     # Init Kalshi client
     kalshi = KalshiClient(
@@ -398,9 +411,10 @@ async def main():
         is_content_visible = False
         punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
 
+        last_proc_time = [0.0]
+
         async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index):
             transcript.clear()
-            transcriber.reset()
             logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
@@ -438,17 +452,19 @@ async def main():
                             logger.info(f"[TRADE] Skipping trade because desired content not on screen")
                         elif trade_for_real:
                             try:
+                                t0_trade = time.time()
                                 kalshi.place_fill_or_kill_order(
                                     ticker=matched["value"],
                                     count=args.buy_count,
                                 )
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']}")
+                                t1_trade = time.time()
+                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
                             except Exception as e:
                                 logger.error(f"[TRADE] Error placing order: {e}")
                         else:
                             logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
 
-                        remove_from_index(keyword_index, matched["key"])
+                        remove_market_from_index(keyword_index, matched["value"])
                         
                         # Notify client
                         try:
@@ -483,7 +499,7 @@ async def main():
                         await websocket.send(json.dumps({
                             "type": "telemetry",
                             "buffer_ms": inbox_ms + buffer_ms,
-                            "last_proc_ms": int(transcriber.last_proc_time * 1000)
+                            "last_proc_ms": int(last_proc_time[0] * 1000)
                         }))
                     except Exception:
                         break
@@ -517,7 +533,10 @@ async def main():
                         if rms < 0.01:
                             continue
 
+                        t0_audio = time.time()
                         text = await transcriber.transcribe_raw(chunk)
+                        last_proc_time[0] = time.time() - t0_audio
+                        
                         await process_text(text)
 
             except asyncio.CancelledError:
@@ -568,9 +587,9 @@ async def main():
                             if audio_task:
                                 audio_task.cancel()
 
-                            # Background task: classify last_frame.jpg every 2s
+                            # Background task: classify frame-{sid}.jpg every 2s
                             async def frame_classification_loop(sid):
-                                frame_path = Path(__file__).parent / "debug" / "last_frame.jpg"
+                                frame_path = Path(__file__).parent / "debug" / f"frame-{sid}.jpg"
                                 last_mtime = 0
                                 while True:
                                     await asyncio.sleep(2)
@@ -585,7 +604,7 @@ async def main():
                                         if len(data) < 3 or data[0] != 0xFF or data[1] != 0xD8:
                                             continue
                                         result = await asyncio.get_running_loop().run_in_executor(
-                                            None, frame_classifier.classify, data
+                                            clip_executor, frame_classifier.classify, data
                                         )
                                         nonlocal is_content_visible
                                         is_content_visible = result['is_desired_content_visible']
@@ -641,7 +660,6 @@ async def main():
                         debug_dir = Path(__file__).parent / "debug"
                         debug_dir.mkdir(exist_ok=True)
                         (debug_dir / f"frame-{session_id}.jpg").write_bytes(frame_data)
-                        (debug_dir / "last_frame.jpg").write_bytes(frame_data)
                     else:
                         # Audio PCM data
                         with audio_inbox_lock:
