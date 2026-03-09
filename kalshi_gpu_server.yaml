@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CloudFormation template for the Kalshi GPU Worker Server.
+  Manages the EC2 instance, Security Group, and standard bootstrapping.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: demo
+    AllowedValues: [prod, demo]
+    Description: Environment to deploy. Determines the instance type if no override is provided.
+  InstanceTypeOverride:
+    Type: String
+    Default: ""
+    Description: (Optional) Override instance type (e.g. g6.8xlarge). If left blank, uses mapping based on Environment.
+  UseSpot:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Whether to use Spot instances instead of On-Demand.
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: us-east-1
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
+  OperatorIp:
+    Type: String
+    Description: Your current public IP for whitelisting (CIDR format required, e.g. 1.2.3.4/32).
+  AmiId:
+    Type: String
+    Default: ami-073d9221f657bc5ff
+    Description: AMI ID to use. Defaults to the Amazon Linux 2023 AMI.
+  ShutdownMinutes:
+    Type: Number
+    Default: 30
+    Description: Minutes until the instance automatically shuts down.
+
+Conditions:
+  UseSpotInstances: !Equals [!Ref UseSpot, 'true']
+  HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
+
+Mappings:
+  EnvToInstanceType:
+    prod:
+      InstanceType: g6.xlarge
+    demo:
+      InstanceType: t3.large
+
+Resources:
+  KalshiWorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Kalshi Worker (Managed by CloudFormation)
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref OperatorIp
+          Description: "SSH access from operator"
+        - IpProtocol: tcp
+          FromPort: 8090
+          ToPort: 8090
+          CidrIp: !Ref OperatorIp
+          Description: "App access from operator"
+
+  KalshiWorkerInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              python3-pip: []
+          files:
+            "/home/ec2-user/requirements.txt":
+              content: |
+                faster-whisper
+                numpy
+                dotenv
+                websockets
+                kalshi-python-sync
+                open-clip-torch
+                pillow
+              mode: "000644"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/setup_kalshi.sh":
+              content: !Sub |
+                #!/bin/bash
+                set -e
+                
+                # Shutdown timer
+                echo "Scheduling shutdown in ${ShutdownMinutes} minutes..."
+                sudo shutdown -h +${ShutdownMinutes}
+                
+                mkdir -p /home/ec2-user/logs
+                echo "$(date) —— Starting remote_setup from cfn-init" > /home/ec2-user/logs/remote_setup.log
+                
+                # FFmpeg installation
+                if ! command -v ffmpeg &> /dev/null; then
+                    echo "FFmpeg not found. Downloading static build..." >> /home/ec2-user/logs/remote_setup.log
+                    URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+                    curl -L -O "$URL"
+                    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz > /dev/null
+                    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
+                    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
+                    rm -rf ffmpeg-master-latest-linux64-gpl*
+                fi
+                
+                # Pip dependencies
+                pip3 install -r /home/ec2-user/requirements.txt >> /home/ec2-user/logs/remote_setup.log 2>&1
+                
+                # Pre-download CLIP model
+                python3 -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')" >> /home/ec2-user/logs/remote_setup.log 2>&1
+                
+                # Hardware / Environment specific logic
+                DEVICE="cpu"
+                if [[ "${Environment}" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
+                    DEVICE="cuda"
+                    echo "Found GPU, setting DEVICE to cuda" >> /home/ec2-user/logs/remote_setup.log
+                    pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12 >> /home/ec2-user/logs/remote_setup.log 2>&1
+                    
+                    CUBLAS_DIR=$(dirname "$(find /home/ec2-user/.local /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
+                    CUDNN_DIR=$(dirname "$(find /home/ec2-user/.local /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
+                    CUDA_PATHS="${CUBLAS_DIR}:${CUDNN_DIR}"
+                    if [ ! -z "$CUBLAS_DIR" ]; then
+                        echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" >> /home/ec2-user/.bashrc
+                        echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" > /home/ec2-user/.cuda_env
+                    fi
+                fi
+                
+                echo "export ENV=${Environment}" >> /home/ec2-user/.bashrc
+                echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
+              mode: "000755"
+              owner: "ec2-user"
+              group: "ec2-user"
+          commands:
+            01_run_setup:
+              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh'"
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: 
+        !If 
+          - HasInstanceTypeOverride
+          - !Ref InstanceTypeOverride
+          - !FindInMap [EnvToInstanceType, !Ref Environment, InstanceType]
+      KeyName: !Ref KeyName
+      SecurityGroupIds: 
+        - !Ref KalshiWorkerSecurityGroup
+      InstanceMarketOptions:
+        !If
+          - UseSpotInstances
+          - MarketType: spot
+          - !Ref AWS::NoValue
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub "Kalshi-Worker-${AWS::StackName}"
+        - Key: Environment
+          Value: !Ref Environment
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+
+Outputs:
+  InstanceId:
+    Description: The ID of the deployed EC2 instance
+    Value: !Ref KalshiWorkerInstance
+  PublicIp:
+    Description: Public IP of the instance
+    Value: !GetAtt KalshiWorkerInstance.PublicIp
+  AvailabilityZone:
+    Description: Availability Zone where the instance is running
+    Value: !GetAtt KalshiWorkerInstance.AvailabilityZone

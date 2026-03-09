@@ -4,26 +4,37 @@
 
 set -e
 
-# --- Configuration ---
-export REGION="us-east-1"
-export SECURITY_GROUP="sg-0e12f54598d39a1f5" # Reusing your existing SG
-export KEY_NAME="us-east-1" 
-export SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
-export LOCAL_DIR="$(pwd)"
-export REMOTE_USER="ec2-user"
-export REMOTE_DIR="/home/ec2-user"
+# --- Configuration (Defaults) ---
+REGION="${REGION:-us-east-1}"
+KEY_NAME="${KEY_NAME:-us-east-1}"
+SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
+LOCAL_DIR="$(pwd)"
+REMOTE_USER="ec2-user"
+REMOTE_DIR="/home/ec2-user"
 
 # --- Subcommand: Destroy All ---
 if [[ "$1" == "--destroy-all" ]]; then
-    echo "Querying all instances in $REGION..."
+    echo "Querying all Kalshi worker stacks in $REGION..."
+    STACKS=$(aws cloudformation describe-stacks \
+        --region "$REGION" \
+        --query 'Stacks[?starts_with(StackName, `kalshi-worker-`) && StackStatus!=`DELETE_COMPLETE`].StackName' \
+        --output text)
+    if [ -z "$STACKS" ]; then
+        echo "No stacks found to delete."
+    else
+        echo "Deleting stacks: $STACKS"
+        for stack in $STACKS; do
+            echo "Deleting stack $stack..."
+            aws cloudformation delete-stack --region "$REGION" --stack-name "$stack"
+        done
+    fi
+    echo "Also cleaning up any stray instances..."
     INSTANCE_IDS=$(aws ec2 describe-instances \
         --region "$REGION" \
         --query 'Reservations[].Instances[?State.Name!=`terminated`].InstanceId' \
         --output text)
-    if [ -z "$INSTANCE_IDS" ]; then
-        echo "No instances found to terminate."
-    else
-        echo "Terminating instances: $INSTANCE_IDS"
+    if [ -n "$INSTANCE_IDS" ]; then
+        echo "Terminating stray instances: $INSTANCE_IDS"
         aws ec2 terminate-instances --region "$REGION" --instance-ids $INSTANCE_IDS
     fi
     exit 0
@@ -70,60 +81,53 @@ REMOTE_DIR="/home/ec2-user"
 
 echo "Deploying to environment: $ENV"
 
-# --- 0. Whitelist Current IP (Ephemeral) ---
-echo "[0/6] Ensuring local IP is whitelisted (All Traffic)..."
+# --- 0. Get Local IP ---
+echo "[0/6] Getting local IP for whitelisting..."
 MY_IP=$(curl -s https://ifconfig.me)
 echo "Local IP: $MY_IP"
-
-
-# Attempt to authorize all traffic from current IP
-aws ec2 authorize-security-group-ingress \
-    --region "$REGION" \
-    --group-id "$SECURITY_GROUP" \
-    --protocol -1 \
-    --port all \
-    --cidr "${MY_IP}/32" 2>/dev/null || echo "Rule already exists"
-
-# --- 1. Use Basic AMI ---
-echo "[1/6] Using basic Amazon Linux 2023 AMI..."
-# Reusing the AMI from your aws_main_script.sh
+# AMI ID is now defaulted in CFN, but we keep the reference for clarity if needed
 AMI_ID="ami-073d9221f657bc5ff" 
-
 echo "Using AMI: $AMI_ID"
 
 # --- 2. Launch Instance ---
-echo "[2/6] Launching $INSTANCE_TYPE in $REGION (Spot: $USE_SPOT)..."
-RUN_INSTANCES=$(eval aws ec2 run-instances \
+echo "[2/6] Launching CloudFormation stack in $REGION (Spot: $USE_SPOT)..."
+STACK_NAME="kalshi-worker-$RUN_ID"
+
+aws cloudformation deploy \
+    --template-file "$LOCAL_DIR/kalshi_gpu_server.yaml" \
+    --stack-name "$STACK_NAME" \
     --region "$REGION" \
-    --image-id "$AMI_ID" \
-    --instance-type "$INSTANCE_TYPE" \
-    --security-group-ids "$SECURITY_GROUP" \
-    --key-name "$KEY_NAME" \
-    --count 1 \
-    --tag-specifications "'ResourceType=instance,Tags=[{Key=Name,Value=Kalshi-Worker-$RUN_ID}]'" \
-    --metadata-options "'{\"HttpEndpoint\":\"enabled\",\"HttpTokens\":\"required\"}'" \
-    --block-device-mappings "'[{\"DeviceName\":\"/dev/xvda\",\"Ebs\":{\"VolumeSize\":100,\"VolumeType\":\"gp3\"}}]'" \
-    $SPOT_OPTIONS \
-    --query "'Instances[0].[InstanceId]'" \
+    --parameter-overrides \
+        Environment="$ENV" \
+        InstanceTypeOverride="$INSTANCE_TYPE_ARG" \
+        UseSpot="$USE_SPOT" \
+        OperatorIp="${MY_IP}/32" \
+        KeyName="$KEY_NAME" \
+        AmiId="$AMI_ID" \
+        ShutdownMinutes="$SHUTDOWN_MINUTES"
+
+# --- 3. Get Instance Details ---
+echo "[3/6] Gathering instance details from stack..."
+
+INSTANCE_ID=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --region "$REGION" \
+    --query 'Stacks[0].Outputs[?OutputKey==`InstanceId`].OutputValue' \
     --output text)
 
-INSTANCE_ID=$(echo "$RUN_INSTANCES" | tail -n1)
-echo "Instance ID: $INSTANCE_ID"
-
-# --- 3. Wait for IP ---
-echo "[3/6] Waiting for instance to start..."
-aws ec2 wait instance-running --region "$REGION" --instance-ids "$INSTANCE_ID"
-
-# Get IP and AZ
-DESCRIBE=$(aws ec2 describe-instances \
+PUBLIC_IP=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
     --region "$REGION" \
-    --instance-ids "$INSTANCE_ID" \
-    --query 'Reservations[0].Instances[0].{IP:PublicIpAddress,AZ:Placement.AvailabilityZone}' \
-    --output json)
+    --query 'Stacks[0].Outputs[?OutputKey==`PublicIp`].OutputValue' \
+    --output text)
 
-PUBLIC_IP=$(echo "$DESCRIBE" | jq -r '.IP')
-AZ=$(echo "$DESCRIBE" | jq -r '.AZ')
+AZ=$(aws cloudformation describe-stacks \
+    --stack-name "$STACK_NAME" \
+    --region "$REGION" \
+    --query 'Stacks[0].Outputs[?OutputKey==`AvailabilityZone`].OutputValue' \
+    --output text)
 
+echo "Instance ID: $INSTANCE_ID"
 echo "Public IP: $PUBLIC_IP (AZ: $AZ)"
 echo "$PUBLIC_IP" > remote_server_ip.txt
 
@@ -145,8 +149,6 @@ ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "mk
 FILES_TO_COPY=(
     "remote_server.py"
     "clip.py"
-    "requirements.txt"
-    "remote_setup.sh"
     ".env.demo"
     ".env.prod"
     "demo_private_key.txt"
@@ -157,12 +159,8 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "${FILES_TO_COPY[@]}" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
-# --- 6. Start Server & Schedule Shutdown ---
-echo "[6/6] Running remote setup..."
-
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "bash -c './remote_setup.sh $ENV $SHUTDOWN_MINUTES'"
-
-echo "[7/7] Starting server (cleaning up old processes first)..."
+# --- 6. Start Server ---
+echo "[6/6] Starting server (cleaning up old processes first)..."
 ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "fuser -k 8090/tcp 2>/dev/null; sleep 1"
 ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "source ~/.cuda_env 2>/dev/null; export ENV=$ENV DEVICE=\$(test -x /usr/bin/nvidia-smi && echo cuda || echo cpu); cd ~; setsid python3 remote_server.py > logs/server.log 2>&1 < /dev/null & sleep 5; if pgrep -f 'python3 remote_server' > /dev/null; then echo SERVER_OK; tail -3 logs/server.log; else echo SERVER_FAILED; cat logs/server.log; exit 1; fi"
 
@@ -171,6 +169,6 @@ echo "Done! Server is running at $PUBLIC_IP:8090"
 echo "Environment: $ENV"
 echo "Instance will automatically stop in 30 minutes."
 echo "ssh -i \"$SSH_KEY_PATH\" $REMOTE_USER@$PUBLIC_IP"
-echo "To stop manually: aws ec2 terminate-instances --instance-ids $INSTANCE_ID"
+echo "To stop manually: aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "Logs are available on remote at: ~/logs/server.log"
 echo "--------------------------------------------------------"
