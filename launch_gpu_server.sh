@@ -11,6 +11,8 @@ SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
 LOCAL_DIR="$(pwd)"
 REMOTE_USER="ec2-user"
 REMOTE_DIR="/home/ec2-user"
+AMI_ID="ami-073d9221f657bc5ff"
+
 
 # --- Subcommand: Destroy All ---
 if [[ "$1" == "--destroy-all" ]]; then
@@ -81,20 +83,48 @@ REMOTE_DIR="/home/ec2-user"
 
 echo "Deploying to environment: $ENV"
 
-# --- 0. Get Local IP ---
-echo "[0/6] Getting local IP for whitelisting..."
+# --- 1. Get Local IP and Credentials ---
+echo "[1/4] Gathering deployment context..."
 MY_IP=$(curl -s https://ifconfig.me)
 echo "Local IP: $MY_IP"
-# AMI ID is now defaulted in CFN, but we keep the reference for clarity if needed
-AMI_ID="ami-073d9221f657bc5ff" 
-echo "Using AMI: $AMI_ID"
 
-# --- 2. Launch Instance ---
-echo "[2/6] Launching CloudFormation stack in $REGION (Spot: $USE_SPOT)..."
+# Load credentials from local env file
+ENV_FILE="$LOCAL_DIR/.env.$ENV"
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Error: Environment file $ENV_FILE not found."
+    exit 1
+fi
+
+KEY_ID=$(grep "KALSHI_KEY_ID" "$ENV_FILE" | cut -d= -f2 | xargs)
+PRIVATE_KEY_PATH=$(grep "KALSHI_PRIVATE_KEY_PATH" "$ENV_FILE" | cut -d= -f2 | xargs)
+
+# Resolve relative paths in .env
+if [[ "$PRIVATE_KEY_PATH" == ./* ]]; then
+    PRIVATE_KEY_PATH="$LOCAL_DIR/${PRIVATE_KEY_PATH#./}"
+fi
+
+if [ ! -f "$PRIVATE_KEY_PATH" ]; then
+    echo "Error: Private key not found at $PRIVATE_KEY_PATH"
+    exit 1
+fi
+
+PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
+
+# --- 2. Assemble and Launch Stack ---
+echo "[2/4] Assembling and deploying modular CloudFormation stack..."
 STACK_NAME="kalshi-worker-$RUN_ID"
 
+# Blueprint assembly via Jinja2
+BLUEPRINT_DIR="$LOCAL_DIR/ec2-instance"
+TMP_TEMPLATE="/tmp/assembled_template.yaml"
+
+python3 "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" "$TMP_TEMPLATE"
+
+# S3 bucket for template deployment (required for templates > 51KB)
+S3_BUCKET="deploys"
+
 aws cloudformation deploy \
-    --template-file "$LOCAL_DIR/kalshi_gpu_server.yaml" \
+    --template-file "$TMP_TEMPLATE" \
     --stack-name "$STACK_NAME" \
     --region "$REGION" \
     --parameter-overrides \
@@ -104,10 +134,18 @@ aws cloudformation deploy \
         OperatorIp="${MY_IP}/32" \
         KeyName="$KEY_NAME" \
         AmiId="$AMI_ID" \
-        ShutdownMinutes="$SHUTDOWN_MINUTES"
+        ShutdownMinutes="$SHUTDOWN_MINUTES" \
+        KalshiKeyId="$KEY_ID" \
+        KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
+    --s3-bucket "$S3_BUCKET"
 
-# --- 3. Get Instance Details ---
-echo "[3/6] Gathering instance details from stack..."
+rm "$TMP_TEMPLATE"
+
+
+# --- 3. Get Outputs ---
+echo "[3/4] Deployment complete. Fetching details..."
+
+
 
 INSTANCE_ID=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
@@ -121,54 +159,17 @@ PUBLIC_IP=$(aws cloudformation describe-stacks \
     --query 'Stacks[0].Outputs[?OutputKey==`PublicIp`].OutputValue' \
     --output text)
 
-AZ=$(aws cloudformation describe-stacks \
-    --stack-name "$STACK_NAME" \
-    --region "$REGION" \
-    --query 'Stacks[0].Outputs[?OutputKey==`AvailabilityZone`].OutputValue' \
-    --output text)
-
-echo "Instance ID: $INSTANCE_ID"
-echo "Public IP: $PUBLIC_IP (AZ: $AZ)"
-echo "$PUBLIC_IP" > remote_server_ip.txt
-
-# --- 4. Wait for SSH
-
-echo "Waiting for SSH to become ready..."
-until nc -zvw3 "$PUBLIC_IP" 22 >/dev/null 2>&1; do
-    printf "."
-    sleep 2
-done
-echo " SSH is up!"
-
-# --- 5. Sync Code ---
-echo "[5/6] Syncing code to remote instance..."
-# Ensure remote directory exists
-ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "mkdir -p $REMOTE_DIR"
-
-# Explicitly list files to copy
-FILES_TO_COPY=(
-    "remote_server.py"
-    "clip.py"
-    ".env.demo"
-    ".env.prod"
-    "demo_private_key.txt"
-    "prod_private_key.txt"
-)
-
-rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    "${FILES_TO_COPY[@]}" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
-
-# --- 6. Start Server ---
-echo "[6/6] Starting server (cleaning up old processes first)..."
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "fuser -k 8090/tcp 2>/dev/null; sleep 1"
-ssh -i "$SSH_KEY_PATH" $REMOTE_USER@$PUBLIC_IP "source ~/.cuda_env 2>/dev/null; export ENV=$ENV DEVICE=\$(test -x /usr/bin/nvidia-smi && echo cuda || echo cpu); cd ~; setsid python3 remote_server.py > logs/server.log 2>&1 < /dev/null & sleep 5; if pgrep -f 'python3 remote_server' > /dev/null; then echo SERVER_OK; tail -3 logs/server.log; else echo SERVER_FAILED; cat logs/server.log; exit 1; fi"
-
 echo "--------------------------------------------------------"
-echo "Done! Server is running at $PUBLIC_IP:8090"
-echo "Environment: $ENV"
-echo "Instance will automatically stop in 30 minutes."
-echo "ssh -i \"$SSH_KEY_PATH\" $REMOTE_USER@$PUBLIC_IP"
-echo "To stop manually: aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
-echo "Logs are available on remote at: ~/logs/server.log"
+echo "Done! Kalshi Worker is active at $PUBLIC_IP:8090"
+echo "Instance ID: $INSTANCE_ID"
+echo "Environment: $ENV (Managed by systemd)"
+echo "--------------------------------------------------------"
+echo "To check server status:"
+echo "ssh -i \"$SSH_KEY_PATH\" ec2-user@$PUBLIC_IP 'systemctl status kalshi'"
+echo ""
+echo "To view logs:"
+echo "ssh -i \"$SSH_KEY_PATH\" ec2-user@$PUBLIC_IP 'journalctl -u kalshi -f'"
+echo ""
+echo "To delete stack:"
+echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"

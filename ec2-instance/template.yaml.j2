@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Blueprint for Kalshi GPU Worker.
+  Variables like __REMOTE_SERVER_PY__ and __CLIP_PY__ are injected by the launch script.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: demo
+    AllowedValues: [prod, demo]
+  InstanceTypeOverride:
+    Type: String
+    Default: ""
+  UseSpot:
+    Type: String
+    Default: 'false'
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: us-east-1
+  OperatorIp:
+    Type: String
+  AmiId:
+    Type: String
+    Default: ami-073d9221f657bc5ff
+  ShutdownMinutes:
+    Type: Number
+    Default: 30
+  KalshiKeyId:
+    Type: String
+    NoEcho: true
+  KalshiPrivateKey:
+    Type: String
+    NoEcho: true
+
+Conditions:
+  UseSpotInstances: !Equals [!Ref UseSpot, 'true']
+  HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
+
+Mappings:
+  EnvToInstanceType:
+    prod:
+      InstanceType: g6.xlarge
+    demo:
+      InstanceType: t3.large
+
+Resources:
+  KalshiWorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Kalshi Worker
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref OperatorIp
+        - IpProtocol: tcp
+          FromPort: 8090
+          ToPort: 8090
+          CidrIp: !Ref OperatorIp
+
+  KalshiWorkerInstance:
+    Type: AWS::EC2::Instance
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              python3-pip: []
+          files:
+            "/home/ec2-user/.env":
+              content: !Sub |
+                KALSHI_KEY_ID=${KalshiKeyId}
+                KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt
+                KALSHI_ENV=${Environment}
+                KALSHI_BASE_DOMAIN=${!If [!Equals [!Ref Environment, "prod"], "https://api.elections.kalshi.com/trade-api/v2", "https://demo-api.kalshi.co/trade-api/v2"]}
+                LOG_LEVEL=info
+                WHISPER_MODEL=Xenova/whisper-base.en
+                ENABLE_TRADING=true
+              mode: "000600"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/private_key.txt":
+              content: !Ref KalshiPrivateKey
+              mode: "000600"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/requirements.txt":
+              content: |
+                faster-whisper
+                numpy
+                dotenv
+                websockets
+                kalshi-python-sync
+                open-clip-torch
+                pillow
+              mode: "000644"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/clip.py":
+              content: |
+{{ clip_py | indent(16, true) }}
+              mode: "000644"
+              owner: ec2-user
+              group: ec2-user
+            "/home/ec2-user/remote_server.py":
+              content: |
+{{ remote_server_py | indent(16, true) }}
+              mode: "000755"
+              owner: ec2-user
+              group: ec2-user
+            "/home/ec2-user/setup_kalshi.sh":
+              content: !Sub |
+{{ setup_kalshi_sh | indent(16, true) }}
+              mode: "000755"
+              owner: ec2-user
+              group: ec2-user
+            "/etc/systemd/system/kalshi.service":
+              content: !Sub |
+{{ kalshi_service | indent(16, true) }}
+
+              mode: "000644"
+              owner: root
+              group: root
+          commands:
+            01_run_setup:
+              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh'"
+            02_enable_service:
+                command: "systemctl enable --now kalshi"
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: 
+        !If 
+          - HasInstanceTypeOverride
+          - !Ref InstanceTypeOverride
+          - !FindInMap [EnvToInstanceType, !Ref Environment, InstanceType]
+      KeyName: !Ref KeyName
+      SecurityGroupIds: 
+        - !Ref KalshiWorkerSecurityGroup
+      InstanceMarketOptions:
+        !If
+          - UseSpotInstances
+          - MarketType: spot
+          - !Ref AWS::NoValue
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub "Kalshi-Worker-${AWS::StackName}"
+        - Key: Environment
+          Value: !Ref Environment
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT20M
+
+Outputs:
+  InstanceId:
+    Value: !Ref KalshiWorkerInstance
+  PublicIp:
+    Value: !GetAtt KalshiWorkerInstance.PublicIp
