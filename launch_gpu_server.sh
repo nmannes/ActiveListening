@@ -123,6 +123,8 @@ python3 "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" 
 # S3 bucket for template deployment (required for templates > 51KB)
 S3_BUCKET="deploys"
 
+PROVISION_START_TIME=$(date +%s)
+
 aws cloudformation deploy \
     --template-file "$TMP_TEMPLATE" \
     --stack-name "$STACK_NAME" \
@@ -139,6 +141,9 @@ aws cloudformation deploy \
         KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
     --s3-bucket "$S3_BUCKET" \
     --capabilities CAPABILITY_IAM
+
+PROVISION_END_TIME=$(date +%s)
+PROVISION_DURATION=$((PROVISION_END_TIME - PROVISION_START_TIME))
 
 
 rm "$TMP_TEMPLATE"
@@ -165,6 +170,7 @@ echo "--------------------------------------------------------"
 echo "Done! Kalshi Worker is active at $PUBLIC_IP:8090"
 echo "Instance ID: $INSTANCE_ID"
 echo "Environment: $ENV (Managed by systemd)"
+echo "Provisioning Time: $PROVISION_DURATION seconds"
 echo "--------------------------------------------------------"
 echo "To check server status:"
 echo "ssh -i \"$SSH_KEY_PATH\" ec2-user@$PUBLIC_IP 'systemctl status kalshi'"
