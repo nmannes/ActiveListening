@@ -1,21 +1,12 @@
-#!/usr/bin/env node
-/**
- * tvclient.js — Local TVHeadEnd audio streamer
- *
- * Captures audio from a TVHeadEnd MPEG-TS stream via ffmpeg,
- * demuxes the audio track (no transcoding), and streams the
- * compressed audio over WebSocket to the remote server.
- *
- * Usage:
- *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --matchJSON <base64-or-json>
- *   node tvclient.js --url <tvheadend-stream-url> --server <ws://remote:port> --fromFile market.json --duration 30
- */
-
-const { spawn } = require('child_process');
+const { spawn, PassThrough } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
+
+puppeteer.use(StealthPlugin());
 
 // ── CLI args ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -27,12 +18,10 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
-
 let REMOTE_IP_ADDRESS = args.ip;
 if (fs.existsSync('remote_server_ip.txt')) {
     REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
 }
-
 
 const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
 
@@ -58,18 +47,15 @@ if (args.fromFile) {
 
 let STREAM_URL = args.url || market.mediaStreamURL || market.channelURL;
 if (!STREAM_URL) {
-    console.error('Usage: node tvclient.js --url <tvheadend-url> --server <ws://host:port> --matchJSON <json>');
+    console.error('Usage: node earnings_call_client.js --url <url> --server <ws://host:port> --matchJSON <json>');
     process.exit(1);
 }
 
-
-const LISTEN = !!args.listen;
-
-market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
+const sessionId = market.slug || args.id || (new Date()).getUTCSeconds();
+logger.info(`Session ID: ${sessionId}`);
 logger.info(`Market: ${market.title || market.slug}`);
-logger.info(`Stream: ${STREAM_URL}`);
+logger.info(`Target URL: ${STREAM_URL}`);
 logger.info(`Remote: ${REMOTE_URL}`);
-if (LISTEN) logger.info(`[listen] Local audio playback enabled`);
 
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require('./lib/orderbook_tracking');
@@ -78,12 +64,10 @@ logger.info('Orderbook tracking started locally');
 
 // ── Constants ────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
-const AUDIO_TIMEOUT_MS = 60_000;
-const RESPAWN_DELAY_MS = 3_000;
 
 let isShuttingDown = false;
 
-// ── WebSocket connection with auto-reconnect ─────────────────────────
+// ── WebSocket connection ─────────────────────────────────────────────
 let ws = null;
 
 function connectWebSocket() {
@@ -95,13 +79,12 @@ function connectWebSocket() {
     ws.on('open', () => {
         logger.info(`[ws] Connected to remote server`);
 
-        // Send handshake with market data
         ws.send(JSON.stringify({
             type: 'hello',
             market,
+            audioOnly: true,
         }));
 
-        // Start heartbeat
         this.heartbeatInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'ping', ts: Date.now() }));
@@ -110,7 +93,6 @@ function connectWebSocket() {
     });
 
     ws.on('message', (data) => {
-        // Log any messages from the server (transcripts, signals, etc.)
         try {
             const msg = JSON.parse(data.toString());
             if (msg.type === 'signal') {
@@ -119,11 +101,9 @@ function connectWebSocket() {
                 logger.debug(`[remote] transcript: ${msg.text}`);
             } else if (msg.type === 'pong') {
                 const rtt = Date.now() - msg.ts;
-                logger.info(`[ws] RTT: ${rtt}ms`);
+                logger.debug(`[ws] RTT: ${rtt}ms`);
             } else if (msg.type === 'telemetry') {
                 logger.info(`[remote] Buffer: ${msg.buffer_ms}ms | Proc: ${msg.last_proc_ms}ms`);
-            } else {
-                logger.debug(`[remote] ${JSON.stringify(msg)}`);
             }
         } catch (e) {
             logger.debug(`[remote] data error: ${e.message}`);
@@ -139,40 +119,24 @@ function connectWebSocket() {
 
     ws.on('error', (err) => {
         logger.error(`[ws] Error: ${err.message}`);
-        // 'close' event will fire after this and trigger reconnect
     });
 }
 
-// ── FFmpeg pipeline ──────────────────────────────────────────────────
-function spawnFFmpeg() {
-    if (isShuttingDown) return;
+// ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
+let ffmpegProc = null;
 
-    logger.info(`[ffmpeg] Spawning: ${STREAM_URL}`);
+function setupAudioTranscoder() {
+    logger.info(`[transcoder] Starting FFmpeg transcoder (WebM -> PCM)...`);
 
-    const ffmpegArgs = [
-        '-y',
-        // Minimize latency (but probe enough to detect AC3 stream params)
-        '-fflags', 'nobuffer+genpts+discardcorrupt',
-        '-flags', 'low_delay',
-        '-probesize', '1000000',
-        '-analyzeduration', '1000000',
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-i', STREAM_URL,
-        // Output: raw PCM to stdout — send over WebSocket (reliable TCP)
-        '-map', '0:a:0',
-        '-c:a', 'pcm_s16le',
+    const ffmpeg = spawn('ffmpeg', [
+        '-i', 'pipe:0',
+        '-f', 's16le',
+        '-acodec', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
-        '-f', 's16le', 'pipe:1'
-    ];
+        'pipe:1'
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    // Send PCM audio to remote server over WebSocket (binary frames)
     ffmpeg.stdout.on('data', (data) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(data);
@@ -180,137 +144,154 @@ function spawnFFmpeg() {
     });
 
     ffmpeg.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(l => l.trim());
-        for (const line of lines) {
-            logger.trace(`[ffmpeg] ${line}`);
-        }
+        logger.trace(`[transcoder] ${data.toString().trim()}`);
     });
 
     ffmpeg.on('close', (code) => {
-        if (isShuttingDown) {
-            logger.info(`[ffmpeg] Exited (code ${code}) — shutting down`);
-            return;
-        }
-        logger.warn(`[ffmpeg] Exited (code ${code}), respawning in ${RESPAWN_DELAY_MS / 1000}s...`);
-        setTimeout(spawnFFmpeg, RESPAWN_DELAY_MS);
+        logger.info(`[transcoder] FFmpeg exited with code ${code}`);
     });
 
-    ffmpeg.on('error', (err) => {
-        logger.error(`[ffmpeg] Spawn error: ${err.message}`);
-    });
-
+    ffmpegProc = ffmpeg;
     return ffmpeg;
 }
 
-// ── Video frame grabber (1 frame every 2s) ──────────────────────────
-let frameGrabberProc = null;
+// ── Browser Capture Logic ────────────────────────────────────────────
+async function runBrowserCapture() {
+    logger.info(`[browser] Launching Puppeteer...`);
+    const browser = await puppeteer.launch({
+        defaultViewport: null,
+        args: [
+            "--start-maximized",
+            "--autoplay-policy=no-user-gesture-required",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--use-fake-ui-for-media-stream",
+            "--disable-web-security",
+        ],
+    });
 
-function spawnFrameGrabber() {
-    if (isShuttingDown) return;
+    const page = await browser.newPage();
+    page.on('console', msg => logger.trace(`[Browser] ${msg.text()}`));
 
-    logger.info(`[frames] Starting frame grabber: ${STREAM_URL}`);
+    // Expose audio chunk handler
+    await page.exposeFunction('sendAudioChunk', (base64Data) => {
+        if (ffmpegProc && ffmpegProc.stdin.writable) {
+            const buffer = Buffer.from(base64Data, 'base64');
+            ffmpegProc.stdin.write(buffer);
+        }
+    });
 
-    const ffmpeg = spawn('ffmpeg', [
-        '-y',
-        '-fflags', 'nobuffer+genpts+discardcorrupt',
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-i', STREAM_URL,
-        '-vf', 'fps=0.5',
-        '-f', 'image2pipe',
-        '-vcodec', 'mjpeg',
-        '-q:v', '5',
-        'pipe:1'
-    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+    logger.info(`[browser] Navigating to ${STREAM_URL}...`);
+    await page.goto(STREAM_URL, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    let jpegBuffer = Buffer.alloc(0);
-
-    ffmpeg.stdout.on('data', (data) => {
-        jpegBuffer = Buffer.concat([jpegBuffer, data]);
-
-        // Extract complete JPEG frames (SOI FF D8 … EOI FF D9)
-        let endIdx;
-        while ((endIdx = jpegBuffer.indexOf(Buffer.from([0xFF, 0xD9]))) !== -1) {
-            // Find the JPEG start-of-image marker
-            const startIdx = jpegBuffer.indexOf(Buffer.from([0xFF, 0xD8]));
-            if (startIdx === -1 || startIdx > endIdx) {
-                // No valid SOI before this EOI — discard up to past the EOI
-                jpegBuffer = jpegBuffer.slice(endIdx + 2);
-                continue;
-            }
-
-            const frame = jpegBuffer.slice(startIdx, endIdx + 2);
-            jpegBuffer = jpegBuffer.slice(endIdx + 2);
-
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                // Tag with 0x01 prefix so server can distinguish from audio
-                const header = Buffer.from([0x01]);
-                ws.send(Buffer.concat([header, frame]));
-                logger.info(`[frames] Sent frame: ${frame.length} bytes`);
+    // 1. Q4 Analytics / Registration Handler
+    try {
+        const emailInput = await page.$('[data-id="AlreadyRegisteredFormEmail"] input, [data-id="GuestRegistrationFormEmail"] input');
+        if (emailInput) {
+            logger.info(`[browser] Q4 registration form detected, auto-filling...`);
+            await emailInput.type('nmannes@gmail.com', { delay: 50 });
+            const joinButton = await page.$('[data-id="AlreadyRegisteredFormJoinButton"], [data-id="GuestRegistrationFormRegisterButton"]');
+            if (joinButton) {
+                await joinButton.click();
+                await new Promise(r => setTimeout(r, 5000));
             }
         }
+    } catch (e) {
+        logger.debug(`[browser] Registration check skipped: ${e.message}`);
+    }
+
+    // 2. Play Video Loop
+    await page.evaluate(() => {
+        const interval = setInterval(() => {
+            const video = document.querySelector('video');
+            if (video && video.paused) {
+                video.muted = false;
+                video.play().catch(e => console.log('play() rejected:', e.message));
+            }
+        }, 1000);
+        window._playInterval = interval;
     });
 
-    ffmpeg.stderr.on('data', (data) => {
-        const lines = data.toString().split('\n').filter(l => l.trim());
-        for (const line of lines) {
-            logger.trace(`[frames] ${line}`);
+    // 3. Audio/Frame Capture Setup
+    await page.evaluate(() => {
+        async function setupCapture() {
+            let video = document.querySelector('video');
+            if (!video) {
+                // Wait for video element
+                await new Promise(resolve => {
+                    const observer = new MutationObserver(() => {
+                        if (document.querySelector('video')) {
+                            video = document.querySelector('video');
+                            observer.disconnect();
+                            resolve();
+                        }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
+                });
+            }
+
+            console.log("Setting up capture for video:", video.currentSrc || video.src || "(no src)");
+
+            // CaptureStream with AudioContext fallback for DRM/ShadowDOM
+            let stream = null;
+            try {
+                stream = video.captureStream();
+                if (stream.getAudioTracks().length === 0) throw new Error("No audio tracks in captureStream");
+            } catch (e) {
+                console.log("captureStream failed or no audio, trying AudioContext fallback...");
+                try {
+                    const audioCtx = new AudioContext();
+                    const source = audioCtx.createMediaElementSource(video);
+                    const dest = audioCtx.createMediaStreamDestination();
+                    source.connect(audioCtx.destination);
+                    source.connect(dest);
+                    stream = dest.stream;
+                } catch (err) {
+                    console.error("AudioContext fallback failed:", err.message);
+                }
+            }
+
+            if (!stream) return;
+
+            // Audio MediaRecorder
+            const audioTracks = stream.getAudioTracks();
+            if (audioTracks.length > 0) {
+                const audioStream = new MediaStream(audioTracks);
+                const recorder = new MediaRecorder(audioStream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 128000
+                });
+                recorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                            const base64 = reader.result.split(',')[1];
+                            if (base64) window.sendAudioChunk(base64);
+                        };
+                        reader.readAsDataURL(event.data);
+                    }
+                };
+                recorder.start(100);
+                console.log("Audio MediaRecorder active");
+            }
         }
+
+        setupCapture();
     });
 
-    ffmpeg.on('close', (code) => {
-        if (isShuttingDown) {
-            logger.info(`[frames] Exited (code ${code}) — shutting down`);
-            return;
-        }
-        logger.warn(`[frames] Exited (code ${code}), respawning in ${RESPAWN_DELAY_MS / 1000}s...`);
-        setTimeout(spawnFrameGrabber, RESPAWN_DELAY_MS);
-    });
-
-    ffmpeg.on('error', (err) => {
-        logger.error(`[frames] Spawn error: ${err.message}`);
-    });
-
-    frameGrabberProc = ffmpeg;
-    return ffmpeg;
+    return { browser, page };
 }
 
-// ── Local audio debug recording (--listen) ──────────────────────────
-let listenProc = null;
-function spawnListener() {
-    if (!LISTEN || isShuttingDown) return;
-    const outFile = path.join(__dirname, 'debug_audio.wav');
-    logger.info(`[listen] Recording 30s of audio to ${outFile}`);
-    listenProc = spawn('ffmpeg', [
-        '-y',
-        '-probesize', '1000000',
-        '-analyzeduration', '1000000',
-        '-i', STREAM_URL,
-        '-map', '0:a:0',
-        '-c:a', 'pcm_s16le',
-        '-ar', '16000',
-        '-ac', '1',
-        '-t', '30',
-        outFile,
-    ], { stdio: ['ignore', 'ignore', 'pipe'] });
-    listenProc.stderr.on('data', () => { });
-    listenProc.on('close', (code) => {
-        logger.info(`[listen] Saved debug audio to ${outFile} (exit ${code})`);
-    });
-}
 
 // ── Startup ──────────────────────────────────────────────────────────
-let ffmpegProc = null;
-
 connectWebSocket();
+setupAudioTranscoder();
 
-// Small delay to let WS connect before starting audio, but don't block on it
-setTimeout(() => {
-    ffmpegProc = spawnFFmpeg();
-    spawnFrameGrabber();
-    if (LISTEN) spawnListener();
-}, 500);
+runBrowserCapture().catch(err => {
+    logger.error(`[main] Critical error: ${err.message}`);
+    process.exit(1);
+});
 
 // Setup shutdown timer if duration is provided
 if (args.duration) {
@@ -320,35 +301,8 @@ if (args.duration) {
         setTimeout(() => {
             logger.info('Duration reached, shutting down...');
             isShuttingDown = true;
-            if (ffmpegProc) ffmpegProc.kill();
-            if (frameGrabberProc) frameGrabberProc.kill();
-            if (listenProc) listenProc.kill();
-            if (ws) ws.close();
-            if (orderbook && orderbook.stop) orderbook.stop();
             process.exit(0);
         }, durationMs);
     }
 }
 
-// ── Cleanup ──────────────────────────────────────────────────────────
-process.on('SIGINT', () => {
-    logger.info('Received SIGINT, shutting down...');
-    isShuttingDown = true;
-    if (ffmpegProc) ffmpegProc.kill();
-    if (frameGrabberProc) frameGrabberProc.kill();
-    if (listenProc) listenProc.kill();
-    if (ws) ws.close();
-    if (orderbook && orderbook.stop) orderbook.stop();
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    logger.info('Received SIGTERM, shutting down...');
-    isShuttingDown = true;
-    if (ffmpegProc) ffmpegProc.kill();
-    if (frameGrabberProc) frameGrabberProc.kill();
-    if (listenProc) listenProc.kill();
-    if (ws) ws.close();
-    if (orderbook && orderbook.stop) orderbook.stop();
-    process.exit(0);
-});
