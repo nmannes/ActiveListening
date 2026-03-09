@@ -11,7 +11,7 @@ SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
 LOCAL_DIR="$(pwd)"
 REMOTE_USER="ec2-user"
 REMOTE_DIR="/home/ec2-user"
-AMI_ID="ami-073d9221f657bc5ff"
+AMI_ID="ami-0bbf3a5a5f8ea3603"
 
 
 # --- Subcommand: Destroy All ---
