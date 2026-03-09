@@ -5,6 +5,7 @@ const WebSocket = require('ws');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const logger = require('./lib/logger');
+const { runSiteHandlers } = require('./lib/site_handlers');
 
 puppeteer.use(StealthPlugin());
 
@@ -185,21 +186,8 @@ async function runBrowserCapture() {
     logger.info(`[browser] Navigating to ${STREAM_URL}...`);
     await page.goto(STREAM_URL, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // 1. Q4 Analytics / Registration Handler
-    try {
-        const emailInput = await page.$('[data-id="AlreadyRegisteredFormEmail"] input, [data-id="GuestRegistrationFormEmail"] input');
-        if (emailInput) {
-            logger.info(`[browser] Q4 registration form detected, auto-filling...`);
-            await emailInput.type('nmannes@gmail.com', { delay: 50 });
-            const joinButton = await page.$('[data-id="AlreadyRegisteredFormJoinButton"], [data-id="GuestRegistrationFormRegisterButton"]');
-            if (joinButton) {
-                await joinButton.click();
-                await new Promise(r => setTimeout(r, 5000));
-            }
-        }
-    } catch (e) {
-        logger.debug(`[browser] Registration check skipped: ${e.message}`);
-    }
+    // 1. Run Site-Specific Handlers (Logins, Registration, etc.)
+    await runSiteHandlers(STREAM_URL, page, logger);
 
     // 2. Play Video Loop
     await page.evaluate(() => {
