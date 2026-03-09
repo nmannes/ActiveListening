@@ -23,19 +23,13 @@ const { execSync } = require('child_process');
 
 let REMOTE_IP_ADDRESS = args.ip;
 
-if (!REMOTE_IP_ADDRESS) {
-    if (fs.existsSync('remote_server_ip.txt')) {
-        REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
-    } else {
-        try {
-            logger.info('Discovery: Attempting to find running Kalshi worker...');
-            REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-            logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
-        } catch (e) {
-            logger.error('Discovery: No running worker found via discover_instance.sh');
-            process.exit(1);
-        }
-    }
+try {
+    logger.info('Discovery: Attempting to find running Kalshi worker...');
+    REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+} catch (e) {
+    logger.error('Discovery: No running worker found via discover_instance.sh');
+    process.exit(1);
 }
 
 if (!REMOTE_IP_ADDRESS || REMOTE_IP_ADDRESS === 'None') {
@@ -180,7 +174,6 @@ async function runBrowserCapture() {
     logger.info(`[browser] Launching Puppeteer...`);
     const browser = await puppeteer.launch({
         defaultViewport: null,
-        headless: false,
         args: [
             "--start-maximized",
             "--autoplay-policy=no-user-gesture-required",
