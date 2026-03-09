@@ -132,13 +132,13 @@ Resources:
                         "collect_list": [
                           {
                             "file_path": "/var/log/cfn-init.log",
-                            "log_group_name": "${KalshiWorkerLogGroup}",
+                            "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/cfn-init",
                             "retention_in_days": 7
                           },
                           {
                             "file_path": "/home/ec2-user/logs/remote_server.log",
-                            "log_group_name": "${KalshiWorkerLogGroup}",
+                            "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/remote_server",
                             "retention_in_days": 7
                           }
@@ -200,13 +200,6 @@ Resources:
       ResourceSignal:
         Timeout: PT20M
 
-
-  KalshiWorkerLogGroup:
-    Type: AWS::Logs::LogGroup
-    DeletionPolicy: Retain
-    Properties:
-      LogGroupName: !Sub "/kalshi/worker/${AWS::StackName}"
-      RetentionInDays: 7
 
   KalshiWorkerInstanceRole:
     Type: AWS::IAM::Role
