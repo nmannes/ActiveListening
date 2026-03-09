@@ -1,7 +1,5 @@
 const fs = require('fs');
 const { execSync } = require('child_process');
-const path = require('path');
-const logger = require('./lib/logger');
 const { args } = require('./lib/args');
 
 const MATCHES_FILE = args.fromFile || 'final_markets_with_streams.json';
