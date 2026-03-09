@@ -143,11 +143,16 @@ function setupAudioTranscoder(inputUrl = 'pipe:0') {
     logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl}`);
 
     const ffmpegArgs = [
+        '-fflags', 'nobuffer',
+        '-flags', 'low_delay',
+        '-probesize', '32',
+        '-analyzeduration', '0',
         '-i', inputUrl,
         '-f', 's16le',
         '-acodec', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
+        '-flush_packets', '1',
         'pipe:1'
     ];
 
@@ -197,7 +202,7 @@ async function runBrowserCapture() {
 
     page.on('request', async request => {
         const url = request.url();
-        const isTargetStream = STREAM_URL.includes('edge.media-server.com') || STREAM_URL.includes('event.choruscall.com/mediaframe');
+        const isTargetStream = STREAM_URL.includes('event.choruscall.com/mediaframe');
 
         if (isTargetStream && url.includes('.m3u8') && !m3u8Found) {
             m3u8Found = true;
@@ -236,38 +241,25 @@ async function runBrowserCapture() {
         });
 
         // 3. Audio/Frame Capture Setup (only if not using m3u8 mode)
-        const interceptM3U8 = STREAM_URL.includes('edge.media-server.com') || STREAM_URL.includes('event.choruscall.com/mediaframe');
+        const interceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe');
         if (!interceptM3U8) {
             setupAudioTranscoder(); // Setup default transcoder reading from pipe:0
             await page.evaluate(() => {
-                async function setupCapture() {
-                    let video = document.querySelector('video');
-                    if (!video) {
-                        // Wait for video element
-                        await new Promise(resolve => {
-                            const observer = new MutationObserver(() => {
-                                if (document.querySelector('video')) {
-                                    video = document.querySelector('video');
-                                    observer.disconnect();
-                                    resolve();
-                                }
-                            });
-                            observer.observe(document.body, { childList: true, subtree: true });
-                        });
-                    }
+                let captureStarted = false;
 
-                    console.log("Setting up capture for video:", video.currentSrc || video.src || "(no src)");
+                async function setupCapture(videoElement) {
+                    if (captureStarted) return;
+                    console.log("Setting up capture for video:", videoElement.currentSrc || videoElement.src || "(no src)");
 
-                    // CaptureStream with AudioContext fallback for DRM/ShadowDOM
                     let stream = null;
                     try {
-                        stream = video.captureStream();
+                        stream = videoElement.captureStream();
                         if (stream.getAudioTracks().length === 0) throw new Error("No audio tracks in captureStream");
                     } catch (e) {
                         console.log("captureStream failed or no audio, trying AudioContext fallback...");
                         try {
                             const audioCtx = new AudioContext();
-                            const source = audioCtx.createMediaElementSource(video);
+                            const source = audioCtx.createMediaElementSource(videoElement);
                             const dest = audioCtx.createMediaStreamDestination();
                             source.connect(audioCtx.destination);
                             source.connect(dest);
@@ -279,9 +271,9 @@ async function runBrowserCapture() {
 
                     if (!stream) return;
 
-                    // Audio MediaRecorder
                     const audioTracks = stream.getAudioTracks();
                     if (audioTracks.length > 0) {
+                        captureStarted = true;
                         const audioStream = new MediaStream(audioTracks);
                         const recorder = new MediaRecorder(audioStream, {
                             mimeType: 'audio/webm;codecs=opus',
@@ -302,7 +294,26 @@ async function runBrowserCapture() {
                     }
                 }
 
-                setupCapture();
+                // Instead of finding the first video immediately, wait until playing
+                document.addEventListener('play', (e) => {
+                    if (e.target && e.target.tagName === 'VIDEO') {
+                        console.log("Video play event detected, trying to capture...");
+                        setupCapture(e.target);
+                    }
+                }, true);
+                document.addEventListener('playing', (e) => {
+                    if (e.target && e.target.tagName === 'VIDEO') {
+                        console.log("Video playing event detected, trying to capture...");
+                        setupCapture(e.target);
+                    }
+                }, true);
+
+                // Try to catch any existing playing video immediately just in case
+                for (const vid of document.querySelectorAll('video')) {
+                    if (!vid.paused) {
+                        setupCapture(vid);
+                    }
+                }
             });
         }
     } catch (e) {
