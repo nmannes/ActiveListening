@@ -66,6 +66,8 @@ Resources:
           packages:
             yum:
               python3-pip: []
+              amazon-cloudwatch-agent: []
+
           files:
             "/home/ec2-user/.env":
               content: !Sub |
@@ -121,11 +123,42 @@ Resources:
               mode: "000644"
               owner: root
               group: root
+            "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json":
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "${KalshiWorkerLogGroup}",
+                            "log_stream_name": "{instance_id}/cfn-init",
+                            "retention_in_days": 7
+                          },
+                          {
+                            "file_path": "/home/ec2-user/logs/remote_server.log",
+                            "log_group_name": "${KalshiWorkerLogGroup}",
+                            "log_stream_name": "{instance_id}/remote_server",
+                            "retention_in_days": 7
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              mode: "000644"
+              owner: root
+              group: root
+
           commands:
             01_run_setup:
               command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh'"
-            02_enable_service:
+            02_start_cw_agent:
+              command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+            03_enable_service:
                 command: "systemctl enable --now kalshi"
+
     Properties:
       ImageId: !Ref AmiId
       InstanceType: 
@@ -134,6 +167,7 @@ Resources:
           - !Ref InstanceTypeOverride
           - !FindInMap [EnvToInstanceType, !Ref Environment, InstanceType]
       KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref KalshiWorkerInstanceProfile
       SecurityGroupIds: 
         - !Ref KalshiWorkerSecurityGroup
       InstanceMarketOptions:
@@ -171,3 +205,31 @@ Outputs:
     Value: !Ref KalshiWorkerInstance
   PublicIp:
     Value: !GetAtt KalshiWorkerInstance.PublicIp
+
+  KalshiWorkerLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    Properties:
+      LogGroupName: !Sub "/kalshi/worker/${AWS::StackName}"
+      RetentionInDays: 7
+
+
+  KalshiWorkerInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  KalshiWorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref KalshiWorkerInstanceRole
+

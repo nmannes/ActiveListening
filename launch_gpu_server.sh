@@ -137,7 +137,9 @@ aws cloudformation deploy \
         ShutdownMinutes="$SHUTDOWN_MINUTES" \
         KalshiKeyId="$KEY_ID" \
         KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
-    --s3-bucket "$S3_BUCKET"
+    --s3-bucket "$S3_BUCKET" \
+    --capabilities CAPABILITY_IAM
+
 
 rm "$TMP_TEMPLATE"
 
