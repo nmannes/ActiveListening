@@ -22,4 +22,4 @@ echo "$INSTANCE_IDS"
 aws ec2 terminate-instances --region "$REGION" --instance-ids $INSTANCE_IDS
 echo "Termination signal sent."
 
-rm remote_server_ip.txt
+rm -f remote_server_ip.txt

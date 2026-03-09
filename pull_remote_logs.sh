@@ -10,14 +10,7 @@ SSH_KEY="$HOME/.ssh/us-east-1.pem"
 REMOTE_USER="ec2-user"
 LOCAL_LOG_DIR="$SCRIPT_DIR/logs/remote"
 
-if [[ ! -f "$IP_FILE" ]]; then
-    exit 0
-fi
-
-IP=$(cat "$IP_FILE" | tr -d '[:space:]')
-if [[ -z "$IP" ]]; then
-    exit 0
-fi
+IP=$(./discover_instance.sh) || exit 0
 
 # Check if instance is reachable (quick timeout)
 if ! nc -zvw2 "$IP" 22 > /dev/null 2>&1; then

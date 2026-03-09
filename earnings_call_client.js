@@ -19,9 +19,22 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
     return acc;
 }, {});
 
+const { execSync } = require('child_process');
+
 let REMOTE_IP_ADDRESS = args.ip;
-if (fs.existsSync('remote_server_ip.txt')) {
-    REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
+
+if (!REMOTE_IP_ADDRESS) {
+    if (fs.existsSync('remote_server_ip.txt')) {
+        REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
+    } else {
+        try {
+            logger.info('Discovery: Attempting to find running Kalshi worker...');
+            REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+            logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+        } catch (e) {
+            logger.warn('Discovery: No running worker found via discover_instance.sh');
+        }
+    }
 }
 
 const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
