@@ -180,6 +180,7 @@ async function runBrowserCapture() {
     logger.info(`[browser] Launching Puppeteer...`);
     const browser = await puppeteer.launch({
         defaultViewport: null,
+        headless: false,
         args: [
             "--start-maximized",
             "--autoplay-policy=no-user-gesture-required",
