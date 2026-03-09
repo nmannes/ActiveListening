@@ -139,17 +139,19 @@ function connectWebSocket() {
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
 let ffmpegProc = null;
 
-function setupAudioTranscoder() {
-    logger.info(`[transcoder] Starting FFmpeg transcoder (WebM -> PCM)...`);
+function setupAudioTranscoder(inputUrl = 'pipe:0') {
+    logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl}`);
 
-    const ffmpeg = spawn('ffmpeg', [
-        '-i', 'pipe:0',
+    const ffmpegArgs = [
+        '-i', inputUrl,
         '-f', 's16le',
         '-acodec', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
         'pipe:1'
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    ];
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     ffmpeg.stdout.on('data', (data) => {
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -174,6 +176,7 @@ async function runBrowserCapture() {
     logger.info(`[browser] Launching Puppeteer...`);
     const browser = await puppeteer.launch({
         defaultViewport: null,
+        headless: false,
         args: [
             "--start-maximized",
             "--autoplay-policy=no-user-gesture-required",
@@ -188,7 +191,24 @@ async function runBrowserCapture() {
     const page = await browser.newPage();
     page.on('console', msg => logger.trace(`[Browser] ${msg.text()}`));
 
-    // Expose audio chunk handler
+    let m3u8Found = false;
+    let m3u8Resolve;
+    const m3u8Promise = new Promise(r => m3u8Resolve = r);
+
+    page.on('request', async request => {
+        const url = request.url();
+        const isTargetStream = STREAM_URL.includes('edge.media-server.com') || STREAM_URL.includes('event.choruscall.com/mediaframe');
+
+        if (isTargetStream && url.includes('.m3u8') && !m3u8Found) {
+            m3u8Found = true;
+            logger.info(`[browser] Found m3u8 stream: ${url}`);
+            m3u8Resolve(url);
+            logger.info(`[browser] Closing browser to conserve resources...`);
+            await browser.close().catch(() => { });
+        }
+    });
+
+    // Expose audio chunk handler (fallback/default)
     await page.exposeFunction('sendAudioChunk', (base64Data) => {
         if (ffmpegProc && ffmpegProc.stdin.writable) {
             const buffer = Buffer.from(base64Data, 'base64');
@@ -196,90 +216,104 @@ async function runBrowserCapture() {
         }
     });
 
-    logger.info(`[browser] Navigating to ${STREAM_URL}...`);
-    await page.goto(STREAM_URL, { waitUntil: 'networkidle2', timeout: 60000 });
+    try {
+        logger.info(`[browser] Navigating to ${STREAM_URL}...`);
+        await page.goto(STREAM_URL, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    // 1. Run Site-Specific Handlers (Logins, Registration, etc.)
-    await runSiteHandlers(STREAM_URL, page, logger);
+        // 1. Run Site-Specific Handlers (Logins, Registration, etc.)
+        await runSiteHandlers(STREAM_URL, page, logger);
 
-    // 2. Play Video Loop
-    await page.evaluate(() => {
-        const interval = setInterval(() => {
-            const video = document.querySelector('video');
-            if (video && video.paused) {
-                video.muted = false;
-                video.play().catch(e => console.log('play() rejected:', e.message));
-            }
-        }, 1000);
-        window._playInterval = interval;
-    });
-
-    // 3. Audio/Frame Capture Setup
-    await page.evaluate(() => {
-        async function setupCapture() {
-            let video = document.querySelector('video');
-            if (!video) {
-                // Wait for video element
-                await new Promise(resolve => {
-                    const observer = new MutationObserver(() => {
-                        if (document.querySelector('video')) {
-                            video = document.querySelector('video');
-                            observer.disconnect();
-                            resolve();
-                        }
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                });
-            }
-
-            console.log("Setting up capture for video:", video.currentSrc || video.src || "(no src)");
-
-            // CaptureStream with AudioContext fallback for DRM/ShadowDOM
-            let stream = null;
-            try {
-                stream = video.captureStream();
-                if (stream.getAudioTracks().length === 0) throw new Error("No audio tracks in captureStream");
-            } catch (e) {
-                console.log("captureStream failed or no audio, trying AudioContext fallback...");
-                try {
-                    const audioCtx = new AudioContext();
-                    const source = audioCtx.createMediaElementSource(video);
-                    const dest = audioCtx.createMediaStreamDestination();
-                    source.connect(audioCtx.destination);
-                    source.connect(dest);
-                    stream = dest.stream;
-                } catch (err) {
-                    console.error("AudioContext fallback failed:", err.message);
+        // 2. Play Video Loop
+        await page.evaluate(() => {
+            const interval = setInterval(() => {
+                const video = document.querySelector('video');
+                if (video && video.paused) {
+                    video.muted = false;
+                    video.play().catch(e => console.log('play() rejected:', e.message));
                 }
-            }
+            }, 1000);
+            window._playInterval = interval;
+        });
 
-            if (!stream) return;
-
-            // Audio MediaRecorder
-            const audioTracks = stream.getAudioTracks();
-            if (audioTracks.length > 0) {
-                const audioStream = new MediaStream(audioTracks);
-                const recorder = new MediaRecorder(audioStream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                    audioBitsPerSecond: 128000
-                });
-                recorder.ondataavailable = (event) => {
-                    if (event.data.size > 0) {
-                        const reader = new FileReader();
-                        reader.onload = () => {
-                            const base64 = reader.result.split(',')[1];
-                            if (base64) window.sendAudioChunk(base64);
-                        };
-                        reader.readAsDataURL(event.data);
+        // 3. Audio/Frame Capture Setup (only if not using m3u8 mode)
+        const interceptM3U8 = STREAM_URL.includes('edge.media-server.com') || STREAM_URL.includes('event.choruscall.com/mediaframe');
+        if (!interceptM3U8) {
+            setupAudioTranscoder(); // Setup default transcoder reading from pipe:0
+            await page.evaluate(() => {
+                async function setupCapture() {
+                    let video = document.querySelector('video');
+                    if (!video) {
+                        // Wait for video element
+                        await new Promise(resolve => {
+                            const observer = new MutationObserver(() => {
+                                if (document.querySelector('video')) {
+                                    video = document.querySelector('video');
+                                    observer.disconnect();
+                                    resolve();
+                                }
+                            });
+                            observer.observe(document.body, { childList: true, subtree: true });
+                        });
                     }
-                };
-                recorder.start(100);
-                console.log("Audio MediaRecorder active");
-            }
-        }
 
-        setupCapture();
-    });
+                    console.log("Setting up capture for video:", video.currentSrc || video.src || "(no src)");
+
+                    // CaptureStream with AudioContext fallback for DRM/ShadowDOM
+                    let stream = null;
+                    try {
+                        stream = video.captureStream();
+                        if (stream.getAudioTracks().length === 0) throw new Error("No audio tracks in captureStream");
+                    } catch (e) {
+                        console.log("captureStream failed or no audio, trying AudioContext fallback...");
+                        try {
+                            const audioCtx = new AudioContext();
+                            const source = audioCtx.createMediaElementSource(video);
+                            const dest = audioCtx.createMediaStreamDestination();
+                            source.connect(audioCtx.destination);
+                            source.connect(dest);
+                            stream = dest.stream;
+                        } catch (err) {
+                            console.error("AudioContext fallback failed:", err.message);
+                        }
+                    }
+
+                    if (!stream) return;
+
+                    // Audio MediaRecorder
+                    const audioTracks = stream.getAudioTracks();
+                    if (audioTracks.length > 0) {
+                        const audioStream = new MediaStream(audioTracks);
+                        const recorder = new MediaRecorder(audioStream, {
+                            mimeType: 'audio/webm;codecs=opus',
+                            audioBitsPerSecond: 128000
+                        });
+                        recorder.ondataavailable = (event) => {
+                            if (event.data.size > 0) {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                    const base64 = reader.result.split(',')[1];
+                                    if (base64) window.sendAudioChunk(base64);
+                                };
+                                reader.readAsDataURL(event.data);
+                            }
+                        };
+                        recorder.start(100);
+                        console.log("Audio MediaRecorder active");
+                    }
+                }
+
+                setupCapture();
+            });
+        }
+    } catch (e) {
+        if (!m3u8Found) {
+            throw e;
+        }
+    }
+
+    if (m3u8Found) {
+        return m3u8Promise;
+    }
 
     return { browser, page };
 }
@@ -287,9 +321,18 @@ async function runBrowserCapture() {
 
 // ── Startup ──────────────────────────────────────────────────────────
 connectWebSocket();
-setupAudioTranscoder();
+// setupAudioTranscoder will be called when m3u8 is found
 
-runBrowserCapture().catch(err => {
+runBrowserCapture().then(result => {
+    if (typeof result === 'string') {
+        logger.info(`[main] Starting transcoder with extracted stream...`);
+        setupAudioTranscoder(result);
+    }
+}).catch(err => {
+    if (err.message.includes('Session closed') || err.message.includes('Target closed') || err.message.includes('Execution context was destroyed') || err.message.includes('Protocol error') || err.message.includes('Navigating frame was detached')) {
+        logger.info(`[browser] Browser session ended gracefully.`);
+        return;
+    }
     logger.error(`[main] Critical error: ${err.message}`);
     process.exit(1);
 });
