@@ -29,12 +29,10 @@ try {
     logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
 } catch (e) {
     logger.error('Discovery: No running worker found via discover_instance.sh');
-    process.exit(1);
 }
 
 if (!REMOTE_IP_ADDRESS || REMOTE_IP_ADDRESS === 'None') {
     logger.error('Error: Could not determine remote server IP. Start an instance or use --ip.');
-    process.exit(1);
 }
 
 const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
@@ -202,9 +200,11 @@ async function runBrowserCapture() {
 
     page.on('request', async request => {
         const url = request.url();
-        const isTargetStream = STREAM_URL.includes('event.choruscall.com/mediaframe');
+        const shouldInterceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe')
+            || STREAM_URL.includes('q4inc.com');
 
-        if (isTargetStream && url.includes('.m3u8') && !m3u8Found) {
+        if (shouldInterceptM3U8 && url.includes('.m3u8') && !m3u8Found
+            && !url.includes('subtitle') && !url.includes('caption')) {
             m3u8Found = true;
             logger.info(`[browser] Found m3u8 stream: ${url}`);
             m3u8Resolve(url);
@@ -241,7 +241,8 @@ async function runBrowserCapture() {
         });
 
         // 3. Audio/Frame Capture Setup (only if not using m3u8 mode)
-        const interceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe');
+        const interceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe')
+            || STREAM_URL.includes('q4inc.com');
         if (!interceptM3U8) {
             setupAudioTranscoder(); // Setup default transcoder reading from pipe:0
             await page.evaluate(() => {

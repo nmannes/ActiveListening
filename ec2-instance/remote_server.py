@@ -364,7 +364,7 @@ async def main():
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
     parser.add_argument("--model", type=str, default=None, help="Whisper model name (default: small.en for cuda, base.en for cpu)")
     parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
-    parser.add_argument("--buy-count", type=int, default=1)
+    parser.add_argument("--buy-count", type=int, default=5)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument("--content-profile", type=str, default="basketball", help="CLIP content profile (default: basketball)")
     args = parser.parse_args()
