@@ -572,9 +572,13 @@ async def main():
 
                         if msg.get("type") == "hello" and "market" in msg:
                             market = msg["market"]
+                            audio_only = msg.get("audioOnly", False)
                             session_id = market.get("slug", f"session-{int(time.time())}")
 
-                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)}")
+                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only})")
+
+                            if audio_only:
+                                is_content_visible = True
 
                             # Build keyword index
                             keyword_index = build_keyword_index(market.get("keywords", {}))
@@ -639,7 +643,10 @@ async def main():
                                         logger.error(f"[{sid}][clip] classification error: {e}")
 
 
-                            frame_task = asyncio.create_task(frame_classification_loop(session_id))
+                            if not audio_only:
+                                frame_task = asyncio.create_task(frame_classification_loop(session_id))
+                            else:
+                                logger.info(f"[{session_id}] Audio-only mode — skipping frame classification")
 
                             # Start the background task that processes PCM from audio_inbox
                             audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index))
