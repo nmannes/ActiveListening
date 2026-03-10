@@ -196,22 +196,60 @@ async function runBrowserCapture() {
 
     let m3u8Found = false;
     let m3u8Resolve;
-    const m3u8Promise = new Promise(r => m3u8Resolve = r);
+    const m3u8Candidates = [];
 
     page.on('request', async request => {
         const url = request.url();
         const shouldInterceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe')
             || STREAM_URL.includes('q4inc.com');
 
-        if (shouldInterceptM3U8 && url.includes('.m3u8') && !m3u8Found
+        if (shouldInterceptM3U8 && url.includes('.m3u8')
             && !url.includes('subtitle') && !url.includes('caption')) {
-            m3u8Found = true;
-            logger.info(`[browser] Found m3u8 stream: ${url}`);
-            m3u8Resolve(url);
-            logger.info(`[browser] Closing browser to conserve resources...`);
-            await browser.close().catch(() => { });
+            logger.info(`[browser] Found m3u8 candidate: ${url}`);
+            m3u8Candidates.push(url);
         }
     });
+
+    // After site handlers run and video starts, wait briefly then pick best stream
+    async function pickBestStream() {
+        // Wait for stream URLs to accumulate
+        const deadline = Date.now() + 8000;
+        while (m3u8Candidates.length === 0 && Date.now() < deadline) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+        // Give a bit more time for additional candidates
+        if (m3u8Candidates.length > 0) {
+            await new Promise(r => setTimeout(r, 3000));
+        }
+
+        const unique = [...new Set(m3u8Candidates)];
+        if (unique.length === 0) return null;
+
+        logger.info(`[browser] ${unique.length} unique m3u8 candidates found`);
+
+        // Prefer Amazon IVS (lowest latency)
+        const ivs = unique.find(u => u.includes('live-video.net'));
+        if (ivs) {
+            logger.info(`[browser] Selected IVS stream (lowest latency): ${ivs}`);
+            return ivs;
+        }
+
+        // For audio-only: prefer lowest bitrate chunklist (smallest segments = fastest)
+        const chunklists = unique.filter(u => u.includes('chunklist_b'));
+        if (chunklists.length > 0) {
+            chunklists.sort((a, b) => {
+                const bitrateA = parseInt(a.match(/chunklist_b(\d+)/)?.[1] || '0');
+                const bitrateB = parseInt(b.match(/chunklist_b(\d+)/)?.[1] || '0');
+                return bitrateA - bitrateB;
+            });
+            logger.info(`[browser] Selected lowest-bitrate chunklist: ${chunklists[0]}`);
+            return chunklists[0];
+        }
+
+        const best = unique[0];
+        logger.info(`[browser] Selected stream: ${best}`);
+        return best;
+    }
 
     // Expose audio chunk handler (fallback/default)
     await page.exposeFunction('sendAudioChunk', (base64Data) => {
@@ -318,13 +356,21 @@ async function runBrowserCapture() {
             });
         }
     } catch (e) {
-        if (!m3u8Found) {
+        if (m3u8Candidates.length === 0) {
             throw e;
         }
     }
 
-    if (m3u8Found) {
-        return m3u8Promise;
+    const interceptM3U8 = STREAM_URL.includes('event.choruscall.com/mediaframe')
+        || STREAM_URL.includes('q4inc.com');
+    if (interceptM3U8) {
+        const bestStream = await pickBestStream();
+        if (bestStream) {
+            m3u8Found = true;
+            logger.info(`[browser] Closing browser to conserve resources...`);
+            await browser.close().catch(() => { });
+            return bestStream;
+        }
     }
 
     return { browser, page };

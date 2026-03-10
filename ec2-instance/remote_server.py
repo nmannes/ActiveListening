@@ -419,7 +419,7 @@ async def main():
             logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
-            CHUNK_SECS = 3.0
+            CHUNK_SECS = 1.5
             CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
             audio_buffer = b""
 
@@ -523,7 +523,7 @@ async def main():
                     audio_buffer += pcm_data
 
                     # Cap buffer to avoid runaway memory
-                    if len(audio_buffer) > CHUNK_BYTES * 3:
+                    if len(audio_buffer) > CHUNK_BYTES * 2:
                         audio_buffer = audio_buffer[-CHUNK_BYTES:]
 
                     # Transcribe every CHUNK_SECS

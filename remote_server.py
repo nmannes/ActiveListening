@@ -419,7 +419,7 @@ async def main():
             logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
-            CHUNK_SECS = 3.0
+            CHUNK_SECS = 1.5
             CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
             audio_buffer = b""
 
@@ -460,9 +460,9 @@ async def main():
                                     count=args.buy_count,
                                 )
                                 t1_trade = time.time()
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
+                                logger.info(f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
                             except Exception as e:
-                                logger.error(f"[TRADE] Error placing order: {e}")
+                                logger.error(f"[{session_id}][TRADE] Error placing order: {e}")
                         else:
                             logger.info(f"[{session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected")
 
@@ -523,7 +523,7 @@ async def main():
                     audio_buffer += pcm_data
 
                     # Cap buffer to avoid runaway memory
-                    if len(audio_buffer) > CHUNK_BYTES * 3:
+                    if len(audio_buffer) > CHUNK_BYTES * 2:
                         audio_buffer = audio_buffer[-CHUNK_BYTES:]
 
                     # Transcribe every CHUNK_SECS
