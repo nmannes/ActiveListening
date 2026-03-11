@@ -37,8 +37,8 @@ def load_file(filename):
 
 # Prepare variables for the template
 context = {
-    'remote_server_py': load_file('remote_server.py'),
-    'clip_py': load_file('clip.py'),
+    'server_py': load_file('../server.py'),
+    'clip_py': load_file('../clip.py'),
     'setup_kalshi_sh': load_file('setup_kalshi.sh.j2'),
     'kalshi_service': load_file('kalshi.service.j2'),
 }

@@ -22,7 +22,7 @@ echo "Environment: $ENV"
 echo "Syncing code to remote instance..."
 
 FILES_TO_COPY=(
-    "remote_server.py"
+    "server.py"
     "clip.py"
     "requirements.txt"
     "remote_setup.sh"
@@ -45,7 +45,7 @@ echo "Restarting server on remote instance..."
 ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "fuser -k 8090/tcp 2>/dev/null; sleep 1"
 
 # Start it back up
-ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "source ~/.cuda_env 2>/dev/null; export ENV=$ENV DEVICE=\$(test -x /usr/bin/nvidia-smi && echo cuda || echo cpu); cd ~; setsid python3 remote_server.py > logs/server.log 2>&1 < /dev/null & sleep 5; if pgrep -f 'python3 remote_server' > /dev/null; then echo SERVER_OK; tail -3 logs/server.log; else echo SERVER_FAILED; cat logs/server.log; exit 1; fi"
+ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "source ~/.cuda_env 2>/dev/null; export ENV=$ENV DEVICE=\$(test -x /usr/bin/nvidia-smi && echo cuda || echo cpu); cd ~; setsid python3 server.py > logs/server.log 2>&1 < /dev/null & sleep 5; if pgrep -f 'python3 remote_server' > /dev/null; then echo SERVER_OK; tail -3 logs/server.log; else echo SERVER_FAILED; cat logs/server.log; exit 1; fi"
 
 echo "--------------------------------------------------------"
 echo "Done! Server is running at $PUBLIC_IP:8090"

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-remote_server.py — Remote WebSocket server for audio transcription & Kalshi trading
+server.py — Remote WebSocket server for audio transcription & Kalshi trading
 
 Receives compressed audio (AAC/ADTS) from tvclient.js over WebSocket,
 decodes to PCM via ffmpeg, transcribes in-process via faster-whisper,
 does keyword matching, and trades on Kalshi.
 
 Usage:
-    python3 remote_server.py --env prod --port 8090
-    python3 remote_server.py --env prod --port 8090 --model base.en --device cpu
+    python3 server.py --env prod --port 8090
+    python3 server.py --env prod --port 8090 --model base.en --device cpu
 """
 
 import argparse
@@ -364,7 +364,7 @@ async def main():
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
     parser.add_argument("--model", type=str, default=None, help="Whisper model name (default: small.en for cuda, base.en for cpu)")
     parser.add_argument("--device", type=str, default=os.environ.get("DEVICE", "cpu"), choices=["cpu", "cuda"])
-    parser.add_argument("--buy-count", type=int, default=5)
+    parser.add_argument("--buy-count", type=int, default=1)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument("--content-profile", type=str, default="basketball", help="CLIP content profile (default: basketball)")
     args = parser.parse_args()
@@ -456,13 +456,14 @@ async def main():
                             try:
                                 t0_trade = time.time()
                                 kalshi.place_fill_or_kill_order(
+                                    yes_price=95,
                                     ticker=matched["value"],
                                     count=args.buy_count,
                                 )
                                 t1_trade = time.time()
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
+                                logger.info(f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
                             except Exception as e:
-                                logger.error(f"[TRADE] Error placing order: {e}")
+                                logger.error(f"[{session_id}][TRADE] Error placing order: {e}")
                         else:
                             logger.info(f"[{session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected")
 

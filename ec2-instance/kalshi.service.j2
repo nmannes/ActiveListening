@@ -8,7 +8,7 @@ User=ec2-user
 WorkingDirectory=/home/ec2-user
 EnvironmentFile=/home/ec2-user/.env
 ExecStartPre=/bin/bash -c "source /home/ec2-user/.cuda_env || true"
-ExecStart=/usr/bin/python3 /home/ec2-user/remote_server.py --env ${Environment} --port 8090
+ExecStart=/usr/bin/python3 /home/ec2-user/server.py --env ${Environment} --port 8090
 Restart=always
 RestartSec=5
 

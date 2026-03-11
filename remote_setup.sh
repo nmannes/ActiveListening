@@ -49,7 +49,7 @@ if [[ "$ENV" == "prod" ]] && command -v nvidia-smi &> /dev/null; then
     echo "Installing CUDA libraries via pip..."
     pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12 >> logs/remote_setup.log 2>&1
     
-    # Configure LD_LIBRARY_PATH for the remote_server.py process
+    # Configure LD_LIBRARY_PATH for the server.py process
     # Find CUDA libs installed via pip (works across Python versions)
     CUBLAS_DIR=$(dirname "$(find ~/.local /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
     CUDNN_DIR=$(dirname "$(find ~/.local /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
