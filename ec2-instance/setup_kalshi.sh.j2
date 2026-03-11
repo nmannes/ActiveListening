@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+sudo shutdown -h +${ShutdownMinutes}
+mkdir -p /home/ec2-user/logs /home/ec2-user/debug
+chown -R ec2-user:ec2-user /home/ec2-user/
+
+if ! command -v ffmpeg &> /dev/null; then
+    URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+    curl -L -O "$URL"
+    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz > /dev/null
+    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
+    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
+    rm -rf ffmpeg-master-latest-linux64-gpl*
+fi
+
+pip3 install -r /home/ec2-user/requirements.txt
+python3 -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')"
+
+DEVICE="cpu"
+if [[ "${Environment}" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
+    DEVICE="cuda"
+    pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12
+    CUBLAS_DIR=$(dirname "$(find /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
+    CUDNN_DIR=$(dirname "$(find /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
+    if [ ! -z "$CUBLAS_DIR" ]; then
+        echo "export LD_LIBRARY_PATH=\"$CUBLAS_DIR:$CUDNN_DIR:\$LD_LIBRARY_PATH\"" > /home/ec2-user/.cuda_env
+    fi
+fi
+echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc

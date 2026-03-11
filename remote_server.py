@@ -404,6 +404,7 @@ async def main():
     async def handle_client(websocket):
         logger.info("[server] New client connection")
 
+
         session = None
         keyword_index = None
         decoder = None
@@ -418,7 +419,7 @@ async def main():
             logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
-            CHUNK_SECS = 3.0
+            CHUNK_SECS = 1.5
             CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
             audio_buffer = b""
 
@@ -449,8 +450,9 @@ async def main():
                         logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
 
                         if not is_content_visible:
-                            logger.info(f"[TRADE] Skipping trade because desired content not on screen")
+                            logger.info(f"[{session_id}][TRADE] Skipping trade because desired content not on screen")
                         elif trade_for_real:
+
                             try:
                                 t0_trade = time.time()
                                 kalshi.place_fill_or_kill_order(
@@ -459,11 +461,12 @@ async def main():
                                     count=args.buy_count,
                                 )
                                 t1_trade = time.time()
-                                logger.info(f"[TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
+                                logger.info(f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
                             except Exception as e:
-                                logger.error(f"[TRADE] Error placing order: {e}")
+                                logger.error(f"[{session_id}][TRADE] Error placing order: {e}")
                         else:
-                            logger.info(f"[TRADE] Not trading for real but \"{matched['key']}\" detected")
+                            logger.info(f"[{session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected")
+
 
                         remove_market_from_index(keyword_index, matched["value"])
                         
@@ -521,7 +524,7 @@ async def main():
                     audio_buffer += pcm_data
 
                     # Cap buffer to avoid runaway memory
-                    if len(audio_buffer) > CHUNK_BYTES * 3:
+                    if len(audio_buffer) > CHUNK_BYTES * 2:
                         audio_buffer = audio_buffer[-CHUNK_BYTES:]
 
                     # Transcribe every CHUNK_SECS
@@ -570,9 +573,13 @@ async def main():
 
                         if msg.get("type") == "hello" and "market" in msg:
                             market = msg["market"]
+                            audio_only = msg.get("audioOnly", False)
                             session_id = market.get("slug", f"session-{int(time.time())}")
 
-                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)}")
+                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only})")
+
+                            if audio_only:
+                                is_content_visible = True
 
                             # Build keyword index
                             keyword_index = build_keyword_index(market.get("keywords", {}))
@@ -610,11 +617,12 @@ async def main():
                                         nonlocal is_content_visible
                                         is_content_visible = result['is_desired_content_visible']
                                         logger.info(
-                                            f"[clip] content_visible={result['is_desired_content_visible']} "
+                                            f"[{sid}][clip] content_visible={result['is_desired_content_visible']} "
                                             f"profile={result['content_profile']} "
                                             f"conf={result['confidence']:.2f} "
                                             f"({result['elapsed_ms']}ms)"
                                         )
+
                                         # Save frame and result for debugging
                                         frames_dir = Path(__file__).parent / "debug" / "frames"
                                         frames_dir.mkdir(exist_ok=True, parents=True)
@@ -633,9 +641,13 @@ async def main():
                                     except websockets.exceptions.ConnectionClosed:
                                         break
                                     except Exception as e:
-                                        logger.error(f"[clip] classification error: {e}")
+                                        logger.error(f"[{sid}][clip] classification error: {e}")
 
-                            frame_task = asyncio.create_task(frame_classification_loop(session_id))
+
+                            if not audio_only:
+                                frame_task = asyncio.create_task(frame_classification_loop(session_id))
+                            else:
+                                logger.info(f"[{session_id}] Audio-only mode — skipping frame classification")
 
                             # Start the background task that processes PCM from audio_inbox
                             audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index))
@@ -656,7 +668,8 @@ async def main():
                     if len(message) > 3 and message[0] == 0x01 and message[1] == 0xFF and message[2] == 0xD8:
                         # Video frame (JPEG) — confirmed by SOI marker
                         frame_data = message[1:]
-                        logger.info(f"frame received ({len(frame_data)} bytes)")
+                        logger.info(f"[{session_id}] frame received ({len(frame_data)} bytes)")
+
                         # Save debug frame
                         debug_dir = Path(__file__).parent / "debug"
                         debug_dir.mkdir(exist_ok=True)
@@ -673,7 +686,9 @@ async def main():
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:
-            logger.info(f"[server] Client disconnected {session['id'] if session else ''}")
+            sid = session['id'] if session else 'unknown'
+            logger.info(f"[{sid}][server] Client disconnected")
+
             if audio_task:
                 audio_task.cancel()
             if frame_task:

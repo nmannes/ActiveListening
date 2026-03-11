@@ -8,13 +8,10 @@ export SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem"
 export REMOTE_USER="ec2-user"
 export REMOTE_DIR="/home/ec2-user"
 
-if [ ! -f "remote_server_ip.txt" ]; then
-    echo "ERROR: remote_server_ip.txt not found. Cannot determine the server IP."
-    echo "Make sure there's an instance running and remote_server_ip.txt exists in the current directory."
+PUBLIC_IP=$(./discover_instance.sh) || {
+    echo "ERROR: Could not discover a running Kalshi worker."
     exit 1
-fi
-
-PUBLIC_IP=$(cat remote_server_ip.txt)
+}
 echo "Targeting remote server at: $PUBLIC_IP"
 
 # Use the environment argument if provided, otherwise default to prod
