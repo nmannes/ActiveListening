@@ -52,6 +52,40 @@ CONTENT_PROFILES = {
             "a non-news television program",
         ],
     },
+    "baseball": {
+        "positive": [
+            "a live baseball game on television",
+            "a baseball broadcast showing the field",
+            "a baseball pitcher throwing a pitch during a live game",
+            "baseball players on a diamond during a live game",
+            "a batter at home plate during a baseball broadcast",
+        ],
+        "negative": [
+            "a TV commercial or advertisement",
+            "a news anchor at a desk",
+            "a halftime show or studio analysis",
+            "a scoreboard or statistics graphic",
+            "a non-sports television program",
+            "a baseball highlight reel or replay montage",
+        ],
+    },
+    "survivor": {
+        "positive": [
+            "contestants on the TV show Survivor competing in a challenge",
+            "a tribal council scene from the TV show Survivor with torches",
+            "Survivor contestants sitting at tribal council with the host",
+            "castaways on a beach or island on the TV show Survivor",
+            "a Survivor immunity or reward challenge on an obstacle course",
+        ],
+        "negative": [
+            "a TV commercial or advertisement",
+            "a news anchor at a desk",
+            "a talk show or late night television program",
+            "a preview or recap montage of upcoming episodes",
+            "a non-Survivor television program",
+            "a behind-the-scenes or interview confessional segment",
+        ],
+    },
 }
 
 DEFAULT_PROFILE = "basketball"
