@@ -36,12 +36,20 @@ def load_file(filename):
     return ""
 
 # Prepare variables for the template
+pylib_dir = os.path.join(template_dir, '..', 'pylib')
 context = {
     'server_py': load_file('../server.py'),
-    'clip_py': load_file('../clip.py'),
     'setup_kalshi_sh': load_file('setup_kalshi.sh.j2'),
     'kalshi_service': load_file('kalshi.service.j2'),
 }
+
+# Load all pylib/*.py files as template variables (e.g. pylib_clip_py, pylib_transcriber_py)
+if os.path.isdir(pylib_dir):
+    for fname in sorted(os.listdir(pylib_dir)):
+        if fname.endswith('.py'):
+            var_name = f"pylib_{fname.replace('.', '_')}"
+            with open(os.path.join(pylib_dir, fname), 'r') as f:
+                context[var_name] = f.read()
 
 template = env.get_template(template_name)
 rendered = template.render(**context)
