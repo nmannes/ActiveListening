@@ -164,87 +164,90 @@ async def main():
 
                     transcript.append(token)
                     new_tokens.append(token)
-                    if len(transcript) > 500:
+                    if len(transcript) > 10000:
                         transcript.pop(0)
 
                     matched = find_keyword_match(keyword_index, transcript, token)
-                    if matched:
+                    if not matched:
+                        continue
+
+                    logger.info(
+                        f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\""
+                    )
+
+                    # If voice profile is active, check speaker similarity
+                    if voice_profile:
+                        t0_speaker = time.time()
+                        similarity = await speaker_recognizer.verify_speaker(
+                            chunk, voice_profile
+                        )
+                        t1_speaker = time.time()
                         logger.info(
-                            f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\""
+                            f"[{session_id}][SPEAKER] Profile '{voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)"
                         )
 
-                        # If voice profile is active, check speaker similarity
-                        if voice_profile:
-                            t0_speaker = time.time()
-                            similarity = await speaker_recognizer.verify_speaker(
-                                chunk, voice_profile
-                            )
-                            t1_speaker = time.time()
-                            logger.info(
-                                f"[{session_id}][SPEAKER] Profile '{voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)"
-                            )
-
-                            # Notify client of speaker match result
-                            try:
-                                await websocket.send(
-                                    json.dumps(
-                                        {
-                                            "type": "speaker_match",
-                                            "profile": voice_profile,
-                                            "similarity": similarity,
-                                        }
-                                    )
-                                )
-                            except websockets.exceptions.ConnectionClosed:
-                                pass
-
-                            if similarity < 0.8:
-                                logger.info(
-                                    f"[{session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8"
-                                )
-                                continue
-
-                        if not is_content_visible:
-                            logger.info(
-                                f"[{session_id}][TRADE] Skipping trade because desired content not on screen"
-                            )
-                        elif trade_for_real:
-
-                            try:
-                                t0_trade = time.time()
-                                kalshi.place_fill_or_kill_order(
-                                    yes_price=95,
-                                    ticker=matched["value"],
-                                    count=args.buy_count,
-                                )
-                                t1_trade = time.time()
-                                logger.info(
-                                    f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)"
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"[{session_id}][TRADE] Error placing order: {e}"
-                                )
-                        else:
-                            logger.info(
-                                f"[{session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected"
-                            )
-
-                        remove_market_from_index(keyword_index, matched["value"])
-
-                        # Notify client
+                        # Notify client of speaker match result
                         try:
                             await websocket.send(
                                 json.dumps(
                                     {
-                                        "type": "signal",
-                                        "keyword": matched["key"],
-                                        "ticker": matched["value"],
+                                        "type": "speaker_match",
+                                        "profile": voice_profile,
+                                        "similarity": similarity,
                                     }
                                 )
                             )
                         except websockets.exceptions.ConnectionClosed:
                             pass
+
+                        if similarity < 0.8:
+                            logger.info(
+                                f"[{session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8"
+                            )
+                            continue
+
+                    if not is_content_visible:
+                        logger.info(
+                            f"[{session_id}][TRADE] Skipping trade because desired content not on screen"
+                        )
+                        continue
+
+                    if trade_for_real:
+                        try:
+                            t0_trade = time.time()
+                            kalshi.place_fill_or_kill_order(
+                                yes_price=95,
+                                ticker=matched["value"],
+                                count=args.buy_count,
+                            )
+                            t1_trade = time.time()
+                            logger.info(
+                                f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)"
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"[{session_id}][TRADE] Error placing order: {e}"
+                            )
+                    else:
+                        logger.info(
+                            f"[{session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected"
+                        )
+
+                    remove_market_from_index(keyword_index, matched["value"])
+
+                    # Notify client
+                    try:
+                        await websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "signal",
+                                    "keyword": matched["key"],
+                                    "ticker": matched["value"],
+                                }
+                            )
+                        )
+                    except websockets.exceptions.ConnectionClosed:
+                        pass
 
                 if new_tokens:
                     recent = " ".join(transcript[-args.last_words_count :])
