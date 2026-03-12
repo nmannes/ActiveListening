@@ -35,13 +35,42 @@ def load_file(filename):
             return f.read()
     return ""
 
-# Prepare variables for the template
+# Parse --env argument
+env_name = "demo"
+if "--env" in sys.argv:
+    idx = sys.argv.index("--env")
+    if idx + 1 < len(sys.argv):
+        env_name = sys.argv[idx+1]
+
+def load_env_file(env_name):
+    env_file = os.path.join(template_dir, '..', f'.env.{env_name}')
+    if not os.path.exists(env_file):
+        return "# missing env file"
+    
+    with open(env_file, 'r') as f:
+        lines = f.readlines()
+    
+    processed_lines = []
+    for line in lines:
+        if line.startswith("KALSHI_KEY_ID="):
+            processed_lines.append("KALSHI_KEY_ID=${KalshiKeyId}\n")
+        elif line.startswith("KALSHI_ENV="):
+            processed_lines.append("KALSHI_ENV=${Environment}\n")
+        elif line.startswith("KALSHI_BASE_DOMAIN="):
+            processed_lines.append("KALSHI_BASE_DOMAIN=${!If [!Equals [!Ref Environment, \"prod\"], \"https://api.elections.kalshi.com/trade-api/v2\", \"https://demo-api.kalshi.co/trade-api/v2\"]}\n")
+        elif line.startswith("KALSHI_PRIVATE_KEY_PATH="):
+            processed_lines.append("KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt\n")
+        else:
+            processed_lines.append(line)
+    return "".join(processed_lines)
+
 pylib_dir = os.path.join(template_dir, '..', 'pylib')
 context = {
     'server_py': load_file('../server.py'),
     'setup_kalshi_sh': load_file('setup_kalshi.sh.j2'),
     'kalshi_service': load_file('kalshi.service.j2'),
     'requirements_txt': load_file('../requirements.txt'),
+    'env_content': load_env_file(env_name),
 }
 
 # Load all pylib/*.py files as template variables (e.g. pylib_clip_py, pylib_transcriber_py)

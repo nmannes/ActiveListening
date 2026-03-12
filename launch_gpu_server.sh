@@ -119,7 +119,7 @@ STACK_NAME="kalshi-worker-$RUN_ID"
 BLUEPRINT_DIR="$LOCAL_DIR/ec2-instance"
 TMP_TEMPLATE="/tmp/assembled_template.yaml"
 
-python3 "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" "$TMP_TEMPLATE"
+python3 "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" "$TMP_TEMPLATE" --env "$ENV"
 
 # S3 bucket for template deployment (required for templates > 51KB)
 S3_BUCKET="deploys"

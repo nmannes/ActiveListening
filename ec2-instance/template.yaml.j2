@@ -71,13 +71,7 @@ Resources:
           files:
             "/home/ec2-user/.env":
               content: !Sub |
-                KALSHI_KEY_ID=${KalshiKeyId}
-                KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt
-                KALSHI_ENV=${Environment}
-                KALSHI_BASE_DOMAIN=${!If [!Equals [!Ref Environment, "prod"], "https://api.elections.kalshi.com/trade-api/v2", "https://demo-api.kalshi.co/trade-api/v2"]}
-                LOG_LEVEL=info
-                WHISPER_MODEL=Xenova/whisper-base.en
-                ENABLE_TRADING=true
+{{ env_content | indent(16, true) | default('# missing env content') }}
               mode: "000600"
               owner: "ec2-user"
               group: "ec2-user"
