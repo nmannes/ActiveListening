@@ -16,7 +16,7 @@ class SpeakerRecognizer:
 
         # Using TitaNet-L for high accuracy speaker verification
         self.model = nemo_asr.EncDecSpeakerLabelModel.from_pretrained(
-            model_name="nvidia/speakerverification_en_titanet_l"
+            model_name="titanet_large"
         ).to(device)
         self.model.eval()
 
