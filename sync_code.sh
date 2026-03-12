@@ -23,7 +23,6 @@ echo "Syncing code to remote instance..."
 
 FILES_TO_COPY=(
     "server.py"
-    "clip.py"
     "requirements.txt"
     "remote_setup.sh"
     ".env.demo"
@@ -35,6 +34,11 @@ FILES_TO_COPY=(
 rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "${FILES_TO_COPY[@]}" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
+
+# Sync pylib/ directory (Python modules)
+rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
+    "pylib/" \
+    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/pylib/"
 
 echo "Code synced."
 

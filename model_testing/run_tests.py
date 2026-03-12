@@ -11,7 +11,7 @@ import sys
 # Add parent dir to path so we can import kalshi/clip.py
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from clip import FrameClassifier
+from pylib.clip import FrameClassifier
 
 def main():
     test_dir = os.path.dirname(os.path.abspath(__file__))
