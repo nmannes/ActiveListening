@@ -110,6 +110,8 @@ let providerName = args.provider;
 if (!providerName) {
     if (STREAM_URL.includes('localhost:9981')) {
         providerName = 'tv';
+    } else if (STREAM_URL.includes('espn.com')) {
+        providerName = 'espn';
     } else {
         providerName = 'browser';
     }
