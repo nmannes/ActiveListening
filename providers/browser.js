@@ -29,8 +29,8 @@ function setupAudioTranscoder(inputUrl = 'pipe:0') {
     const ffmpegArgs = [
         '-fflags', 'nobuffer',
         '-flags', 'low_delay',
-        '-probesize', '32',
-        '-analyzeduration', '0',
+        '-probesize', '5000000',
+        '-analyzeduration', '5000000',
         '-i', inputUrl,
         '-f', 's16le',
         '-acodec', 'pcm_s16le',
@@ -82,7 +82,7 @@ async function runBrowserCapture() {
     browser = await puppeteer.launch({
         executablePath: browserPath,
         defaultViewport: null,
-        headless: true,
+        headless: false,
         args: [
             "--start-maximized",
             "--autoplay-policy=no-user-gesture-required",
@@ -105,7 +105,8 @@ async function runBrowserCapture() {
         const shouldInterceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
             || _streamUrl.includes('q4inc.com')
             || _streamUrl.includes('event.webcasts.com')
-            || _streamUrl.includes('open-exchange.net');
+            || _streamUrl.includes('open-exchange.net')
+            || _streamUrl.includes('knowledgevision.com');
 
         if (shouldInterceptM3U8 && url.includes('.m3u8')
             && !url.includes('subtitle') && !url.includes('caption')) {
@@ -161,7 +162,10 @@ async function runBrowserCapture() {
     });
 
     const interceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
-        || _streamUrl.includes('q4inc.com');
+        || _streamUrl.includes('q4inc.com')
+        || _streamUrl.includes('event.webcasts.com')
+        || _streamUrl.includes('open-exchange.net')
+        || _streamUrl.includes('knowledgevision.com');
 
     try {
         _logger.info(`[browser] Navigating to ${_streamUrl}...`);
@@ -285,6 +289,13 @@ module.exports = {
         _streamUrl = streamUrl;
         _logger = logger;
         _isShuttingDown = isShuttingDown;
+
+        // Optimization: if it's already a direct m3u8, skip the browser
+        if (_streamUrl.toLowerCase().includes('.m3u8')) {
+            _logger.info(`[browser] Direct m3u8 URL detected, jumping straight to transcoder.`);
+            setupAudioTranscoder(_streamUrl);
+            return;
+        }
 
         const result = await runBrowserCapture();
         if (typeof result === 'string') {
