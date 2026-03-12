@@ -15,7 +15,7 @@ try:
     today = datetime.now()
     from_date = today.strftime("%Y-%m-%d")
     to_date = (today + timedelta(days=7)).strftime("%Y-%m-%d")
-    
+
     print(f"Fetching from {from_date} to {to_date}...")
     response = finnhub_client.earnings_call_live(_from=from_date, to=to_date)
     print(json.dumps(response, indent=2))

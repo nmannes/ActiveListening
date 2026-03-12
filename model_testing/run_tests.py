@@ -9,34 +9,35 @@ import os
 import sys
 
 # Add parent dir to path so we can import kalshi/clip.py
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from pylib.clip import FrameClassifier
 
+
 def main():
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    results_file = os.path.join(test_dir, 'results.json')
-    images_dir = os.path.join(test_dir, 'images')
+    results_file = os.path.join(test_dir, "results.json")
+    images_dir = os.path.join(test_dir, "images")
 
-    with open(results_file, 'r') as f:
+    with open(results_file, "r") as f:
         test_cases = json.load(f)
 
     # Cache classifiers so we only load each profile once
     classifiers = {}
-    
+
     passed_count = 0
     failed_count = 0
 
     print(f"Running {len(test_cases)} tests...\n")
 
     for i, test in enumerate(test_cases, 1):
-        image_name = test['image']
-        profile = test['profile']
-        expected = test['expected_is_desired_content_visible']
-        desc = test['description']
+        image_name = test["image"]
+        profile = test["profile"]
+        expected = test["expected_is_desired_content_visible"]
+        desc = test["description"]
 
         image_path = os.path.join(images_dir, image_name)
-        
+
         if not os.path.exists(image_path):
             print(f"[{i}/{len(test_cases)}] ⚠️  SKIP: Image not found {image_path}")
             failed_count += 1
@@ -47,26 +48,38 @@ def main():
 
         # Load classifier on demand
         if profile not in classifiers:
-            classifiers[profile] = FrameClassifier(device="cpu", content_profile=profile)
-        
+            classifiers[profile] = FrameClassifier(
+                device="cpu", content_profile=profile
+            )
+
         classifier = classifiers[profile]
-        
+
         try:
             result = classifier.classify(frame_bytes)
-            actual = result['is_desired_content_visible']
-            confidence = result['confidence']
+            actual = result["is_desired_content_visible"]
+            confidence = result["confidence"]
 
             if actual == expected:
-                print(f"[{i}/{len(test_cases)}] ✅ PASS: {image_name} ({profile}) - {desc}")
-                print(f"          -> result: {actual} (expected: {expected}), conf: {confidence:.4f}")
+                print(
+                    f"[{i}/{len(test_cases)}] ✅ PASS: {image_name} ({profile}) - {desc}"
+                )
+                print(
+                    f"          -> result: {actual} (expected: {expected}), conf: {confidence:.4f}"
+                )
                 passed_count += 1
             else:
-                print(f"[{i}/{len(test_cases)}] ❌ FAIL: {image_name} ({profile}) - {desc}")
-                print(f"          -> result: {actual} (expected: {expected}), conf: {confidence:.4f}")
+                print(
+                    f"[{i}/{len(test_cases)}] ❌ FAIL: {image_name} ({profile}) - {desc}"
+                )
+                print(
+                    f"          -> result: {actual} (expected: {expected}), conf: {confidence:.4f}"
+                )
                 failed_count += 1
-                
+
         except Exception as e:
-            print(f"[{i}/{len(test_cases)}] ❌ ERROR: {image_name} ({profile}) - {desc}")
+            print(
+                f"[{i}/{len(test_cases)}] ❌ ERROR: {image_name} ({profile}) - {desc}"
+            )
             print(f"          -> {e}")
             failed_count += 1
 
@@ -76,6 +89,7 @@ def main():
 
     if failed_count > 0:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

@@ -21,25 +21,38 @@ class AudioDecoder:
         self.ffmpeg_log = open("ffmpeg.log", "a")
         self.proc = subprocess.Popen(
             [
-                'ffmpeg',
-                '-y',
-                '-fflags', 'nobuffer+genpts+discardcorrupt',
-                '-flags', 'low_delay',
-                '-f', 's16le',
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                '-ac', '1',
-                '-i', stream_url,
-                '-f', 's16le',
-                '-acodec', 'pcm_s16le',
-                '-ar', '16000',
-                '-ac', '1',
-                'pipe:1',
+                "ffmpeg",
+                "-y",
+                "-fflags",
+                "nobuffer+genpts+discardcorrupt",
+                "-flags",
+                "low_delay",
+                "-f",
+                "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "-i",
+                stream_url,
+                "-f",
+                "s16le",
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                "16000",
+                "-ac",
+                "1",
+                "pipe:1",
             ],
             stdout=subprocess.PIPE,
             stderr=self.ffmpeg_log,
         )
-        self._pcm_chunks = deque(maxlen=50)  # Cap at ~5s of audio to prevent stale backlog
+        self._pcm_chunks = deque(
+            maxlen=50
+        )  # Cap at ~5s of audio to prevent stale backlog
         self._lock = threading.Lock()
         self._stopped = False
 
@@ -71,6 +84,6 @@ class AudioDecoder:
         self._stopped = True
         self.proc.kill()
         self.proc.wait()
-        if hasattr(self, 'ffmpeg_log'):
+        if hasattr(self, "ffmpeg_log"):
             self.ffmpeg_log.close()
         logger.info("[decoder] ffmpeg decoder stopped")

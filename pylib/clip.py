@@ -94,8 +94,12 @@ DEFAULT_PROFILE = "basketball"
 class FrameClassifier:
     """Zero-shot CLIP classifier for detecting desired broadcast content."""
 
-    def __init__(self, device: str = "cpu", threshold: float = 0.55,
-                 content_profile: str = DEFAULT_PROFILE):
+    def __init__(
+        self,
+        device: str = "cpu",
+        threshold: float = 0.55,
+        content_profile: str = DEFAULT_PROFILE,
+    ):
         """
         Args:
             device: 'cpu' or 'cuda'

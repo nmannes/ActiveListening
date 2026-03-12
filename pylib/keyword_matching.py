@@ -52,6 +52,6 @@ def remove_market_from_index(index: dict, value: str):
         index[last_word] = [c for c in candidates if c["value"] != value]
         if not index[last_word]:
             empty_keys.append(last_word)
-            
+
     for k in empty_keys:
         del index[k]

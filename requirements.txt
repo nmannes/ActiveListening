@@ -8,3 +8,4 @@ pillow
 nemo_toolkit[asr]
 omegaconf
 pytorch-lightning
+markupsafe==2.0.1
