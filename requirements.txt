@@ -6,6 +6,7 @@ kalshi-python-sync
 open-clip-torch
 pillow
 nemo_toolkit[asr]
+librosa==0.9.2
 omegaconf
 pytorch-lightning
 markupsafe==2.0.1
