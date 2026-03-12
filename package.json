@@ -2,7 +2,7 @@
     "scripts": {
         "prod": "bun run server.js --env prod",
         "test": "jest",
-        "list-markets-prod": "bun run lib/discover_markets.js --env prod",
+        "list-markets-prod": "bun run lib/discover_markets.js --env prod"
     },
     "dependencies": {
         "@xenova/transformers": "^2.17.2",
@@ -19,7 +19,9 @@
         "puppeteer-extra-plugin-stealth": "^2.11.2",
         "sqlite3": "^5.1.7",
         "ws": "^8.17.1",
-        "xml2js": "^0.6.2",
+        "xml2js": "^0.6.2"
     },
-    "devDependencies": {"jest": "^29.7.0"},
+    "devDependencies": {
+        "jest": "^29.7.0"
+    }
 }
