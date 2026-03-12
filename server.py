@@ -30,6 +30,7 @@ from pylib.keyword_matching import build_keyword_index, find_keyword_match, remo
 from pylib.audio_decoder import AudioDecoder
 from pylib.transcriber import Transcriber, calculate_rms
 from pylib.clip import FrameClassifier
+from pylib.speaker_recognition import SpeakerRecognizer
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -80,6 +81,7 @@ async def main():
 
     # Init transcriber
     transcriber = Transcriber(model_size=args.model, device=args.device)
+    speaker_recognizer = SpeakerRecognizer(device=args.device)
     frame_classifier = FrameClassifier(device=args.device, content_profile=args.content_profile)
     clip_executor = ThreadPoolExecutor(max_workers=1)
 
@@ -98,6 +100,7 @@ async def main():
 
         session = None
         keyword_index = None
+        voice_profile = None
         decoder = None
         transcript = []
         is_content_visible = False
@@ -105,9 +108,9 @@ async def main():
 
         last_proc_time = [0.0]
 
-        async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index):
+        async def audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index, voice_profile):
             transcript.clear()
-            logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device})")
+            logger.info(f"[{session_id}] Audio processing loop started (Device: {transcriber.device}, voiceProfile: {voice_profile})")
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
             CHUNK_SECS = 1.5
@@ -139,6 +142,27 @@ async def main():
                     matched = find_keyword_match(keyword_index, transcript, token)
                     if matched:
                         logger.info(f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\"")
+
+                        # If voice profile is active, check speaker similarity
+                        if voice_profile:
+                            t0_speaker = time.time()
+                            similarity = await speaker_recognizer.verify_speaker(chunk, voice_profile)
+                            t1_speaker = time.time()
+                            logger.info(f"[{session_id}][SPEAKER] Profile '{voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)")
+                            
+                            # Notify client of speaker match result
+                            try:
+                                await websocket.send(json.dumps({
+                                    "type": "speaker_match",
+                                    "profile": voice_profile,
+                                    "similarity": similarity,
+                                }))
+                            except websockets.exceptions.ConnectionClosed:
+                                pass
+
+                            if similarity < 0.8:
+                                logger.info(f"[{session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8")
+                                continue
 
                         if not is_content_visible:
                             logger.info(f"[{session_id}][TRADE] Skipping trade because desired content not on screen")
@@ -262,12 +286,13 @@ async def main():
                             }))
                             continue
 
-                        if msg.get("type") == "hello" and "market" in msg:
-                            market = msg["market"]
-                            audio_only = msg.get("audioOnly", False)
-                            session_id = market.get("slug", f"session-{int(time.time())}")
+                            if msg.get("type") == "hello" and "market" in msg:
+                                market = msg["market"]
+                                audio_only = msg.get("audioOnly", False)
+                                voice_profile = msg.get("voiceProfile")
+                                session_id = market.get("slug", f"session-{int(time.time())}")
 
-                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only})")
+                                logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only}, voiceProfile={voice_profile})")
 
                             if audio_only:
                                 is_content_visible = True
@@ -341,7 +366,7 @@ async def main():
                                 logger.info(f"[{session_id}] Audio-only mode — skipping frame classification")
 
                             # Start the background task that processes PCM from audio_inbox
-                            audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index))
+                            audio_task = asyncio.create_task(audio_processing_loop(session_id, audio_inbox, audio_inbox_lock, keyword_index, voice_profile))
 
                             session = {
                                 "id": session_id,

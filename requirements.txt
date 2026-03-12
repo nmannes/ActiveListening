@@ -5,3 +5,6 @@ websockets
 kalshi-python-sync
 open-clip-torch
 pillow
+nemo_toolkit[asr]
+omegaconf
+pytorch-lightning
