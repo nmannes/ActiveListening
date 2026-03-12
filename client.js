@@ -99,6 +99,12 @@ if (!STREAM_URL) {
     process.exit(1);
 }
 
+// Auto-fix URLs missing a protocol scheme (e.g. "localhost:9981/..." → "http://localhost:9981/...")
+if (STREAM_URL && !STREAM_URL.match(/^[a-zA-Z]+:\/\//)) {
+    STREAM_URL = `http://${STREAM_URL}`;
+    logger.warn(`Stream URL was missing protocol, fixed to: ${STREAM_URL}`);
+}
+
 market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL;
 
 // ── Auto-detect provider ─────────────────────────────────────────────
