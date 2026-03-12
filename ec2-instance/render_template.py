@@ -49,15 +49,26 @@ if os.path.isdir(pylib_dir):
         if fname.endswith('.py'):
             var_name = f"pylib_{fname.replace('.', '_')}"
             with open(os.path.join(pylib_dir, fname), 'r') as f:
-                context[var_name] = f.read()
+                content = f.read()
+                # Ensure __init__.py isn't empty to avoid CloudFormation parser issues
+                # (cfn-init "File specified without source or content" error)
+                if fname == '__init__.py' and not content.strip():
+                    content = "# pylib package\n"
+                context[var_name] = content
+                print(f"Loaded {fname} ({len(content)} bytes)")
 
 expected_vars = [
-    'pylib_audio_decoder_py', 'pylib_clip_py', 'pylib_kalshi_client_py', 
-    'pylib_keyword_matching_py', 'pylib_transcriber_py'
+    'pylib___init___py', 'pylib_audio_decoder_py', 'pylib_clip_py', 
+    'pylib_kalshi_client_py', 'pylib_keyword_matching_py', 'pylib_transcriber_py'
 ]
+missing = []
 for v in expected_vars:
-    if v not in context:
-        print(f"WARNING: Expected variable {v} not found in context!")
+    if v not in context or not context.get(v):
+        missing.append(v)
+
+if missing:
+    print(f"ERROR: Missing or empty required variables in context: {missing}")
+    sys.exit(1)
 
 template = env.get_template(template_name)
 rendered = template.render(**context)

@@ -99,43 +99,44 @@ Resources:
               owner: "ec2-user"
               group: "ec2-user"
             "/home/ec2-user/pylib/__init__.py":
-              content: ""
+              content: |
+{{ pylib___init___py | indent(16, true) | default('# init') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/pylib/audio_decoder.py":
               content: |
-{{ pylib_audio_decoder_py | indent(16, true) }}
+{{ pylib_audio_decoder_py | indent(16, true) | default('# missing') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/pylib/clip.py":
               content: |
-{{ pylib_clip_py | indent(16, true) }}
+{{ pylib_clip_py | indent(16, true) | default('# missing') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/pylib/kalshi_client.py":
               content: |
-{{ pylib_kalshi_client_py | indent(16, true) }}
+{{ pylib_kalshi_client_py | indent(16, true) | default('# missing') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/pylib/keyword_matching.py":
               content: |
-{{ pylib_keyword_matching_py | indent(16, true) }}
+{{ pylib_keyword_matching_py | indent(16, true) | default('# missing') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/pylib/transcriber.py":
               content: |
-{{ pylib_transcriber_py | indent(16, true) }}
+{{ pylib_transcriber_py | indent(16, true) | default('# missing') }}
               mode: "000644"
               owner: ec2-user
               group: ec2-user
             "/home/ec2-user/server.py":
               content: |
-{{ server_py | indent(16, true) }}
+{{ server_py | indent(16, true) | default('# missing') }}
               mode: "000755"
               owner: ec2-user
               group: ec2-user
@@ -169,6 +170,12 @@ Resources:
                             "file_path": "/home/ec2-user/logs/remote_server.log",
                             "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/remote_server",
+                            "retention_in_days": 7
+                          },
+                          {
+                            "file_path": "/home/ec2-user/logs/setup_trace.log",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/setup_trace",
                             "retention_in_days": 7
                           }
                         ]

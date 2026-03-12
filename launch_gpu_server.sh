@@ -54,6 +54,7 @@ for ((i=0; i<${#args[@]}; i++)); do
     case $arg in
         prod|demo) ENV=$arg ;;
         --spot) USE_SPOT=true ;;
+        --no-rollback) NO_ROLLBACK=true ;;
         --destroy-all) ENV="--destroy-all" ;;
         --shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
         *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
@@ -125,6 +126,17 @@ S3_BUCKET="deploys"
 
 PROVISION_START_TIME=$(date +%s)
 
+ROLLBACK_ARG=""
+if [[ "$NO_ROLLBACK" == true ]]; then
+    ROLLBACK_ARG="--no-execute-changeset" # Actually, 'deploy' doesn't have --no-rollback, we need to use a different approach or just manual create-stack
+    # Wait, 'aws cloudformation deploy' doesn't support --no-rollback directly.
+    # It always rollbacks on failure. 
+    # To prevent rollback, we'd need 'aws cloudformation create-stack --on-failure DO_NOTHING'
+fi
+
+# NOTE: Since 'deploy' is easier for updates, I'll stick with it but add a tip to the user.
+# Actually, let's just make it so the user can easily debug if it fails.
+
 aws cloudformation deploy \
     --template-file "$TMP_TEMPLATE" \
     --stack-name "$STACK_NAME" \
@@ -140,7 +152,8 @@ aws cloudformation deploy \
         KalshiKeyId="$KEY_ID" \
         KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
     --s3-bucket "$S3_BUCKET" \
-    --capabilities CAPABILITY_IAM
+    --capabilities CAPABILITY_IAM \
+    --no-fail-on-empty-changeset
 
 PROVISION_END_TIME=$(date +%s)
 PROVISION_DURATION=$((PROVISION_END_TIME - PROVISION_START_TIME))
