@@ -46,7 +46,7 @@ fi
 ENV="demo"
 INSTANCE_TYPE_ARG=""
 USE_SPOT=false
-SHUTDOWN_MINUTES=30
+SHUTDOWN_MINUTES=90
 
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
