@@ -51,6 +51,14 @@ if os.path.isdir(pylib_dir):
             with open(os.path.join(pylib_dir, fname), 'r') as f:
                 context[var_name] = f.read()
 
+expected_vars = [
+    'pylib_audio_decoder_py', 'pylib_clip_py', 'pylib_kalshi_client_py', 
+    'pylib_keyword_matching_py', 'pylib_transcriber_py'
+]
+for v in expected_vars:
+    if v not in context:
+        print(f"WARNING: Expected variable {v} not found in context!")
+
 template = env.get_template(template_name)
 rendered = template.render(**context)
 

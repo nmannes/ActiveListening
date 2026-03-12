@@ -1,5 +1,7 @@
 #!/bin/bash
-set -e
+set -ex
+exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
+echo "Starting setup_kalshi.sh at $(date)"
 sudo shutdown -h +${ShutdownMinutes}
 mkdir -p /home/ec2-user/logs /home/ec2-user/debug
 chown -R ec2-user:ec2-user /home/ec2-user/
