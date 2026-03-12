@@ -63,9 +63,26 @@ function setupAudioTranscoder(inputUrl = 'pipe:0') {
 // ── Browser Capture Logic ────────────────────────────────────────────
 async function runBrowserCapture() {
     _logger.info(`[browser] Launching Puppeteer...`);
+
+    const executablePaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium'
+    ];
+    let browserPath = null;
+    const fs = require('fs');
+    for (const p of executablePaths) {
+        if (fs.existsSync(p)) {
+            browserPath = p;
+            break;
+        }
+    }
+
     browser = await puppeteer.launch({
+        executablePath: browserPath,
         defaultViewport: null,
-        headless: true,
+        headless: false,
         args: [
             "--start-maximized",
             "--autoplay-policy=no-user-gesture-required",
@@ -86,7 +103,9 @@ async function runBrowserCapture() {
     page.on('request', async request => {
         const url = request.url();
         const shouldInterceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
-            || _streamUrl.includes('q4inc.com');
+            || _streamUrl.includes('q4inc.com')
+            || _streamUrl.includes('event.webcasts.com')
+            || _streamUrl.includes('open-exchange.net');
 
         if (shouldInterceptM3U8 && url.includes('.m3u8')
             && !url.includes('subtitle') && !url.includes('caption')) {
@@ -141,6 +160,9 @@ async function runBrowserCapture() {
         }
     });
 
+    const interceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
+        || _streamUrl.includes('q4inc.com');
+
     try {
         _logger.info(`[browser] Navigating to ${_streamUrl}...`);
         await page.goto(_streamUrl, { waitUntil: 'networkidle2', timeout: 60000 });
@@ -160,9 +182,6 @@ async function runBrowserCapture() {
             window._playInterval = interval;
         });
 
-        // 3. Audio/Frame Capture Setup (only if not using m3u8 mode)
-        const interceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
-            || _streamUrl.includes('q4inc.com');
         if (!interceptM3U8) {
             setupAudioTranscoder();
             await page.evaluate(() => {
@@ -241,8 +260,6 @@ async function runBrowserCapture() {
         }
     }
 
-    const interceptM3U8 = _streamUrl.includes('event.choruscall.com/mediaframe')
-        || _streamUrl.includes('q4inc.com');
     if (interceptM3U8) {
         const bestStream = await pickBestStream();
         if (bestStream) {
