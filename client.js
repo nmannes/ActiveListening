@@ -48,27 +48,24 @@ Options:
 }
 
 // ── Remote IP discovery ──────────────────────────────────────────────
-let REMOTE_IP_ADDRESS = args.ip;
+let REMOTE_IP_ADDRESS = args.ip
 
-if (!REMOTE_IP_ADDRESS) {
-    if (fs.existsSync('remote_server_ip.txt')) {
-        REMOTE_IP_ADDRESS = fs.readFileSync('remote_server_ip.txt', 'utf8').trim();
-    } else {
-        try {
-            logger.info('Discovery: Attempting to find running Kalshi worker...');
-            REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', {
-                encoding: 'utf8',
-                stdio: ['ignore', 'pipe', 'ignore'],
-            }).trim();
-            logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
-        } catch (e) {
-            logger.warn('Discovery: No running worker found via discover_instance.sh');
-        }
-    }
+
+try {
+    logger.info('Discovery: Attempting to find running Kalshi worker...');
+    REMOTE_IP_ADDRESS = execSync('./discover_instance.sh', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+} catch (e) {
+    logger.warn('Discovery: No running worker found via discover_instance.sh');
 }
 
+
 if (!REMOTE_IP_ADDRESS || REMOTE_IP_ADDRESS === 'None') {
-    logger.error('Error: Could not determine remote server IP. Start an instance or use --ip.');
+    logger.warn('Error: Could not determine remote server IP. Using localhost');
+    REMOTE_IP_ADDRESS = '127.0.0.1';
 }
 
 const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
@@ -110,7 +107,7 @@ market.mediaStreamURL = market.mediaStreamURL || market.channelURL || STREAM_URL
 // ── Auto-detect provider ─────────────────────────────────────────────
 let providerName = args.provider;
 if (!providerName) {
-    if (STREAM_URL.includes('localhost:9981') || STREAM_URL.includes('tvheadend')) {
+    if (STREAM_URL.includes('localhost:9981')) {
         providerName = 'tv';
     } else {
         providerName = 'browser';
