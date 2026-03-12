@@ -109,7 +109,7 @@ async function runBrowserCapture() {
 
         if (shouldInterceptM3U8 && url.includes('.m3u8')
             && !url.includes('subtitle') && !url.includes('caption')) {
-            _logger.info(`[browser] Found m3u8 candidate: ${url}`);
+            _logger.debug(`[browser] Found m3u8 candidate: ${url}`);
             m3u8Candidates.push(url);
         }
     });
@@ -120,7 +120,7 @@ async function runBrowserCapture() {
             await new Promise(r => setTimeout(r, 500));
         }
         if (m3u8Candidates.length > 0) {
-            await new Promise(r => setTimeout(r, 3000));
+            await new Promise(r => setTimeout(r, 1000));
         }
 
         const unique = [...new Set(m3u8Candidates)];
@@ -229,7 +229,7 @@ async function runBrowserCapture() {
                                 reader.readAsDataURL(event.data);
                             }
                         };
-                        recorder.start(100);
+                        recorder.start(50);
                         console.log("Audio MediaRecorder active");
                     }
                 }

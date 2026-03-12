@@ -74,7 +74,7 @@ async def main():
         default=os.environ.get("DEVICE", "cpu"),
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--buy-count", type=int, default=1)
+    parser.add_argument("--buy-count", type=int, default=5)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument(
         "--content-profile",
@@ -141,7 +141,7 @@ async def main():
             )
 
             # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
-            CHUNK_SECS = 1.5
+            CHUNK_SECS = 0.75
             CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
             audio_buffer = b""
 
@@ -291,7 +291,7 @@ async def main():
 
             try:
                 while True:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(0.02)
 
                     # Drain audio from WebSocket inbox
                     with audio_inbox_lock:
