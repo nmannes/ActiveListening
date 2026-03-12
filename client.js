@@ -60,10 +60,11 @@ try {
     logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
 } catch (e) {
     logger.warn('Discovery: No running worker found via discover_instance.sh');
+    REMOTE_IP_ADDRESS = null;
 }
 
 
-if (!REMOTE_IP_ADDRESS || REMOTE_IP_ADDRESS === 'None') {
+if (!REMOTE_IP_ADDRESS) {
     logger.warn('Error: Could not determine remote server IP. Using localhost');
     REMOTE_IP_ADDRESS = '127.0.0.1';
 }

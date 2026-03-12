@@ -16,6 +16,7 @@ echo "Scheduling shutdown in $SHUTDOWN_MINUTES minutes..."
 sudo shutdown -h +$SHUTDOWN_MINUTES
 
 mkdir -p logs
+sudo chown -R $(whoami):$(whoami) logs
 echo "$(date) —— Starting remote_setup.sh" > logs/remote_setup.log
 
 echo "Installing dependencies (this takes ~1-2 mins on fresh AMI)..."

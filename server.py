@@ -286,13 +286,13 @@ async def main():
                             }))
                             continue
 
-                            if msg.get("type") == "hello" and "market" in msg:
-                                market = msg["market"]
-                                audio_only = msg.get("audioOnly", False)
-                                voice_profile = msg.get("voiceProfile")
-                                session_id = market.get("slug", f"session-{int(time.time())}")
+                        if msg.get("type") == "hello" and "market" in msg:
+                            market = msg["market"]
+                            audio_only = msg.get("audioOnly", False)
+                            voice_profile = msg.get("voiceProfile")
+                            session_id = market.get("slug", f"session-{int(time.time())}")
 
-                                logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only}, voiceProfile={voice_profile})")
+                            logger.info(f"[{session_id}] Client identified: {market.get('title', session_id)} (audioOnly={audio_only}, voiceProfile={voice_profile})")
 
                             if audio_only:
                                 is_content_visible = True

@@ -35,6 +35,9 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "${FILES_TO_COPY[@]}" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
+# Ensure remote pylib/ is writable (fix for permission issues)
+ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "sudo chown -R $REMOTE_USER:$REMOTE_USER $REMOTE_DIR/pylib 2>/dev/null || true"
+
 # Sync pylib/ directory (Python modules)
 rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "pylib/" \

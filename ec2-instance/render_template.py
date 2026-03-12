@@ -41,6 +41,7 @@ context = {
     'server_py': load_file('../server.py'),
     'setup_kalshi_sh': load_file('setup_kalshi.sh.j2'),
     'kalshi_service': load_file('kalshi.service.j2'),
+    'requirements_txt': load_file('../requirements.txt'),
 }
 
 # Load all pylib/*.py files as template variables (e.g. pylib_clip_py, pylib_transcriber_py)

@@ -88,13 +88,7 @@ Resources:
               group: "ec2-user"
             "/home/ec2-user/requirements.txt":
               content: |
-                faster-whisper
-                numpy
-                dotenv
-                websockets
-                kalshi-python-sync
-                open-clip-torch
-                pillow
+{{ requirements_txt | indent(16, true) | default('# missing requirements') }}
               mode: "000644"
               owner: "ec2-user"
               group: "ec2-user"
