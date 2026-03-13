@@ -26,7 +26,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         }
 
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
-        execSync(`./schedule_run.sh --fromFile ${newFile}`);
+        execSync(`./schedule_run.sh --fromFile ${newFile} --shutdown-minutes 45`);
     }
     
     
