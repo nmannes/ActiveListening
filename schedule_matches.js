@@ -24,10 +24,8 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
             console.log('File already exists, skipping');
             continue;
         }
-        
+
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
-
-
         execSync(`./schedule_run.sh --fromFile ${newFile}`);
     }
     
