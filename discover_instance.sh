@@ -5,7 +5,7 @@ REGION="${REGION:-us-east-1}"
 # We look for instances with the 'Kalshi-Worker' Name tag prefix that are running
 # and specifically of type g6.large or g6.xlarge
 
-FILTER_NAME="Name=tag:Name,Values=Kalshi-Worker-*"
+FILTER_NAME="Name=tag:Name,Values=kalshi-worker-*"
 FILTER_INSTANCE_TYPE="Name=instance-type,Values=g6.large,g6.xlarge,t3.large"
 FILTER_STATE="Name=instance-state-name,Values=running"
 
