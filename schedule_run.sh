@@ -60,12 +60,12 @@ fi
 START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
 NOW_EPOCH=$(date +%s)
 
-# Compute launch time = 3 minutes before start
-LAUNCH_EPOCH=$((START_EPOCH - 3 * 60))
+# Compute launch time = 10 minutes before start
+LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 
-# Shutdown delay = given duration (default 30) + 3 minutes for early launch
+# Shutdown delay = given duration (default 30) + 10 minutes for early launch
 DURATION_MINUTES=${DURATION_MINUTES:-30}
-SHUTDOWN_MINUTES=$((DURATION_MINUTES + 3))
+SHUTDOWN_MINUTES=$((DURATION_MINUTES + 10))
 
 # Format times for `at` (HH:MM YYYY-MM-DD)
 LAUNCH_AT=$(date -d "@$LAUNCH_EPOCH" '+%H:%M %Y-%m-%d')
@@ -114,8 +114,8 @@ if [[ "$RUN_NOW" == true ]]; then
         fi
     fi
 
-    echo "[$(date '+%H:%M:%S')] Starting tvclient.js now..."
-    cd "$SCRIPT_DIR" && exec bun run tvclient.js --fromFile "$ABS_JSON_FILE" --duration 45
+    echo "[$(date '+%H:%M:%S')] Starting client.js now..."
+    cd "$SCRIPT_DIR" && exec bun run client.js --fromFile "$ABS_JSON_FILE" --duration 45
     exit 0
 fi
 
@@ -126,7 +126,7 @@ if [[ "$CLIENT_ONLY" != true ]]; then
 fi
 
 # --- Schedule tvclient.js at start time ---
-echo "cd $SCRIPT_DIR && bun run tvclient.js --fromFile $ABS_JSON_FILE --duration 45 >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+echo "cd $SCRIPT_DIR && bun run client.js --fromFile $ABS_JSON_FILE --duration 45 >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""
