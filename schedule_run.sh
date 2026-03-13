@@ -119,7 +119,7 @@ if [[ "$RUN_NOW" == true ]]; then
     exit 0
 fi
 
-# --- Schedule GPU launch at T-3min ---
+# --- Schedule GPU launch at T-10min ---
 if [[ "$CLIENT_ONLY" != true ]]; then
     echo "$SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
         | at "$LAUNCH_AT"
