@@ -46,6 +46,7 @@ Mappings:
 Resources:
   KalshiWorkerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
+    DeletionPolicy: Delete
     Properties:
       GroupDescription: Security group for Kalshi Worker
       SecurityGroupIngress:
@@ -60,6 +61,7 @@ Resources:
 
   KalshiWorkerInstance:
     Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
     Metadata:
       AWS::CloudFormation::Init:
         config:
@@ -233,6 +235,7 @@ Resources:
 
   KalshiWorkerInstanceRole:
     Type: AWS::IAM::Role
+    DeletionPolicy: Delete
     Properties:
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
@@ -246,6 +249,7 @@ Resources:
 
   KalshiWorkerInstanceProfile:
     Type: AWS::IAM::InstanceProfile
+    DeletionPolicy: Delete
     Properties:
       Roles:
         - !Ref KalshiWorkerInstanceRole
