@@ -25,3 +25,5 @@ transcripts/
 debug/
 
 cache/
+
+*.html

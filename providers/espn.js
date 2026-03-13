@@ -24,6 +24,8 @@ let _streamUrl = null;
 let _logger = null;
 let _isShuttingDown = null;
 
+
+const adBadgeClassName = 'ad-badge-overlay--badge'
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0") {
   _logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl}`);
@@ -183,6 +185,9 @@ async function runBrowserCapture() {
 
     // 2. Play Video Loop & Audio Capture (fallback if HLS capture fails)
     await page.evaluate(async () => {
+
+        
+
         // Find ALL video elements, including shadow DOM
         const allVideos = [...document.querySelectorAll('video')];
         
@@ -331,6 +336,25 @@ async function runBrowserCapture() {
 
             recorder.start(100);
             window._recorder = recorder;
+            
+            // Start periodic ad badge checking
+            let lastAdBadgeFound = false;
+            setInterval(() => {
+                const adBadge = document.querySelector('.ad-badge-overlay--badge');
+                const adBadgeFound = !!adBadge;
+                
+                if (adBadgeFound && !lastAdBadgeFound) {
+                    console.log('Ad badge detected, pausing audio');
+                    window._isCommercial = true;
+                    window.logToClient('Commercial detected - pausing audio transmission');
+                } else if (!adBadgeFound && lastAdBadgeFound) {
+                    console.log('Ad badge no longer detected, resuming audio');
+                    window._isCommercial = false;
+                    window.logToClient('Commercial ended - resuming audio transmission');
+                }
+                
+                lastAdBadgeFound = adBadgeFound;
+            }, 3000);
         }
     });
 
