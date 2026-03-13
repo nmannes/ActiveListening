@@ -216,7 +216,7 @@ Resources:
             DeleteOnTermination: true
       Tags:
         - Key: Name
-          Value: !Sub "Kalshi-Worker-${AWS::StackName}"
+          Value: !Sub "${AWS::StackName}"
         - Key: Environment
           Value: !Ref Environment
       UserData:
