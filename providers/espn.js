@@ -80,7 +80,7 @@ async function runBrowserCapture() {
   browser = await puppeteer.launch({
     executablePath: browserPath,
     defaultViewport: null,
-    headless: false,
+    headless: true,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
@@ -89,6 +89,20 @@ async function runBrowserCapture() {
       "--disable-dev-shm-usage",
       "--use-fake-ui-for-media-stream",
       "--disable-web-security",
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-default-apps",
+      "--disable-popup-blocking",
+      "--disable-hang-monitor",
+      "--disable-sync",
+      "--disable-extensions",
+      "--disable-background-networking",
+      "--disable-client-side-phishing-detection",
+      "--disable-component-update",
+      "--disable-domain-reliability"
     ],
   });
 
@@ -145,6 +159,11 @@ async function runBrowserCapture() {
     await new Promise(r => setTimeout(r, 5000));
     
     // Look for audio-only stream
+    _logger.info(`[espn] Found ${networkRequests.length} network requests`);
+    networkRequests.forEach(req => {
+      _logger.info(`[espn] Request: ${req.url} (${req.type})`);
+    });
+    
     const audioStream = networkRequests.find(req => 
       req.url.includes('.m3u8') && req.url.includes('audio') && req.url.includes('128K')
     );
