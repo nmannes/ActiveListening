@@ -2,6 +2,7 @@ const fs = require('fs');
 const { frontPageMarkets } = require('./lib/discover_markets.js');
 const { findProgramsByZipAndKeyword } = require('./lib/tv_discovery.js');
 const { scrapeEspnSchedule } = require('./lib/espn_discovery.js');
+const { matchDiscoveryEvents } = require('./lib/discovery_matcher.js');
 const logger = require('./lib/logger');
 const path = require('path');
 const _ = require('lodash');
@@ -80,23 +81,27 @@ function isFileExpired(filePath, ttlMs) {
             }
         }
 
-        const combinedData = _.compact(_.map(rawData, (file) => {
-            const filePath = path.join(cacheDir, file);
-            if (!fs.existsSync(filePath)) {
-                logger.warn(`File ${file} does not exist, skipping.`);
-                return null;
-            }
-            try {
-                const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-                logger.info(`${file}: ${Array.isArray(json) ? json.length : 'Object'} items`);
-                return json;
-            } catch (err) {
-                logger.error(`Failed to parse ${file}: ${err.message}`);
-                return null;
-            }
-        }));
 
-        logger.info('E2E Discovery complete.');
+
+
+        const markets = JSON.parse(fs.readFileSync(path.join(cacheDir, 'latest_markets.json'), 'utf8'));
+        const tvSchedule = JSON.parse(fs.readFileSync(path.join(cacheDir, 'latest_tv_schedule.json'), 'utf8'));
+        const espnSchedule = JSON.parse(fs.readFileSync(path.join(cacheDir, 'espn_next_3_days.json'), 'utf8'));
+
+        const allResults = matchDiscoveryEvents(markets, tvSchedule, espnSchedule);
+
+        const matchedMarkets = allResults.filter(m => m.tvEvent || m.espnEvent);
+        const unmatchedMarkets = allResults.filter(m => !m.tvEvent && !m.espnEvent);
+
+        const matchedPath = path.join(cacheDir, 'matched_markets.json');
+        const unmatchedPath = path.join(cacheDir, 'unmatched_markets.json');
+
+        fs.writeFileSync(matchedPath, JSON.stringify(matchedMarkets, null, 2));
+        fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
+
+        logger.info(`E2E Discovery complete.`);
+        logger.info(`- Saved ${matchedMarkets.length} matched markets to ${matchedPath}`);
+        logger.info(`- Saved ${unmatchedMarkets.length} unmatched markets to ${unmatchedPath}`);
 
     } catch (err) {
         logger.error(`Fatal execution error: ${err.message}`);
