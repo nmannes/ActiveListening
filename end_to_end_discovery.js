@@ -6,48 +6,52 @@ const { getChannelURLByBand } = require('./lib/xml.js');
 const logger = require('./lib/logger');
 const path = require('path');
 
+
+/**
+ * Checks if a file exists and is not expired based on TTL.
+ * @param {string} filePath - Path to the file.
+ * @param {number} ttlMs - TTL in milliseconds.
+ * @returns {boolean} - True if file exists and is not expired.
+ */
+function isFileExpired(filePath, ttlMs) {
+    if (!fs.existsSync(filePath)) return true;
+    const stats = fs.statSync(filePath);
+    const age = Date.now() - stats.ctimeMs;
+    return age > ttlMs;
+}
+
+
+
 (async () => {
+
     try {
-        const ZIP = '20001';
-        logger.info(`Starting end-to-end discovery. ZIP Code: ${ZIP}`);
-
-        // 1. Discover Kalshi Markets
-        logger.info('--- 1. Fetching Kalshi Markets ---');
-        let markets = [];
-        const marketsFile = path.join('cache', 'latest_markets.json');
+        const ipInfo = await fetch('https://ipinfo.io');
+        const ipInfoJson = await ipInfo.json();
+        const zip = ipInfoJson.postal;
         const cacheTTL = 60 * 60 * 1000; // 1 hour
+        const rawData = ['latest_markets.json', 'latest_tv_schedule.json', 'espn_next_3_days.json'];
+        const functionCalls = [() => { frontPageMarkets() }, () => { findProgramsByZipAndKeyword(zip, "basketball") }, () => { scrapeEspnSchedule(new Date(), 3) }];
 
-        if (fs.existsSync(marketsFile)) {
-            const stats = fs.statSync(marketsFile);
-            const age = Date.now() - stats.ctimeMs;
-            if (age < cacheTTL) {
-                logger.info(`Using cached markets from ${marketsFile} (age: ${Math.round(age / 1000 / 60)} mins)`);
-                markets = JSON.parse(fs.readFileSync(marketsFile, 'utf8'));
+
+        for (let i = 0; i < functionCalls.length; i++) {
+            const func = functionCalls[i];
+            if (isFileExpired(path.join('cache', rawData[i]), cacheTTL)) {
+                const data = await func();
+                fs.writeFileSync(path.join('cache', rawData[i]), JSON.stringify(data, null, 2));
+            } else {
+                logger.info(`Using cached data from ${rawData[i]}`);
             }
         }
-
-        if (markets.length === 0) {
-            markets = await frontPageMarkets();
-            if (!markets || markets.length === 0) {
-                logger.warn('No markets found or failed to fetch markets. Aborting.');
-                process.exit(1);
-            }
-            logger.info(`Fetched ${markets.length} Kalshi markets.`);
-            fs.writeFileSync(marketsFile, JSON.stringify(markets, null, 2));
-        }
-
         // 2. Discover TV Schedules (covering today and tomorrow)
         logger.info('--- 2. Fetching TV Schedules ---');
         let scheduleData = [];
         const scheduleFile = path.join('cache', 'latest_schedule.json');
 
-        if (fs.existsSync(scheduleFile)) {
+        if (!isFileExpired(scheduleFile, cacheTTL)) {
             const stats = fs.statSync(scheduleFile);
             const age = Date.now() - stats.ctimeMs;
-            if (age < cacheTTL) {
-                logger.info(`Using cached schedule from ${scheduleFile} (age: ${Math.round(age / 1000 / 60)} mins)`);
-                scheduleData = JSON.parse(fs.readFileSync(scheduleFile, 'utf8'));
-            }
+            logger.info(`Using cached schedule from ${scheduleFile} (age: ${Math.round(age / 1000 / 60)} mins)`);
+            scheduleData = JSON.parse(fs.readFileSync(scheduleFile, 'utf8'));
         }
 
         if (scheduleData.length === 0) {
