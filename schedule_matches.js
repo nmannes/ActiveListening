@@ -19,7 +19,14 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         delete market['keywords']['event does not qualify'] 
         const newFile = path.join(__dirname, 'scheduled', `${market.slug}.json`);
         console.log(newFile)
+
+        if (fs.existsSync(newFile)) {
+            console.log('File already exists, skipping');
+            continue;
+        }
+        
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
+
 
         execSync(`./schedule_run.sh --fromFile ${newFile}`);
     }
