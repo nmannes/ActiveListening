@@ -80,7 +80,7 @@ async function runBrowserCapture() {
   browser = await puppeteer.launch({
     executablePath: browserPath,
     defaultViewport: null,
-    headless: true,
+    headless: false,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
@@ -102,7 +102,14 @@ async function runBrowserCapture() {
       "--disable-background-networking",
       "--disable-client-side-phishing-detection",
       "--disable-component-update",
-      "--disable-domain-reliability"
+      "--disable-domain-reliability",
+      "--enable-audio",
+      "--enable-video",
+      "--use-fake-device-for-media-stream",
+      "--allow-running-insecure-content",
+      "--disable-webgl",
+      "--disable-webrtc",
+      "--enable-features=VaapiVideoDecoder"
     ],
   });
 
@@ -156,10 +163,18 @@ async function runBrowserCapture() {
 
     // Run site handlers
     await runSiteHandlers(_streamUrl, page, _logger);
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, 10000)); // Increased wait time
     
     // Look for audio-only stream
     _logger.info(`[espn] Found ${networkRequests.length} network requests`);
+    
+    // Log all m3u8 requests
+    const m3u8Requests = networkRequests.filter(req => req.url.includes('.m3u8'));
+    _logger.info(`[espn] Found ${m3u8Requests.length} m3u8 requests:`);
+    m3u8Requests.forEach(req => {
+      _logger.info(`[espn] M3U8: ${req.url}`);
+    });
+    
     networkRequests.forEach(req => {
       _logger.info(`[espn] Request: ${req.url} (${req.type})`);
     });
