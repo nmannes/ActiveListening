@@ -125,7 +125,7 @@ async function runBrowserCapture() {
 
   // Expose functions
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
-    if (ffmpegProc && ffmpegProc.stdin.writable) {
+    if (ffmpegProc && ffmpegProc.stdin.writable && window._isCommercial !== true) {
       const buffer = Buffer.from(base64Data, "base64");
       ffmpegProc.stdin.write(buffer);
     }
@@ -214,7 +214,7 @@ async function runBrowserCapture() {
           }
           
           lastAdBadgeFound = adBadgeFound;
-        }, 1000);
+        }, 5000);
       });
       
       return null;
