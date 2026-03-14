@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 
+
+execSync('mkdir -p scheduled');
+
 const file = path.join('cache', 'matched_markets.json');
 
 if (fs.existsSync(file)) {
@@ -29,6 +32,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         }
 
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
+        console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
         execSync(`/home/nathan/kalshi/schedule_run.sh ${newFile} --shutdown-minutes 45`);
     }
     
