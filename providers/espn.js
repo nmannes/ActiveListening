@@ -19,15 +19,14 @@ let _streamUrl = null;
 let _logger = null;
 let _isShuttingDown = null;
 
-// ── FFmpeg Transcoder ──────────────────────────────────────────────
+// ── Audio Stream Copier (no transcoding) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0") {
-  _logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl}`);
+  _logger.info(`[transcoder] Starting audio stream copier for URL: ${inputUrl}`);
 
+  // Transcode AAC to PCM with low buffer for real-time processing
   const ffmpegArgs = [
     "-fflags", "nobuffer",
     "-flags", "low_delay",
-    "-probesize", "5000000",
-    "-analyzeduration", "5000000",
     "-i", inputUrl,
     "-f", "s16le",
     "-acodec", "pcm_s16le",
@@ -87,7 +86,6 @@ async function runBrowserCapture() {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-dev-shm-usage",
-      "--use-fake-ui-for-media-stream",
       "--disable-web-security",
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
@@ -105,11 +103,8 @@ async function runBrowserCapture() {
       "--disable-domain-reliability",
       "--enable-audio",
       "--enable-video",
-      "--use-fake-device-for-media-stream",
       "--allow-running-insecure-content",
-      "--disable-webgl",
-      "--disable-webrtc",
-      "--enable-features=VaapiVideoDecoder"
+      "--disable-webgl"
     ],
   });
 
