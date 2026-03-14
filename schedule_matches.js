@@ -14,8 +14,11 @@ if (fs.existsSync(file)) {
 for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
     const {market, tvEvent, espnEvent} = match;
 
+    market['mediaStreamURL'] = tvEvent && tvEvent?.mediaStreamURL || espnEvent && espnEvent?.link || null;
+    market['eventStartTime'] = tvEvent && tvEvent?.startTimestamp || espnEvent && espnEvent?.startTimestamp || null;
+
     if (market.eventStartTime && new Date(market.eventStartTime) > new Date()) {
-        market['mediaStreamURL'] = tvEvent && tvEvent?.mediaStreamURL || espnEvent && espnEvent?.link || null;
+        
         delete market['keywords']['event does not qualify'] 
         const newFile = path.join(__dirname, 'scheduled', `${market.slug}.json`);
         console.log(newFile)
