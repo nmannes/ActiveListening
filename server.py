@@ -215,7 +215,7 @@ async def main():
                     if trade_for_real:
                         try:
                             t0_trade = time.time()
-                            kalshi.place_fill_or_kill_order(
+                            order_result = kalshi.place_fill_or_kill_order(
                                 yes_price=95,
                                 ticker=matched["value"],
                                 count=args.buy_count,
@@ -226,7 +226,7 @@ async def main():
                             )
                         except Exception as e:
                             logger.error(
-                                f"[{session_id}][TRADE] Error placing order: {e}"
+                                f"[{session_id}][TRADE] Error placing order. error: {e}, result: {order_result}"
                             )
                     else:
                         logger.info(
