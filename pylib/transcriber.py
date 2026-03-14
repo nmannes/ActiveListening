@@ -117,9 +117,9 @@ class Transcriber:
                 / 32768.0
             )
 
-            # Skip silence
+            # Skip silence more aggressively
             rms = float(np.sqrt(np.mean(samples**2)))
-            if rms < 0.005:
+            if rms < 0.01:  # Increased from 0.005
                 continue
 
             def do_transcribe():
