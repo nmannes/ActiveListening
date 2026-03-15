@@ -17,7 +17,7 @@ if (fs.existsSync(file)) {
 for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
     const {market, tvEvent, espnEvent} = match;
 
-    market['mediaStreamURL'] = tvEvent && tvEvent?.mediaStreamURL || espnEvent && espnEvent?.link || null;
+    market['mediaStreamURL'] = tvEvent && tvEvent?.channelURL || espnEvent && espnEvent?.link || null;
     market['eventStartTime'] = tvEvent && tvEvent?.startTimestamp || espnEvent && espnEvent?.startTimestamp || null;
 
     if (market.eventStartTime && new Date(market.eventStartTime) > new Date()) {
