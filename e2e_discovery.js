@@ -27,6 +27,11 @@ function isFileExpired(filePath, ttlMs) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
 
+    const marketCacheDir = path.join(__dirname, "markets");
+    if (!fs.existsSync(marketCacheDir)) {
+      fs.mkdirSync(marketCacheDir, { recursive: true });
+    }
+
     let zip = "20001"; // Default ZIP
     try {
       logger.info("Detecting location via ipinfo.io...");
