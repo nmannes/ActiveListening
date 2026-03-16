@@ -115,62 +115,63 @@ async function runBrowserCapture() {
 
   await page.goto("https://espn.com", { waitUntil: "networkidle2" });
 
-  // login
+  // // login
 
-  //<a data-affiliatename="espn" data-language="en" data-regformid="espn" tref="/members/v3_1/login" data-behavior="overlay" data-route="false" href="#">Log In</a>
-  // Wait for user menu and click login
-  await page.waitForSelector('li.user', { timeout: 10000 });
-  await page.click('li.user');
-  await new Promise((resolve) => setTimeout(resolve, 500));
+  // //<a data-affiliatename="espn" data-language="en" data-regformid="espn" tref="/members/v3_1/login" data-behavior="overlay" data-route="false" href="#">Log In</a>
+  // // Wait for user menu and click login
+  // await page.waitForSelector('li.user', { timeout: 10000 });
+  // await page.click('li.user');
+  // await new Promise((resolve) => setTimeout(resolve, 500));
 
-  await page.waitForSelector('a[tref="/members/v3_1/login"]', { timeout: 10000 });
-  await page.click('a[tref="/members/v3_1/login"]');
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  // await page.waitForSelector('a[tref="/members/v3_1/login"]', { timeout: 10000 });
+  // await page.click('a[tref="/members/v3_1/login"]');
+  // await new Promise((resolve) => setTimeout(resolve, 1000));
 
-  // Wait for iframe to load and get its content
-  await page.waitForSelector('#oneid-iframe', { timeout: 10000 });
-  const iframeElement = await page.$('#oneid-iframe');
-  _logger.info('Found iframe element');
+  // // Wait for iframe to load and get its content
+  // await page.waitForSelector('#oneid-iframe', { timeout: 10000 });
+  // const iframeElement = await page.$('#oneid-iframe');
+  // _logger.info('Found iframe element');
   
-  const frame = await iframeElement.contentFrame();
-  if (frame) {
-    // Wait for inputs to be available in the iframe
-    await frame.waitForSelector('input', { timeout: 5000 });
-    const inputs = await frame.$$('input');
-    _logger.info(`Found ${inputs.length} input elements in iframe`);
+  // const frame = await iframeElement.contentFrame();
+  // if (frame) {
+  //   // Wait for inputs to be available in the iframe
+  //   await frame.waitForSelector('input', { timeout: 5000 });
+  //   const inputs = await frame.$$('input');
+  //   _logger.info(`Found ${inputs.length} input elements in iframe`);
     
-    // Example: interact with the first input (username/email field)
-    if (inputs.length > 0) {
-      _logger.info('Typing username into first input');
-      await inputs[0].type(espnCreds.username);
+  //   // Example: interact with the first input (username/email field)
+  //   if (inputs.length > 0) {
+  //     _logger.info('Typing username into first input');
+  //     await inputs[0].type(espnCreds.username);
       
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  //     await new Promise((resolve) => setTimeout(resolve, 500));
 
-      // Click submit or continue button
-      await frame.click('button[type="submit"]');
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  //     // Click submit or continue button
+  //     await frame.click('button[type="submit"]');
+  //     await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Wait for password field to appear after form transition
-      await frame.waitForSelector('input[type="password"]', { timeout: 5000 });
-      const passwordInputs = await frame.$$('input[type="password"]');
+  //     // Wait for password field to appear after form transition
+  //     await frame.waitForSelector('input[type="password"]', { timeout: 5000 });
+  //     const passwordInputs = await frame.$$('input[type="password"]');
       
-      if (passwordInputs.length > 0) {
-        _logger.info('Typing password into password field');
-        await passwordInputs[0].type(espnCreds.password);
-        await new Promise((resolve) => setTimeout(resolve, 500));
+  //     if (passwordInputs.length > 0) {
+  //       _logger.info('Typing password into password field');
+  //       await passwordInputs[0].type(espnCreds.password);
+  //       await new Promise((resolve) => setTimeout(resolve, 500));
         
-        // Submit the login form
-        await frame.click('button[type="submit"]');
-      } else {
-        _logger.info('No password field found');
-      }
-    }
-  } else {
-    _logger.info('Could not access iframe content');
-  }
+  //       // Submit the login form
+  //       await frame.click('button[type="submit"]');
+  //     } else {
+  //       _logger.info('No password field found');
+  //     }
+  //   }
+  // } else {
+  //   _logger.info('Could not access iframe content');
+  // }
 
 
 
+  await page.
 
   await new Promise((resolve) => setTimeout(resolve, 50000));
 
