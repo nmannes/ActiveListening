@@ -118,8 +118,8 @@ class Transcriber:
             )
 
             # Skip silence more aggressively
-            rms = float(np.sqrt(np.mean(samples**2)))
-            if rms < 0.01:  # Increased from 0.005
+            rms = calculate_rms(self.audio_buffer[:safe_len])
+            if rms < 0.005:
                 continue
 
             def do_transcribe():
