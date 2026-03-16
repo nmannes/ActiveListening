@@ -29,25 +29,14 @@ function spawnFFmpeg() {
   _logger.info(`[ffmpeg] Spawning: ${_streamUrl}`);
 
   const ffmpegArgs = [
-    "-y",
     "-fflags",
-    "nobuffer+genpts+discardcorrupt",
+    "nobuffer",
     "-flags",
     "low_delay",
-    "-probesize",
-    "1000000",
-    "-analyzeduration",
-    "1000000",
-    "-reconnect",
-    "1",
-    "-reconnect_streamed",
-    "1",
-    "-reconnect_delay_max",
-    "5",
     "-i",
     _streamUrl,
     "-map",
-    "0:a:0",
+    "0:a:0",  // First audio stream (English AC3)
     "-c:a",
     "pcm_s16le",
     "-ar",
@@ -63,9 +52,29 @@ function spawnFFmpeg() {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  let totalBytes = 0;
+let lastLogTime = 0;
+
   ffmpeg.stdout.on("data", (data) => {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
+      totalBytes += data.length;
+      
+      // Log every 1MB of data
+      const now = Date.now();
+      if (now - lastLogTime > 10000) { // Every 10 seconds
+        _logger.debug(`[ffmpeg] Sent ${Math.round(totalBytes/1024/1024)}MB total, last chunk: ${data.length} bytes`);
+        lastLogTime = now;
+      }
+      
+      // Check for reasonable chunk sizes (should be multiples of frame size)
+      const expectedFrameSize = 16000 * 2 * 0.75; // 0.75 seconds at 16kHz 16-bit
+      if (data.length > 0 && data.length % 2 !== 0) {
+        _logger.warn(`[ffmpeg] Odd byte count: ${data.length} - possible corruption`);
+      }
+      
       _ws.send(data);
+    } else {
+      _logger.warn(`[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`);
     }
   });
 
@@ -76,6 +85,19 @@ function spawnFFmpeg() {
       .filter((l) => l.trim());
     for (const line of lines) {
       _logger.trace(`[ffmpeg] ${line}`);
+      
+      // Look for audio-specific errors
+      if (line.includes("Invalid frame dimensions") || 
+          line.includes("corrupted") ||
+          line.includes("error") ||
+          line.includes("failed")) {
+        _logger.error(`[ffmpeg] Audio stream issue: ${line}`);
+      }
+      
+      // Look for audio stream info
+      if (line.includes("Audio:") && line.includes("ac3")) {
+        _logger.info(`[ffmpeg] Audio stream detected: ${line}`);
+      }
     }
   });
 

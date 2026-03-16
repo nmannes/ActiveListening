@@ -297,32 +297,33 @@ async def main():
                     with audio_inbox_lock:
                         if not audio_inbox:
                             continue
-                        pcm_data = bytes(audio_inbox)
-                        audio_inbox.clear()
                         
-                        # Drop old data if inbox is getting full (proactive dumping)
-                        max_inbox_bytes = 16000 * 2 * 5  # 5 seconds max
+                        # Aggressive dropping - keep only most recent 1 second of audio
+                        max_inbox_bytes = 16000 * 2 * 1  # 1 second max (aggressive)
                         if len(audio_inbox) > max_inbox_bytes:
                             dropped_bytes = len(audio_inbox) - max_inbox_bytes
                             del audio_inbox[:dropped_bytes]
-                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio inbox to prevent buffer buildup")
+                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio inbox (aggressive 1s cap)")
+                        
+                        pcm_data = bytes(audio_inbox)
+                        audio_inbox.clear()
 
                     audio_buffer += pcm_data
 
-                    # More aggressive buffer capping - keep only 1 chunk max
+                    # Aggressive buffer capping - keep only 1 chunk max to prevent buildup
                     if len(audio_buffer) > CHUNK_BYTES:
                         dropped_bytes = len(audio_buffer) - CHUNK_BYTES
                         audio_buffer = audio_buffer[-CHUNK_BYTES:]
-                        logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio buffer to prevent buildup")
+                        logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio buffer (aggressive 1 chunk cap)")
 
                     # Transcribe every CHUNK_SECS
                     if len(audio_buffer) >= CHUNK_BYTES:
                         chunk = audio_buffer[:CHUNK_BYTES]
                         audio_buffer = audio_buffer[CHUNK_BYTES:]
 
-                        # Skip silence more aggressively — don't transcribe noise/music
+                        # Skip silence but allow quieter speech - don't transcribe noise/music
                         rms = calculate_rms(chunk)
-                        if rms < 0.02:  # Increased from 0.01
+                        if rms < 0.01:  # Lowered back to 0.01 to capture quieter speech
                             continue
 
                         t0_audio = time.time()
@@ -519,12 +520,12 @@ async def main():
                         # Audio PCM data
                         with audio_inbox_lock:
                             audio_inbox.extend(message)
-                            # More aggressive capping - keep only 3 seconds max
-                            max_bytes = 16000 * 2 * 3  # Reduced from 10 seconds
+                            # Aggressive capping - keep 2 seconds max instead of 5
+                            max_bytes = 16000 * 2 * 2  # Reduced to 2 seconds (aggressive)
                             if len(audio_inbox) > max_bytes:
                                 dropped_bytes = len(audio_inbox) - max_bytes
                                 del audio_inbox[:dropped_bytes]
-                                logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (max 3s)")
+                                logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (aggressive 2s cap)")
 
         except websockets.exceptions.ConnectionClosed:
             pass
