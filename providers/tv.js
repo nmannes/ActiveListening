@@ -28,25 +28,25 @@ function spawnFFmpeg() {
 
   _logger.info(`[ffmpeg] Spawning: ${_streamUrl}`);
 
-  const ffmpegArgs = [
-    "-fflags",
-    "nobuffer",
-    "-flags",
-    "low_delay",
-    "-i",
-    _streamUrl,
-    "-map",
-    "0:a:0",  // First audio stream (English AC3)
-    "-c:a",
-    "pcm_s16le",
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    "-f",
-    "s16le",
-    "pipe:1",
-  ];
+ const ffmpegArgs = [
+        '-y',
+        // Minimize latency (but probe enough to detect AC3 stream params)
+        '-fflags', 'nobuffer+genpts+discardcorrupt',
+        '-flags', 'low_delay',
+        '-probesize', '1000000',
+        '-analyzeduration', '1000000',
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+        '-i', _streamUrl,
+        // Output: raw PCM to stdout — send over WebSocket (reliable TCP)
+        '-map', '0:a:0',
+        '-c:a', 'pcm_s16le',
+        '-ar', '16000',
+        '-ac', '1',
+        '-f', 's16le', 'pipe:1'
+    ];
+
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
     stdio: ["ignore", "pipe", "pipe"],
