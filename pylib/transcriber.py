@@ -127,7 +127,7 @@ class Transcriber:
                     samples,
                     beam_size=1,
                     language="en",
-                    vad_filter=False,
+                    vad_filter=True,
                     condition_on_previous_text=False,
                 )
                 return " ".join(seg.text.strip() for seg in segments).strip()

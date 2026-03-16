@@ -36,6 +36,7 @@ from pylib.audio_decoder import AudioDecoder
 from pylib.transcriber import Transcriber, calculate_rms
 from pylib.clip import FrameClassifier
 from pylib.speaker_recognition import SpeakerRecognizer
+from pylib.vad import VoiceActivityDetector
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -51,6 +52,9 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("remote_server")
+transcript_logger = logging.getLogger("transcript")
+transcript_logger.setLevel(logging.INFO)
+transcript_logger.addHandler(logging.FileHandler("logs/transcript.log"))
 
 
 # ── Main server ───────────────────────────────────────────────────────
@@ -105,10 +109,12 @@ async def main():
     # Init transcriber
     transcriber = Transcriber(model_size=args.model, device=args.device)
     speaker_recognizer = SpeakerRecognizer(device=args.device)
+    vad = VoiceActivityDetector(device=args.device)
     frame_classifier = FrameClassifier(
         device=args.device, content_profile=args.content_profile
     )
     clip_executor = ThreadPoolExecutor(max_workers=1)
+    vad_executor = ThreadPoolExecutor(max_workers=1)
 
     # Init Kalshi client
     kalshi = KalshiClient(
@@ -140,11 +146,6 @@ async def main():
                 f"[{session_id}] Audio processing loop started (Device: {transcriber.device}, voiceProfile: {voice_profile})"
             )
 
-            # Simple fixed-interval transcription: accumulate N seconds, transcribe, repeat
-            CHUNK_SECS = 0.75
-            CHUNK_BYTES = int(CHUNK_SECS * 16000 * 2)  # 16kHz, 16-bit mono
-            audio_buffer = b""
-
             async def process_text(text: str):
                 if not text:
                     return
@@ -175,36 +176,7 @@ async def main():
                         f"[{session_id}][SIGNAL] Detected: \"{matched['key']}\""
                     )
 
-                    # If voice profile is active, check speaker similarity
-                    if voice_profile:
-                        t0_speaker = time.time()
-                        similarity = await speaker_recognizer.verify_speaker(
-                            chunk, voice_profile
-                        )
-                        t1_speaker = time.time()
-                        logger.info(
-                            f"[{session_id}][SPEAKER] Profile '{voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)"
-                        )
-
-                        # Notify client of speaker match result
-                        try:
-                            await websocket.send(
-                                json.dumps(
-                                    {
-                                        "type": "speaker_match",
-                                        "profile": voice_profile,
-                                        "similarity": similarity,
-                                    }
-                                )
-                            )
-                        except websockets.exceptions.ConnectionClosed:
-                            pass
-
-                        if similarity < 0.8:
-                            logger.info(
-                                f"[{session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8"
-                            )
-                            continue
+                    # Speaker verification now performed on full speech segments below
 
                     if not is_content_visible:
                         logger.info(
@@ -254,6 +226,7 @@ async def main():
                     logger.info(
                         f"[{session_id}] Transcript: {text} (Last {args.last_words_count}: {recent})"
                     )
+                    transcript_logger.info(f"[{session_id}] {text}")
                     try:
                         await websocket.send(
                             json.dumps(
@@ -289,48 +262,140 @@ async def main():
 
             telemetry_task = asyncio.create_task(telemetry_loop())
 
+            # VAD-based transcription parameters (Optimized for Real-Time)
+            VAD_WINDOW_SECS = 0.3   # Reduced from 0.5 for faster detection
+            VAD_WINDOW_BYTES = int(VAD_WINDOW_SECS * 16000 * 2)
+            SILENCE_TIMEOUT_SECS = 0.4  # Reduced from 0.6 for faster triggering
+            MAX_SEGMENT_SECS = 5.0      # Reduced from 6.0 for faster forced transcription
+            PREROLL_SECS = 0.3          # Reduced from 0.5
+            PREROLL_BYTES = int(PREROLL_SECS * 16000 * 2)
+            
+            audio_buffer = b""
+            speech_buffer = b""
+            in_speech = False
+            last_speech_time = 0
+            speech_start_time = 0
+
+            # Drain audio from WebSocket inbox and process via VAD
             try:
                 while True:
-                    await asyncio.sleep(0.02)
+                    await asyncio.sleep(0.01)
 
-                    # Drain audio from WebSocket inbox
                     with audio_inbox_lock:
                         if not audio_inbox:
                             continue
                         
-                        # Aggressive dropping - keep only most recent 1 second of audio
-                        max_inbox_bytes = 16000 * 2 * 1  # 1 second max (aggressive)
+                        # Capping inbox to prevent runaway buildup
+                        max_inbox_bytes = 16000 * 2 * 3
                         if len(audio_inbox) > max_inbox_bytes:
-                            dropped_bytes = len(audio_inbox) - max_inbox_bytes
-                            del audio_inbox[:dropped_bytes]
-                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio inbox (aggressive 1s cap)")
+                            del audio_inbox[:len(audio_inbox) - max_inbox_bytes]
                         
                         pcm_data = bytes(audio_inbox)
                         audio_inbox.clear()
 
                     audio_buffer += pcm_data
 
-                    # Aggressive buffer capping - keep only 1 chunk max to prevent buildup
-                    if len(audio_buffer) > CHUNK_BYTES:
-                        dropped_bytes = len(audio_buffer) - CHUNK_BYTES
-                        audio_buffer = audio_buffer[-CHUNK_BYTES:]
-                        logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from audio buffer (aggressive 1 chunk cap)")
+                    # Process VAD in windows
+                    while len(audio_buffer) >= VAD_WINDOW_BYTES:
+                        chunk = audio_buffer[:VAD_WINDOW_BYTES]
+                        audio_buffer = audio_buffer[VAD_WINDOW_BYTES:]
+                        
+                        samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                        
+                        t0_vad = time.time()
+                        is_speech = await asyncio.get_running_loop().run_in_executor(
+                            vad_executor, vad.is_speech, samples
+                        )
+                        t1_vad = time.time()
+                        
+                        now = time.time()
+                        if t1_vad - t0_vad > 0.1:
+                            logger.debug(f"[{session_id}] VAD took {t1_vad - t0_vad:.3f}s")
 
-                    # Transcribe every CHUNK_SECS
-                    if len(audio_buffer) >= CHUNK_BYTES:
-                        chunk = audio_buffer[:CHUNK_BYTES]
-                        audio_buffer = audio_buffer[CHUNK_BYTES:]
+                        if is_speech:
+                            if not in_speech:
+                                logger.info(f"[{session_id}] Speech onset detected")
+                                in_speech = True
+                                speech_start_time = now
+                                # Start with a bit of pre-roll if we have it
+                                speech_buffer = chunk
+                            else:
+                                speech_buffer += chunk
+                            last_speech_time = now
+                        else:
+                            if in_speech:
+                                speech_buffer += chunk
+                                # Check for silence timeout or max duration
+                                duration = now - speech_start_time
+                                silence_duration = now - last_speech_time
+                                
+                                if silence_duration >= SILENCE_TIMEOUT_SECS or duration >= MAX_SEGMENT_SECS:
+                                    logger.info(f"[{session_id}] Speech offset detected (duration: {duration:.2f}s)")
+                                    
+                                    t0_audio = now
+                                    text = await transcriber.transcribe_raw(speech_buffer)
+                                    last_proc_time[0] = time.time() - t0_audio
+                                    
+                                    # If voice profile is active, verify speaker on the speech segment
+                                    if voice_profile:
+                                        t0_speaker = time.time()
+                                        similarity = await speaker_recognizer.verify_speaker(
+                                            speech_buffer, voice_profile
+                                        )
+                                        t1_speaker = time.time()
+                                        logger.info(
+                                            f"[{session_id}][SPEAKER] Profile '{voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)"
+                                        )
 
-                        # Skip silence but allow quieter speech - don't transcribe noise/music
-                        rms = calculate_rms(chunk)
-                        if rms < 0.01:  # Lowered back to 0.01 to capture quieter speech
-                            continue
+                                        # Notify client of speaker match result
+                                        try:
+                                            await websocket.send(
+                                                json.dumps(
+                                                    {
+                                                        "type": "speaker_match",
+                                                        "profile": voice_profile,
+                                                        "similarity": similarity,
+                                                    }
+                                                )
+                                            )
+                                        except websockets.exceptions.ConnectionClosed:
+                                            pass
 
-                        t0_audio = time.time()
-                        text = await transcriber.transcribe_raw(chunk)
-                        last_proc_time[0] = time.time() - t0_audio
+                                        if similarity < 0.8:
+                                            logger.info(
+                                                f"[{session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8"
+                                            )
+                                            speech_buffer = b""
+                                            in_speech = False
+                                            continue
 
-                        await process_text(text)
+                                    await process_text(text)
+                                    
+                                    speech_buffer = b""
+                                    in_speech = False
+                            else:
+                                # Just keep a bit of pre-roll in the buffer if we wanted to
+                                # But for now, we just discard silence chunks
+                                pass
+
+                        # Force transcription if a very long segment is active
+                        if in_speech and (now - speech_start_time) >= MAX_SEGMENT_SECS:
+                            logger.info(f"[{session_id}] Segment limit reached, forcing intermediate transcription")
+                            t0_audio = now
+                            text = await transcriber.transcribe_raw(speech_buffer)
+                            last_proc_time[0] = time.time() - t0_audio
+                            
+                            # For forced transcription, we might still want to check speaker?
+                            # However, we usually want to just let the text flow for real-time.
+                            # We'll skip trade checks on intermediate segments for safety.
+                            
+                            await process_text(text)
+                            # Keep buffer for continuation? 
+                            # Whisper often works better with context, but for simplicity we reset.
+                            speech_buffer = b""
+                            in_speech = False
+                            # We reset in_speech to False so the next chunk starts a new segment
+                            # or resumes if speech continues.
 
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
@@ -520,12 +585,12 @@ async def main():
                         # Audio PCM data
                         with audio_inbox_lock:
                             audio_inbox.extend(message)
-                            # Aggressive capping - keep 2 seconds max instead of 5
-                            max_bytes = 16000 * 2 * 2  # Reduced to 2 seconds (aggressive)
-                            if len(audio_inbox) > max_bytes:
-                                dropped_bytes = len(audio_inbox) - max_bytes
-                                del audio_inbox[:dropped_bytes]
-                                logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (aggressive 2s cap)")
+                        # Aggressive capping - keep 3 seconds max instead of 2
+                        max_bytes = 16000 * 2 * 3  # Increased to 3 seconds
+                        if len(audio_inbox) > max_bytes:
+                            dropped_bytes = len(audio_inbox) - max_bytes
+                            del audio_inbox[:dropped_bytes]
+                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (aggressive 3s cap)")
 
         except websockets.exceptions.ConnectionClosed:
             pass
