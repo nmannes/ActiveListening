@@ -171,7 +171,17 @@ async function runBrowserCapture() {
 
 
 
-  await page.
+    // Load ESPN cookies
+  const cookiesPath = path.join(__dirname, "..", "cookies", "espn_cookies.json");
+  if (fs.existsSync(cookiesPath)) {
+    try {
+      const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
+      await page.setCookie(...cookies);
+      _logger.info(`[espn] Loaded cookies from ${cookiesPath}`);
+    } catch (e) {
+      _logger.warn(`[espn] Failed to load cookies: ${e.message}`);
+    }
+  }
 
   await new Promise((resolve) => setTimeout(resolve, 50000));
 
