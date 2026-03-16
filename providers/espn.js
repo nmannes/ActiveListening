@@ -111,17 +111,11 @@ async function runBrowserCapture() {
   const page = await browser.newPage();
   page.on("console", (msg) => _logger.trace(`[Browser] ${msg.text()}`));
 
-  // Load ESPN cookies
-  const cookiesPath = path.join(__dirname, "..", "cookies", "espn_cookies.json");
-  if (fs.existsSync(cookiesPath)) {
-    try {
-      const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
-      await page.setCookie(...cookies);
-      _logger.info(`[espn] Loaded cookies from ${cookiesPath}`);
-    } catch (e) {
-      _logger.warn(`[espn] Failed to load cookies: ${e.message}`);
-    }
-  }
+  await page.goto("https://espn.com", { waitUntil: "networkidle2" });
+
+  
+  await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
+
 
   // Expose functions
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
@@ -154,7 +148,6 @@ async function runBrowserCapture() {
       request.continue();
     });
 
-    await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
     // Run site handlers
     await runSiteHandlers(_streamUrl, page, _logger);

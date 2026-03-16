@@ -40,7 +40,7 @@ function spawnFFmpeg() {
         '-reconnect_delay_max', '5',
         '-i', _streamUrl,
         // Output: raw PCM to stdout — send over WebSocket (reliable TCP)
-        '-map', '0:a:0',
+        '-map', '0:m:language:eng',
         '-c:a', 'pcm_s16le',
         '-ar', '16000',
         '-ac', '1',
@@ -222,7 +222,7 @@ function spawnListener() {
       "-i",
       _streamUrl,
       "-map",
-      "0:a:0",
+      "0:m:language:eng",
       "-c:a",
       "pcm_s16le",
       "-ar",
