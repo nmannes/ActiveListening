@@ -130,6 +130,12 @@ Resources:
               mode: "000644"
               owner: ec2-user
               group: ec2-user
+            "/home/ec2-user/pylib/vad.py":
+              content: |
+{{ pylib_vad_py | indent(16, true) | default('# missing') }}
+              mode: "000644"
+              owner: ec2-user
+              group: ec2-user
             "/home/ec2-user/server.py":
               content: |
 {{ server_py | indent(16, true) | default('# missing') }}

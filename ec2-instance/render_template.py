@@ -107,6 +107,7 @@ expected_vars = [
     "pylib_keyword_matching_py",
     "pylib_transcriber_py",
     "pylib_speaker_recognition_py",
+    "pylib_vad_py",
 ]
 missing = []
 for v in expected_vars:

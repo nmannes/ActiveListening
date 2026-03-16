@@ -14,6 +14,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import numpy as np
 import logging
 import os
 import re

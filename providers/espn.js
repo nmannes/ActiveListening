@@ -24,7 +24,6 @@ let _isShuttingDown = null;
 function setupAudioTranscoder(inputUrl = "pipe:0") {
   _logger.info(`[transcoder] Starting audio stream copier for URL: ${inputUrl}`);
 
-  // Transcode AAC to PCM with low buffer for real-time processing
   const ffmpegArgs = [
     "-fflags", "nobuffer",
     "-flags", "low_delay",
@@ -184,44 +183,44 @@ async function runBrowserCapture() {
       setupAudioTranscoder(audioStream.url);
       
       // Start ad badge detection even with HLS capture
-      await page.evaluate(() => {
-        let lastAdBadgeFound = false;
-        window._adBadgeInterval = setInterval(() => {
-          // Check regular DOM
-          let adBadge = document.querySelector('.ad-badge-overlay--badge');
+      // await page.evaluate(() => {
+      //   let lastAdBadgeFound = false;
+      //   window._adBadgeInterval = setInterval(() => {
+      //     // Check regular DOM
+      //     let adBadge = document.querySelector('.ad-badge-overlay--badge');
           
-          // Check shadow DOMs if not found
-          if (!adBadge) {
-            const allElements = document.querySelectorAll('*');
-            for (const el of allElements) {
-              if (el.shadowRoot) {
-                adBadge = el.shadowRoot.querySelector('.ad-badge-overlay--badge');
-                if (adBadge) break;
-              }
-            }
-          }
+      //     // Check shadow DOMs if not found
+      //     if (!adBadge) {
+      //       const allElements = document.querySelectorAll('*');
+      //       for (const el of allElements) {
+      //         if (el.shadowRoot) {
+      //           adBadge = el.shadowRoot.querySelector('.ad-badge-overlay--badge');
+      //           if (adBadge) break;
+      //         }
+      //       }
+      //     }
           
-          const adBadgeFound = !!adBadge;
+      //     const adBadgeFound = !!adBadge;
           
-          window.logToClient(`Ad badge found: ${adBadgeFound}`);
-          if (adBadgeFound && !lastAdBadgeFound) {
-            console.log('Ad badge detected, pausing audio');
-            window._isCommercial = true;
-            window.logToClient('Commercial detected - pausing audio transmission');
-          } else if (!adBadgeFound && lastAdBadgeFound) {
-            console.log('Ad badge no longer detected, resuming audio');
-            window._isCommercial = false;
-            window.logToClient('Commercial ended - resuming audio transmission');
-          }
+      //     window.logToClient(`Ad badge found: ${adBadgeFound}`);
+      //     if (adBadgeFound && !lastAdBadgeFound) {
+      //       console.log('Ad badge detected, pausing audio');
+      //       window._isCommercial = true;
+      //       window.logToClient('Commercial detected - pausing audio transmission');
+      //     } else if (!adBadgeFound && lastAdBadgeFound) {
+      //       console.log('Ad badge no longer detected, resuming audio');
+      //       window._isCommercial = false;
+      //       window.logToClient('Commercial ended - resuming audio transmission');
+      //     }
           
-          lastAdBadgeFound = adBadgeFound;
-        }, 5000);
-      });
+      //     lastAdBadgeFound = adBadgeFound;
+      //   }, 5000);
+      // });
       
       return null;
+    } else {
+      _logger.error(`[espn] No audio-only HLS stream found`);
     }
-
-
   } catch (e) {
     _logger.error(`[espn] Browser capture error: ${e.message}`);
     throw e;
