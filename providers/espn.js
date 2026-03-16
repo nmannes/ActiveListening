@@ -10,6 +10,8 @@ const { runSiteHandlers } = require("../lib/site_handlers");
 const fs = require("fs");
 const path = require("path");
 
+
+const espnCreds = require('../creds/espn.json');
 puppeteer.use(StealthPlugin());
 
 let ffmpegProc = null;
@@ -79,7 +81,7 @@ async function runBrowserCapture() {
   browser = await puppeteer.launch({
     executablePath: browserPath,
     defaultViewport: null,
-    headless: true,
+    headless: false,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
@@ -109,9 +111,67 @@ async function runBrowserCapture() {
   });
 
   const page = await browser.newPage();
-  page.on("console", (msg) => _logger.trace(`[Browser] ${msg.text()}`));
+  page.on("console", (msg) => _logger.info(`[Browser] ${msg.text()}`));
 
-  // Load ESPN cookies
+  await page.goto("https://espn.com", { waitUntil: "networkidle2" });
+
+  // // login
+
+  // //<a data-affiliatename="espn" data-language="en" data-regformid="espn" tref="/members/v3_1/login" data-behavior="overlay" data-route="false" href="#">Log In</a>
+  // // Wait for user menu and click login
+  // await page.waitForSelector('li.user', { timeout: 10000 });
+  // await page.click('li.user');
+  // await new Promise((resolve) => setTimeout(resolve, 500));
+
+  // await page.waitForSelector('a[tref="/members/v3_1/login"]', { timeout: 10000 });
+  // await page.click('a[tref="/members/v3_1/login"]');
+  // await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  // // Wait for iframe to load and get its content
+  // await page.waitForSelector('#oneid-iframe', { timeout: 10000 });
+  // const iframeElement = await page.$('#oneid-iframe');
+  // _logger.info('Found iframe element');
+  
+  // const frame = await iframeElement.contentFrame();
+  // if (frame) {
+  //   // Wait for inputs to be available in the iframe
+  //   await frame.waitForSelector('input', { timeout: 5000 });
+  //   const inputs = await frame.$$('input');
+  //   _logger.info(`Found ${inputs.length} input elements in iframe`);
+    
+  //   // Example: interact with the first input (username/email field)
+  //   if (inputs.length > 0) {
+  //     _logger.info('Typing username into first input');
+  //     await inputs[0].type(espnCreds.username);
+      
+  //     await new Promise((resolve) => setTimeout(resolve, 500));
+
+  //     // Click submit or continue button
+  //     await frame.click('button[type="submit"]');
+  //     await new Promise((resolve) => setTimeout(resolve, 1000));
+
+  //     // Wait for password field to appear after form transition
+  //     await frame.waitForSelector('input[type="password"]', { timeout: 5000 });
+  //     const passwordInputs = await frame.$$('input[type="password"]');
+      
+  //     if (passwordInputs.length > 0) {
+  //       _logger.info('Typing password into password field');
+  //       await passwordInputs[0].type(espnCreds.password);
+  //       await new Promise((resolve) => setTimeout(resolve, 500));
+        
+  //       // Submit the login form
+  //       await frame.click('button[type="submit"]');
+  //     } else {
+  //       _logger.info('No password field found');
+  //     }
+  //   }
+  // } else {
+  //   _logger.info('Could not access iframe content');
+  // }
+
+
+
+    // Load ESPN cookies
   const cookiesPath = path.join(__dirname, "..", "cookies", "espn_cookies.json");
   if (fs.existsSync(cookiesPath)) {
     try {
@@ -123,6 +183,11 @@ async function runBrowserCapture() {
     }
   }
 
+  await new Promise((resolve) => setTimeout(resolve, 50000));
+
+  await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
+
+
   // Expose functions
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
     if (ffmpegProc && ffmpegProc.stdin.writable && window._isCommercial !== true) {
@@ -131,9 +196,6 @@ async function runBrowserCapture() {
     }
   });
 
-  await page.exposeFunction("logToClient", (message) => {
-    _logger.info(`[Browser] ${message}`);
-  });
 
   try {
     _logger.info(`[espn] Navigating to ${_streamUrl}...`);
@@ -154,7 +216,6 @@ async function runBrowserCapture() {
       request.continue();
     });
 
-    await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
     // Run site handlers
     await runSiteHandlers(_streamUrl, page, _logger);
