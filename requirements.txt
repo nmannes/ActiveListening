@@ -11,3 +11,5 @@ omegaconf
 pytorch-lightning
 markupsafe==2.0.1
 torchaudio
+requests
+cryptography
