@@ -264,15 +264,16 @@ async def main():
             telemetry_task = asyncio.create_task(telemetry_loop())
 
             # VAD-based transcription parameters (Optimized for Real-Time)
-            VAD_WINDOW_SECS = 0.3   # Reduced from 0.5 for faster detection
+            VAD_WINDOW_SECS = 0.3
             VAD_WINDOW_BYTES = int(VAD_WINDOW_SECS * 16000 * 2)
-            SILENCE_TIMEOUT_SECS = 0.4  # Reduced from 0.6 for faster triggering
-            MAX_SEGMENT_SECS = 5.0      # Reduced from 6.0 for faster forced transcription
-            PREROLL_SECS = 0.3          # Reduced from 0.5
+            SILENCE_TIMEOUT_SECS = 1.0  # Increased to avoid cutting words
+            MAX_SEGMENT_SECS = 15.0     # Increased to allow longer natural speech segments
+            PREROLL_SECS = 0.6          # Increased preroll buffer
             PREROLL_BYTES = int(PREROLL_SECS * 16000 * 2)
             
             audio_buffer = b""
             speech_buffer = b""
+            preroll_buffer = b""
             in_speech = False
             last_speech_time = 0
             speech_start_time = 0
@@ -286,8 +287,8 @@ async def main():
                         if not audio_inbox:
                             continue
                         
-                        # Capping inbox to prevent runaway buildup
-                        max_inbox_bytes = 16000 * 2 * 3
+                        # Capping inbox to prevent runaway buildup (increased to 30s)
+                        max_inbox_bytes = 16000 * 2 * 30
                         if len(audio_inbox) > max_inbox_bytes:
                             del audio_inbox[:len(audio_inbox) - max_inbox_bytes]
                         
@@ -318,8 +319,8 @@ async def main():
                                 logger.info(f"[{session_id}] Speech onset detected")
                                 in_speech = True
                                 speech_start_time = now
-                                # Start with a bit of pre-roll if we have it
-                                speech_buffer = chunk
+                                # Start with a bit of pre-roll
+                                speech_buffer = preroll_buffer + chunk
                             else:
                                 speech_buffer += chunk
                             last_speech_time = now
@@ -368,16 +369,19 @@ async def main():
                                             )
                                             speech_buffer = b""
                                             in_speech = False
+                                            preroll_buffer = chunk
                                             continue
 
                                     await process_text(text)
                                     
                                     speech_buffer = b""
                                     in_speech = False
+                                    preroll_buffer = chunk
                             else:
-                                # Just keep a bit of pre-roll in the buffer if we wanted to
-                                # But for now, we just discard silence chunks
-                                pass
+                                # Keep a bit of pre-roll in the buffer
+                                preroll_buffer += chunk
+                                if len(preroll_buffer) > PREROLL_BYTES:
+                                    preroll_buffer = preroll_buffer[-PREROLL_BYTES:]
 
                         # Force transcription if a very long segment is active
                         if in_speech and (now - speech_start_time) >= MAX_SEGMENT_SECS:
@@ -386,17 +390,11 @@ async def main():
                             text = await transcriber.transcribe_raw(speech_buffer)
                             last_proc_time[0] = time.time() - t0_audio
                             
-                            # For forced transcription, we might still want to check speaker?
-                            # However, we usually want to just let the text flow for real-time.
-                            # We'll skip trade checks on intermediate segments for safety.
-                            
                             await process_text(text)
-                            # Keep buffer for continuation? 
-                            # Whisper often works better with context, but for simplicity we reset.
+                            # For continuation, keep the last bit of audio as preroll
+                            preroll_buffer = speech_buffer[-PREROLL_BYTES:] if len(speech_buffer) > PREROLL_BYTES else speech_buffer
                             speech_buffer = b""
                             in_speech = False
-                            # We reset in_speech to False so the next chunk starts a new segment
-                            # or resumes if speech continues.
 
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
@@ -586,12 +584,12 @@ async def main():
                         # Audio PCM data
                         with audio_inbox_lock:
                             audio_inbox.extend(message)
-                        # Aggressive capping - keep 3 seconds max instead of 2
-                        max_bytes = 16000 * 2 * 3  # Increased to 3 seconds
+                        # Capping - keep 30 seconds max
+                        max_bytes = 16000 * 2 * 30
                         if len(audio_inbox) > max_bytes:
                             dropped_bytes = len(audio_inbox) - max_bytes
                             del audio_inbox[:dropped_bytes]
-                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (aggressive 3s cap)")
+                            logger.warning(f"[{session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)")
 
         except websockets.exceptions.ConnectionClosed:
             pass

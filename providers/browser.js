@@ -84,7 +84,7 @@ async function runBrowserCapture() {
   ];
   let browserPath = null;
   const fs = require("fs");
-  for (const p of executablePaths) {s
+  for (const p of executablePaths) {
     if (fs.existsSync(p)) {
       browserPath = p;
       break;
