@@ -179,7 +179,7 @@ function connectWebSocket() {
       if (msg.type === "signal") {
         logger.info(`[remote] SIGNAL: ${msg.keyword} → ${msg.ticker}`);
       } else if (msg.type === "transcript") {
-        logger.info(`>>> [TRANSCRIPT] ${msg.text}`);
+        logger.info(`[TRANSCRIPT] ${msg.text}`);
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
         logger.info(`[ws] RTT: ${rtt}ms`);

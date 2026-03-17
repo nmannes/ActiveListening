@@ -185,7 +185,8 @@ async def main():
                         )
                         continue
 
-                    if trade_for_real:
+                    if trade_for_real:  
+                        order_result = None
                         try:
                             t0_trade = time.time()
                             order_result = kalshi.place_fill_or_kill_order(
@@ -266,9 +267,9 @@ async def main():
             # VAD-based transcription parameters (Optimized for Real-Time)
             VAD_WINDOW_SECS = 0.3
             VAD_WINDOW_BYTES = int(VAD_WINDOW_SECS * 16000 * 2)
-            SILENCE_TIMEOUT_SECS = 1.0  # Increased to avoid cutting words
-            MAX_SEGMENT_SECS = 15.0     # Increased to allow longer natural speech segments
-            PREROLL_SECS = 0.6          # Increased preroll buffer
+            SILENCE_TIMEOUT_SECS = 0.4  # Aggressive: transcribe after 400ms pause
+            MAX_SEGMENT_SECS = 4.5      # Aggressive: force transcription after 4.5s
+            PREROLL_SECS = 0.6          # Retain preroll padding
             PREROLL_BYTES = int(PREROLL_SECS * 16000 * 2)
             
             audio_buffer = b""
