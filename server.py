@@ -79,7 +79,7 @@ async def main():
         default=os.environ.get("DEVICE", "cpu"),
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--buy-count", type=int, default=1)
+    parser.add_argument("--buy-count", type=int, default=5)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument(
         "--content-profile",
@@ -190,7 +190,7 @@ async def main():
                         try:
                             t0_trade = time.time()
                             order_result = kalshi.place_fill_or_kill_order(
-                                yes_price=95,
+                                yes_price=90,
                                 ticker=matched["value"],
                                 count=args.buy_count,
                             )
