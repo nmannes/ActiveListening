@@ -140,7 +140,7 @@ async def main():
         last_proc_time = [0.0]
 
         async def audio_processing_loop(
-            session_id, audio_inbox, audio_inbox_lock, keyword_index, voice_profile
+            session_id, audio_inbox, audio_inbox_lock, keyword_index, voice_profile, market
         ):
             transcript.clear()
             logger.info(
@@ -188,11 +188,14 @@ async def main():
                     if trade_for_real:  
                         order_result = None
                         try:
+                            purchase_price = int(market.get("purchasePrice", 90))
+                            purchase_count = int(market.get("purchaseCount", args.buy_count))
+                            
                             t0_trade = time.time()
                             order_result = kalshi.place_fill_or_kill_order(
-                                yes_price=90,
+                                yes_price=purchase_price,
                                 ticker=matched["value"],
-                                count=args.buy_count,
+                                count=purchase_count,
                             )
                             t1_trade = time.time()
                             logger.info(
@@ -561,6 +564,7 @@ async def main():
                                     audio_inbox_lock,
                                     keyword_index,
                                     voice_profile,
+                                    market,
                                 )
                             )
 

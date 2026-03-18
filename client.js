@@ -41,6 +41,8 @@ Options:
   --matchJSON <json|base64> Market data as JSON or base64
   --fromFile <file.json>    Market data from file
   --duration <minutes>      Auto-shutdown after N minutes
+  --purchasePrice <price>   Optional purchase price for market
+  --purchaseCount <count>   Optional purchase count for market
   --listen                  (tv only) Record 30s debug audio locally
   --help                    Show this message
 `);
@@ -87,6 +89,13 @@ if (args.fromFile) {
 } else {
   console.error("Must provide --matchJSON or --fromFile with market data");
   process.exit(1);
+}
+
+if (args.purchasePrice !== undefined) {
+  market.purchasePrice = parseFloat(args.purchasePrice);
+}
+if (args.purchaseCount !== undefined) {
+  market.purchaseCount = parseInt(args.purchaseCount, 1);
 }
 
 let STREAM_URL = args.url || market.mediaStreamURL || market.channelURL;
