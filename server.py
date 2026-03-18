@@ -468,6 +468,9 @@ async def main():
                                     Path(__file__).parent / "debug" / f"frame-{sid}.jpg"
                                 )
                                 last_mtime = 0
+                                consecutive_results = 0
+                                last_result_state = None
+                                
                                 while True:
                                     await asyncio.sleep(2)
                                     try:
@@ -489,12 +492,23 @@ async def main():
                                             frame_classifier.classify,
                                             data,
                                         )
+                                        
+                                        current_result = result["is_desired_content_visible"]
+                                        if last_result_state == current_result:
+                                            consecutive_results += 1
+                                        else:
+                                            last_result_state = current_result
+                                            consecutive_results = 1
+
                                         nonlocal is_content_visible
-                                        is_content_visible = result[
-                                            "is_desired_content_visible"
-                                        ]
+                                        if consecutive_results >= 5 and is_content_visible != current_result:
+                                            logger.info(f"[{sid}][clip] State flip: content_visible changed to {current_result} after {consecutive_results} consecutive matches")
+                                            is_content_visible = current_result
+
                                         logger.info(
-                                            f"[{sid}][clip] content_visible={result['is_desired_content_visible']} "
+                                            f"[{sid}][clip] raw_visible={current_result} "
+                                            f"(streak={consecutive_results}) "
+                                            f"active_state={is_content_visible} "
                                             f"profile={result['content_profile']} "
                                             f"conf={result['confidence']:.2f} "
                                             f"({result['elapsed_ms']}ms)"
