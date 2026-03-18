@@ -143,9 +143,11 @@ logger.info("Orderbook tracking started locally");
 
 // ── State ────────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
+const MAX_RECONNECT_DURATION_MS = 2 * 60 * 1000; // 2 minutes
 let isShuttingDown = false;
 let ws = null;
 let heartbeatInterval = null;
+let reconnectStartTime = null;
 
 // ── WebSocket connection with auto-reconnect ─────────────────────────
 function connectWebSocket() {
@@ -156,6 +158,7 @@ function connectWebSocket() {
 
   ws.on("open", () => {
     logger.info(`[ws] Connected to remote server`);
+    reconnectStartTime = null;
 
     // Send handshake with market data
     const hello = { type: "hello", market };
@@ -198,6 +201,15 @@ function connectWebSocket() {
   ws.on("close", (code) => {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
     if (isShuttingDown) return;
+
+    if (!reconnectStartTime) {
+      reconnectStartTime = Date.now();
+    } else if (Date.now() - reconnectStartTime > MAX_RECONNECT_DURATION_MS) {
+      logger.error("[ws] Failed to reconnect after 2 minutes. Giving up.");
+      shutdown("WebSocket given up reconnecting");
+      return;
+    }
+
     logger.warn(
       `[ws] Connection closed (code ${code}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`,
     );
