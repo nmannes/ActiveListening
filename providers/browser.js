@@ -21,10 +21,13 @@ let _ws = null;
 let _streamUrl = null;
 let _logger = null;
 let _isShuttingDown = null;
+let _isStopped = false;
+let _retryTimeout = null;
 
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
-function setupAudioTranscoder(inputUrl = "pipe:0") {
-  _logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl}`);
+function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
+  if (_isStopped) return;
+  _logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl} (Retry ${retryCount})`);
 
   const ffmpegArgs = [
     "-fflags",
@@ -66,6 +69,13 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
 
   ffmpeg.on("close", (code) => {
     _logger.info(`[transcoder] FFmpeg exited with code ${code}`);
+    if (!_isStopped && code !== 0 && code !== 255) {
+      const delay = Math.min(10000, 1000 * Math.pow(2, retryCount));
+      _logger.info(`[transcoder] Retrying FFmpeg in ${delay}ms...`);
+      _retryTimeout = setTimeout(() => {
+        setupAudioTranscoder(inputUrl, retryCount + 1);
+      }, delay);
+    }
   });
 
   ffmpegProc = ffmpeg;
@@ -323,6 +333,8 @@ module.exports = {
     _streamUrl = streamUrl;
     _logger = logger;
     _isShuttingDown = isShuttingDown;
+    _isStopped = false;
+    if (_retryTimeout) clearTimeout(_retryTimeout);
 
     // Optimization: if it's already a direct m3u8, skip the browser
     if (_streamUrl.toLowerCase().includes(".m3u8")) {
@@ -347,6 +359,11 @@ module.exports = {
   },
 
   stop() {
+    _isStopped = true;
+    if (_retryTimeout) {
+      clearTimeout(_retryTimeout);
+      _retryTimeout = null;
+    }
     if (ffmpegProc) {
       ffmpegProc.kill();
       ffmpegProc = null;
