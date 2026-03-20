@@ -507,7 +507,7 @@ async def main():
                                             consecutive_results = 1
 
                                         nonlocal is_content_visible
-                                        if consecutive_results >= 5 and is_content_visible != current_result:
+                                        if consecutive_results >= 3 and is_content_visible != current_result:
                                             logger.info(f"[{sid}][clip] State flip: content_visible changed to {current_result} after {consecutive_results} consecutive matches")
                                             is_content_visible = current_result
 
