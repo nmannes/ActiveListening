@@ -22,7 +22,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
 
 
     let scheduleStartTime = market.eventStartTime
-    if (!scheduleStartTime && tvEvent && tvEvent.startTimestamp && tvEvent.title ==="2026 NCAA BASKETBALL TOURNAMENT"){
+    if (tvEvent && tvEvent.startTimestamp && tvEvent.title ==="2026 NCAA BASKETBALL TOURNAMENT"){
         scheduleStartTime = new Date(new Date(tvEvent.startTimestamp).getTime() + 20 * 60 * 1000).toISOString();
     }
 
