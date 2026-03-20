@@ -39,7 +39,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         market.eventStartTime = scheduleStartTime;
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
         console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
-        execSync(`/home/nathan/kalshi/schedule_run.sh ${newFile} --shutdown-minutes 45`);
+        execSync(`/home/nathan/kalshi/schedule_run.sh ${newFile} --shutdown-minutes 75`);
     }
     
     
