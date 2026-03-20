@@ -200,7 +200,7 @@ function connectWebSocket() {
           `[remote] Buffer: ${msg.buffer_ms}ms | Proc: ${msg.last_proc_ms}ms`,
         );
       } else {
-        logger.debug(`[remote] ${JSON.stringify(msg)}`);
+        logger.info(`[remote][OTHER] ${JSON.stringify(msg)}`);
       }
     } catch (e) {
       logger.debug(`[remote] data error: ${e.message}`);
