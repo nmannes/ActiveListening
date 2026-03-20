@@ -23,7 +23,7 @@ def test_trade():
         environment="prod"
     )
 
-    ticker = "KXMENTIONEARNLULU-26MAR17-TARI"
+    ticker = "KXNCAABMENTION-26MAR20SCUUK-NIL"
     buy_count = 1
 
     print("Testing place_fill_or_kill_order...")
