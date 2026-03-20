@@ -31,7 +31,6 @@ def test_trade():
     try:
         t0_trade = time.time()
         order_result = kalshi.place_fill_or_kill_order(
-            order_type="limit",
             yes_price=1,
             ticker=ticker,
             count=buy_count,

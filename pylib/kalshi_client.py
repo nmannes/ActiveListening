@@ -81,18 +81,16 @@ class KalshiClient:
         count: int,
         action: str = "buy",
         side: str = "yes",
-        order_type: str = "market",
         yes_price: int = 1,
     ):
         params = {
             "ticker": ticker,
             "action": action,
             "side": side.lower(),
-            "count_fp": str(count),
-            "type": order_type,
+            "count": count,
             "time_in_force": "immediate_or_cancel",
             "client_order_id": f"auto_{int(time.time() * 1000)}",
-            "yes_price_dollars": f"0.{str(yes_price).zfill(2)}"
+            "yes_price": yes_price
         }
 
         path = "/portfolio/orders"
