@@ -22,15 +22,8 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
 
 
     let scheduleStartTime = market.eventStartTime
-    if (!scheduleStartTime && tvEvent && tvEvent.startTimestamp && tvEvent.endTimestamp) {
-        const start = new Date(tvEvent.startTimestamp);
-        const end = new Date(tvEvent.endTimestamp);
-        const durationMinutes = (end - start) / (1000 * 60);
-        if (durationMinutes === 150) {
-            scheduleStartTime = new Date(start.getTime() + 20 * 60 * 1000).toISOString();
-        } else {
-            scheduleStartTime = tvEvent.startTimestamp;
-        }
+    if (!scheduleStartTime && tvEvent && tvEvent.startTimestamp && tvEvent.title ==="2026 NCAA BASKETBALL TOURNAMENT"){
+        scheduleStartTime = new Date(new Date(tvEvent.startTimestamp).getTime() + 20 * 60 * 1000).toISOString();
     }
 
     if (scheduleStartTime && new Date(scheduleStartTime) > new Date()) {
