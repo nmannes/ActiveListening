@@ -201,6 +201,9 @@ async def main():
                             logger.info(
                                 f"[{session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)"
                             )
+                            logger.info(
+                                f"[{session_id}][TRADE] Order result: {order_result}"
+                            )
                         except Exception as e:
                             logger.error(
                                 f"[{session_id}][TRADE] Error placing order. error: {e}, result: {order_result}"
