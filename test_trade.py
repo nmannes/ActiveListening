@@ -23,7 +23,7 @@ def test_trade():
         environment="prod"
     )
 
-    ticker = "KXMENTIONEARNLULU-26MAR17-TARI"
+    ticker = "KXNCAABMENTION-26MAR20SCUUK-NIL"
     buy_count = 1
 
     print("Testing place_fill_or_kill_order...")
@@ -31,7 +31,6 @@ def test_trade():
     try:
         t0_trade = time.time()
         order_result = kalshi.place_fill_or_kill_order(
-            order_type="limit",
             yes_price=1,
             ticker=ticker,
             count=buy_count,

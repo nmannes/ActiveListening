@@ -81,31 +81,17 @@ class KalshiClient:
         count: int,
         action: str = "buy",
         side: str = "yes",
-        order_type: str = "market",
-        yes_price: int = None,
-        no_price: int = None,
+        yes_price: int = 1,
     ):
         params = {
             "ticker": ticker,
             "action": action,
             "side": side.lower(),
             "count": count,
-            "type": order_type,
             "time_in_force": "immediate_or_cancel",
             "client_order_id": f"auto_{int(time.time() * 1000)}",
+            "yes_price": yes_price
         }
-
-        if yes_price is not None:
-            params["yes_price"] = yes_price
-        if no_price is not None:
-            params["no_price"] = no_price
-
-        # Default prices for market orders
-        if order_type == "market" and yes_price is None and no_price is None:
-            if side.lower() == "yes":
-                params["yes_price"] = 90
-            else:
-                params["no_price"] = 10
 
         path = "/portfolio/orders"
         url = self.base_url + path
