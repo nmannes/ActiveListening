@@ -104,7 +104,7 @@ function isFileExpired(filePath, ttlMs) {
 
     const allResults = matchDiscoveryEvents(markets, tvSchedule, espnSchedule, ncaaSchedule);
 
-    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent || m.ncaaEvent);
+    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent);
     const unmatchedMarkets = allResults.filter(
       (m) => !m.tvEvent && !m.espnEvent && !m.ncaaEvent,
     );
