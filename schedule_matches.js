@@ -15,22 +15,23 @@ if (fs.existsSync(file)) {
 }
 
 for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
-    const {market, tvEvent, espnEvent} = match;
+    const { market, tvEvent, espnEvent, ncaaEvent } = match;
 
-    market['mediaStreamURL'] = tvEvent && tvEvent?.channelURL || espnEvent && espnEvent?.link || null;
-    market['eventStartTime'] = tvEvent && tvEvent?.startTimestamp || espnEvent && espnEvent?.startTimestamp || null;
+    market['mediaStreamURL'] = tvEvent && tvEvent?.channelURL
+        || espnEvent && espnEvent?.link
+        || null;
 
+    const scheduleStartTime = ncaaEvent && ncaaEvent?.time
+        || espnEvent && espnEvent?.startTimestamp
+        || market?.eventStartTime
+        || null;
 
-    let scheduleStartTime = market.eventStartTime
-    if (tvEvent && tvEvent.startTimestamp && tvEvent.title ==="2026 NCAA BASKETBALL TOURNAMENT"){
-        scheduleStartTime = new Date(new Date(tvEvent.startTimestamp).getTime() + 20 * 60 * 1000).toISOString();
-    }
 
     if (scheduleStartTime && new Date(scheduleStartTime) > new Date()) {
-        
-        delete market['keywords']['event does not qualify'] 
+
+        delete market['keywords']['event does not qualify']
         const newFile = path.join(__dirname, 'scheduled', `${market.slug}.json`);
-        
+
         if (fs.existsSync(newFile)) {
             console.log('File already exists, skipping');
             continue;
@@ -41,6 +42,6 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
         execSync(`/home/nathan/kalshi/schedule_run.sh ${newFile} --shutdown-minutes 75`);
     }
-    
-    
+
+
 }
