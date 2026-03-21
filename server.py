@@ -143,29 +143,28 @@ async def main():
             session_id, audio_inbox, audio_inbox_lock, keyword_index, voice_profile, market
         ):
             transcript.clear()
+            committed_tokens = []
             logger.info(
                 f"[{session_id}] Audio processing loop started (Device: {transcriber.device}, voiceProfile: {voice_profile})"
             )
 
-            async def process_text(text: str):
-                if not text:
+            async def process_tokens(tokens: list[str]):
+                if not tokens:
                     return
 
-                words = text.split()
-                new_tokens = []
-                for word in words:
-                    token = punct_re.sub("", word).lower()
+                new_tokens_added = []
+                for token in tokens:
                     if not token:
                         continue
 
                     # Deduplicate adjacent
                     if transcript and transcript[-1] == token:
                         continue
-                    if new_tokens and new_tokens[-1] == token:
+                    if new_tokens_added and new_tokens_added[-1] == token:
                         continue
 
                     transcript.append(token)
-                    new_tokens.append(token)
+                    new_tokens_added.append(token)
                     if len(transcript) > 10000:
                         transcript.pop(0)
 
@@ -229,18 +228,18 @@ async def main():
                     except websockets.exceptions.ConnectionClosed:
                         pass
 
-                if new_tokens:
+                if new_tokens_added:
                     recent = " ".join(transcript[-args.last_words_count :])
                     logger.info(
-                        f"[{session_id}] Transcript: {text} (Last {args.last_words_count}: {recent})"
+                        f"[{session_id}] Transcript: {' '.join(new_tokens_added)} (Last {args.last_words_count}: {recent})"
                     )
-                    transcript_logger.info(f"[{session_id}] {text}")
+                    transcript_logger.info(f"[{session_id}] {' '.join(new_tokens_added)}")
                     try:
                         await websocket.send(
                             json.dumps(
                                 {
                                     "type": "transcript",
-                                    "text": " ".join(new_tokens),
+                                    "text": " ".join(new_tokens_added),
                                 }
                             )
                         )
@@ -277,6 +276,7 @@ async def main():
             MAX_SEGMENT_SECS = 4.5      # Aggressive: force transcription after 4.5s
             PREROLL_SECS = 0.6          # Retain preroll padding
             PREROLL_BYTES = int(PREROLL_SECS * 16000 * 2)
+            MIN_STREAM_INTERVAL_SECS = 0.5
             
             audio_buffer = b""
             speech_buffer = b""
@@ -284,6 +284,7 @@ async def main():
             in_speech = False
             last_speech_time = 0
             speech_start_time = 0
+            last_transcription_time = 0
 
             # Drain audio from WebSocket inbox and process via VAD
             try:
@@ -326,11 +327,33 @@ async def main():
                                 logger.info(f"[{session_id}] Speech onset detected")
                                 in_speech = True
                                 speech_start_time = now
+                                last_transcription_time = now
+                                committed_tokens.clear()
                                 # Start with a bit of pre-roll
                                 speech_buffer = preroll_buffer + chunk
                             else:
                                 speech_buffer += chunk
                             last_speech_time = now
+
+                            if now - last_transcription_time >= MIN_STREAM_INTERVAL_SECS:
+                                t0_audio = now
+                                text = await transcriber.transcribe_raw(speech_buffer)
+                                last_proc_time[0] = time.time() - t0_audio
+                                last_transcription_time = now
+                                
+                                raw_tokens = [punct_re.sub("", w).lower() for w in text.split() if punct_re.sub("", w).lower()]
+                                match_idx = 0
+                                for i in range(min(len(committed_tokens), len(raw_tokens))):
+                                    if committed_tokens[i] == raw_tokens[i]:
+                                        match_idx = i + 1
+                                    else:
+                                        break
+                                emit_start = max(match_idx, len(committed_tokens))
+                                new_tokens = raw_tokens[emit_start:]
+                                
+                                if new_tokens:
+                                    committed_tokens.extend(new_tokens)
+                                    await process_tokens(new_tokens)
                         else:
                             if in_speech:
                                 speech_buffer += chunk
@@ -377,13 +400,27 @@ async def main():
                                             speech_buffer = b""
                                             in_speech = False
                                             preroll_buffer = chunk
+                                            committed_tokens.clear()
                                             continue
 
-                                    await process_text(text)
+                                    raw_tokens = [punct_re.sub("", w).lower() for w in text.split() if punct_re.sub("", w).lower()]
+                                    match_idx = 0
+                                    for i in range(min(len(committed_tokens), len(raw_tokens))):
+                                        if committed_tokens[i] == raw_tokens[i]:
+                                            match_idx = i + 1
+                                        else:
+                                            break
+                                    emit_start = max(match_idx, len(committed_tokens))
+                                    new_tokens = raw_tokens[emit_start:]
+                                    
+                                    if new_tokens:
+                                        committed_tokens.extend(new_tokens)
+                                        await process_tokens(new_tokens)
                                     
                                     speech_buffer = b""
                                     in_speech = False
                                     preroll_buffer = chunk
+                                    committed_tokens.clear()
                             else:
                                 # Keep a bit of pre-roll in the buffer
                                 preroll_buffer += chunk
@@ -397,11 +434,25 @@ async def main():
                             text = await transcriber.transcribe_raw(speech_buffer)
                             last_proc_time[0] = time.time() - t0_audio
                             
-                            await process_text(text)
+                            raw_tokens = [punct_re.sub("", w).lower() for w in text.split() if punct_re.sub("", w).lower()]
+                            match_idx = 0
+                            for i in range(min(len(committed_tokens), len(raw_tokens))):
+                                if committed_tokens[i] == raw_tokens[i]:
+                                    match_idx = i + 1
+                                else:
+                                    break
+                            emit_start = max(match_idx, len(committed_tokens))
+                            new_tokens = raw_tokens[emit_start:]
+                            
+                            if new_tokens:
+                                committed_tokens.extend(new_tokens)
+                                await process_tokens(new_tokens)
+
                             # For continuation, keep the last bit of audio as preroll
                             preroll_buffer = speech_buffer[-PREROLL_BYTES:] if len(speech_buffer) > PREROLL_BYTES else speech_buffer
                             speech_buffer = b""
                             in_speech = False
+                            committed_tokens.clear()
 
             except asyncio.CancelledError:
                 logger.info(f"[{session_id}] Audio processing loop cancelled")
