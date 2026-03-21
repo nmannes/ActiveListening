@@ -12,6 +12,7 @@
 #   T=0:     Run bun run tvclient.js --fromFile <file>
 
 set -e
+export TZ="America/New_York"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
