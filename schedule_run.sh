@@ -23,20 +23,20 @@ RUN_NOW=false
 SPOT_ARG=""
 CLIENT_ONLY=false
 
-for arg in "$@"; do
-    case $arg in
-        --dry-run) DRY_RUN=true ;;
-        --now) RUN_NOW=true ;;
-        --spot) SPOT_ARG="--spot" ;;
-        --client-only) CLIENT_ONLY=true ;;
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true; shift ;;
+        --now) RUN_NOW=true; shift ;;
+        --spot) SPOT_ARG="--spot"; shift ;;
+        --client-only) CLIENT_ONLY=true; shift ;;
         --duration) 
             DURATION_MINUTES="$2"
             shift 2 ;;
         *) 
-            if [[ "$arg" != "$DURATION_MINUTES" && -z "$JSON_FILE" ]]; then 
-                JSON_FILE="$arg"
-            fi 
-            ;;
+            if [[ -z "$JSON_FILE" ]]; then 
+                JSON_FILE="$1"
+            fi
+            shift ;;
     esac
 done
 
