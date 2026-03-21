@@ -339,7 +339,7 @@ async def main():
                                 t0_audio = now
                                 text = await transcriber.transcribe_raw(speech_buffer)
                                 last_proc_time[0] = time.time() - t0_audio
-                                last_transcription_time = now
+                                last_transcription_time = time.time()
                                 
                                 raw_tokens = [punct_re.sub("", w).lower() for w in text.split() if punct_re.sub("", w).lower()]
                                 match_idx = 0

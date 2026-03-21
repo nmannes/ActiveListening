@@ -4,6 +4,7 @@ const { findProgramsByZipAndKeyword } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
+const { scrapeNcaaSchedules } = require("./lib/ncaa_tip_off_times.js");
 const path = require("path");
 const _ = require("lodash");
 
@@ -54,11 +55,13 @@ function isFileExpired(filePath, ttlMs) {
       "latest_markets.json",
       "latest_tv_schedule.json",
       "espn_next_3_days.json",
+      "ncaa_next_3_days.json",
     ];
     const functionCalls = [
       () => frontPageMarkets(),
       () => findProgramsByZipAndKeyword(zip, "basketball"),
       () => scrapeEspnSchedule(new Date(), 3),
+      () => scrapeNcaaSchedules(new Date(), 3),
     ];
 
     for (let i = 0; i < functionCalls.length; i++) {
@@ -95,12 +98,15 @@ function isFileExpired(filePath, ttlMs) {
     const espnSchedule = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "espn_next_3_days.json"), "utf8"),
     );
+    const ncaaSchedule = JSON.parse(
+      fs.readFileSync(path.join(cacheDir, "ncaa_next_3_days.json"), "utf8"),
+    );
 
-    const allResults = matchDiscoveryEvents(markets, tvSchedule, espnSchedule);
+    const allResults = matchDiscoveryEvents(markets, tvSchedule, espnSchedule, ncaaSchedule);
 
-    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent);
+    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent || m.ncaaEvent);
     const unmatchedMarkets = allResults.filter(
-      (m) => !m.tvEvent && !m.espnEvent,
+      (m) => !m.tvEvent && !m.espnEvent && !m.ncaaEvent,
     );
 
     const matchedPath = path.join(cacheDir, "matched_markets.json");
