@@ -27,7 +27,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         || null;
 
 
-    if (scheduleStartTime && new Date(scheduleStartTime) > new Date()) {
+    if (market.mediaStreamURL && scheduleStartTime && new Date(scheduleStartTime) > new Date()) {
 
         delete market['keywords']['event does not qualify']
         const newFile = path.join(__dirname, 'scheduled', `${market.slug}.json`);
@@ -42,6 +42,5 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
         execSync(`/home/nathan/kalshi/schedule_run.sh ${newFile} --shutdown-minutes 75`);
     }
-
 
 }
