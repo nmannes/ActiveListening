@@ -27,7 +27,12 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         || null;
 
 
-    if (market.mediaStreamURL && scheduleStartTime && new Date(scheduleStartTime) > new Date()) {
+    if (market.mediaStreamURL && scheduleStartTime) {
+        let startTime = new Date(scheduleStartTime);
+        if (startTime <= new Date()) {
+            startTime = new Date(Date.now() + 1 * 60 * 1000);
+            scheduleStartTime = startTime.toISOString();
+        }
 
         delete market['keywords']['event does not qualify']
         const newFile = path.join(__dirname, 'scheduled', `${market.slug}.json`);
