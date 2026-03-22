@@ -2,6 +2,11 @@
  * Kalshi Risk & Expected Value Analysis
  */
 
+// Helper to format cents into USD strings
+function formatDollars(cents) {
+    return (cents / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
 // 1. Break-Even Win Probability
 function getBreakevenWinProb(contractPriceCents) {
     return contractPriceCents / 100;
@@ -24,7 +29,7 @@ function calculateKellyFraction(contractPriceCents, estimatedWinProb) {
 }
 
 // --- User Inputs --- //
-const currentBankroll = 10000;            // 10,000 cents ($100.00)
+const currentBankroll = 100 * 1000;       // 100,000 cents ($1,000.00)
 const bankrollRiskPercent = 0.10;         // You want to risk 10% of your bankroll per trade
 
 const contractPriceCents = 80;            // Price of a single contract (1 to 99)
@@ -32,15 +37,15 @@ const myEstimatedWinProb = 0.95;          // You expect your bets to win 95% of 
 
 // FATAL ERROR ADJUSTMENT
 // "Some number of the time the win rate is wrong and I lose everything"
-const modelConfidence = 1.0;             // Setting this to 1.0 so we use 95% exactly
+const modelConfidence = 1.0;              // Setting this to 1.0 so we use 95% exactly
 
 // Your *true* probability accounts for the chance of your model being wrong
 const trueWinProb = myEstimatedWinProb * modelConfidence;
 
 console.log(`========== KALSHI TRADE ANALYSIS ==========`);
-console.log(`Starting Bankroll:   ${currentBankroll} ¢`);
+console.log(`Starting Bankroll:   ${formatDollars(currentBankroll)}`);
 console.log(`Target Risk:         ${(bankrollRiskPercent * 100).toFixed(2)}% of bankroll`);
-console.log(`Contract Price:      ${contractPriceCents} ¢`);
+console.log(`Contract Price:      ${formatDollars(contractPriceCents)}`);
 console.log(`-------------------------------------------`);
 
 const breakEven = getBreakevenWinProb(contractPriceCents);
@@ -49,19 +54,21 @@ console.log(`Model Estimated %:   ${(myEstimatedWinProb * 100).toFixed(1)}%`);
 console.log(`True Win % (Safe):   ${(trueWinProb * 100).toFixed(1)}%`);
 
 const evPerContract = calculateEV(contractPriceCents, trueWinProb);
-console.log(`Expected Value:      ${evPerContract > 0 ? '+' : ''}${evPerContract.toFixed(2)} ¢ per contract (Adjusted for Safety)`);
+const evSign = evPerContract > 0 ? '+' : '';
+console.log(`Expected Value:      ${evSign}${formatDollars(Math.abs(evPerContract))} per contract`);
 
 console.log(`\n--- Position Sizing ---`);
 const targetWagerCents = currentBankroll * bankrollRiskPercent;
 const numContracts = Math.floor(targetWagerCents / contractPriceCents);
 const actualCostCents = numContracts * contractPriceCents;
-const profitIfWin = numContracts * (100 - contractPriceCents);
-const totalEV = numContracts * evPerContract;
+const profitIfWinCents = numContracts * (100 - contractPriceCents);
+const totalEVCents = numContracts * evPerContract;
 
-console.log(`Target Wager:        ${targetWagerCents.toFixed(0)} ¢`);
-console.log(`Actual Bet:          ${numContracts} contracts (Total Cost: ${actualCostCents} ¢)`);
-console.log(`Potential Profit:    +${profitIfWin} ¢`);
-console.log(`Total EV of Trade:   ${totalEV > 0 ? '+' : ''}${totalEV.toFixed(2)} ¢`);
+console.log(`Target Wager:        ${formatDollars(targetWagerCents)}`);
+console.log(`Actual Bet:          ${numContracts} contracts (Total Cost: ${formatDollars(actualCostCents)})`);
+console.log(`Potential Profit:    +${formatDollars(profitIfWinCents)}`);
+const totalEVSign = totalEVCents > 0 ? '+' : '';
+console.log(`Total EV of Trade:   ${totalEVSign}${formatDollars(Math.abs(totalEVCents))}`);
 
 console.log(`\n--- Kelly Optimization ---`);
 const fullKelly = calculateKellyFraction(contractPriceCents, trueWinProb);
@@ -74,30 +81,58 @@ if (fullKelly > 0) {
 }
 console.log(`===========================================`);
 
+// --- PRICE SENSITIVITY ANALYSIS --- //
+console.log(`\n--- Price Sensitivity Analysis (Assuming ${(trueWinProb * 100).toFixed(1)}% True Win Rate) ---`);
+console.log(`Price  | Brk-Even | EV/Cont  | Total EV  | Full Kelly`);
+console.log(`-------------------------------------------------------`);
+for (let price = 10; price <= 95; price += 5) {
+    const brkEven = getBreakevenWinProb(price);
+    const ev = calculateEV(price, trueWinProb);
+    const optKelly = calculateKellyFraction(price, trueWinProb);
+    
+    const wagerCents = currentBankroll * bankrollRiskPercent;
+    const numCont = Math.floor(wagerCents / price);
+    const totalEVTrade = numCont * ev;
+
+    const priceStr = formatDollars(price).padEnd(6);
+    const brkStr = (brkEven * 100).toFixed(0).padStart(3) + "%";
+    
+    const evSignCont = ev > 0 ? '+' : (ev < 0 ? '-' : ' ');
+    const evContStr = evSignCont + formatDollars(Math.abs(ev)).padStart(6);
+    
+    const evSignTot = totalEVTrade > 0 ? '+' : (totalEVTrade < 0 ? '-' : ' ');
+    const evTotStr = evSignTot + formatDollars(Math.abs(totalEVTrade)).padStart(7);
+    
+    const kellyStr = optKelly > 0 ? (optKelly * 100).toFixed(1) + "%" : "DO NOT BET";
+
+    console.log(`${priceStr} | ${brkStr.padEnd(8)} | ${evContStr} | ${evTotStr} | ${kellyStr}`);
+}
+console.log(`===========================================`);
+
 // --- MONTE CARLO SIMULATION --- //
-console.log(`\n--- Running Monte Carlo Simulation ---`);
+console.log(`\n--- Running Monte Carlo Simulation (At ${formatDollars(contractPriceCents)} Price) ---`);
 // Simulating N paths of M trades to see actual Risk of Ruin
 const numSimulations = 10000;
 const tradesPerSim = 250;
 let bankruptcies = 0;
 let profitableRuns = 0;
 
-let totalEndingBankroll = 0;
+let totalEndingBankrollCents = 0;
 const RUIN_THRESHOLD = contractPriceCents; // You are ruined if you can't even buy 1 contract
 
 for (let i = 0; i < numSimulations; i++) {
-    let simBankroll = currentBankroll;
-    
+    let simBankrollCents = currentBankroll;
+
     for (let t = 0; t < tradesPerSim; t++) {
         // Stop if ruined
-        if (simBankroll < RUIN_THRESHOLD) {
+        if (simBankrollCents < RUIN_THRESHOLD) {
             break;
         }
 
         // We use dynamic bet sizing: Risking 10% of current bankroll each trade
-        const currentTargetWager = simBankroll * bankrollRiskPercent;
+        const currentTargetWager = simBankrollCents * bankrollRiskPercent;
         const currentNumContracts = Math.floor(currentTargetWager / contractPriceCents);
-        
+
         // If bankroll dropped so low we can't buy 1 contract but we haven't hit threshold
         if (currentNumContracts === 0) {
             continue;
@@ -108,19 +143,19 @@ for (let i = 0; i < numSimulations; i++) {
 
         // Run the trade outcome
         if (Math.random() < trueWinProb) {
-            simBankroll += tradeProfit; // Win
+            simBankrollCents += tradeProfit; // Win
         } else {
-            simBankroll -= tradeCost;   // Lose
+            simBankrollCents -= tradeCost;   // Lose
         }
     }
 
-    if (simBankroll < RUIN_THRESHOLD) {
+    if (simBankrollCents < RUIN_THRESHOLD) {
         bankruptcies++;
-    } else if (simBankroll > currentBankroll) {
+    } else if (simBankrollCents > currentBankroll) {
         profitableRuns++;
     }
-    
-    totalEndingBankroll += simBankroll;
+
+    totalEndingBankrollCents += simBankrollCents;
 }
 
 console.log(`Simulated ${tradesPerSim} consecutive trades, repeated ${numSimulations} times.`);
@@ -128,5 +163,7 @@ console.log(`Strategy: Dynamically wager ${(bankrollRiskPercent * 100).toFixed(2
 console.log(`Results:`);
 console.log(`- Bankruptcies (Ruin): ${(bankruptcies / numSimulations * 100).toFixed(2)}% of simulations`);
 console.log(`- Profitable Runs:     ${(profitableRuns / numSimulations * 100).toFixed(2)}% of simulations`);
-console.log(`- Avg End Bankroll:    ${(totalEndingBankroll / numSimulations).toFixed(0)} ¢`);
+
+const avgEndBankrollCents = totalEndingBankrollCents / numSimulations;
+console.log(`- Avg End Bankroll:    ${formatDollars(avgEndBankrollCents)}`);
 console.log(`===========================================`);
