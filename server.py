@@ -187,8 +187,12 @@ async def main():
                     if trade_for_real:  
                         order_result = None
                         try:
-                            purchase_price = int(market.get("purchasePrice", 90))
-                            purchase_count = int(market.get("purchaseCount", args.buy_count))
+                            # Check if there are specific word configurations
+                            keyword_configs = market.get("keywordConfigs", {})
+                            word_config = keyword_configs.get(matched["key"], {})
+                            
+                            purchase_price = int(word_config.get("purchasePrice", market.get("purchasePrice", 90)))
+                            purchase_count = int(word_config.get("purchaseCount", market.get("purchaseCount", args.buy_count)))
                             
                             t0_trade = time.time()
                             order_result = kalshi.place_fill_or_kill_order(

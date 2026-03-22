@@ -13,10 +13,10 @@
  */
 
 const { execSync } = require("child_process");
-const fs = require("fs");
-const path = require("path");
+const fs = require("fs"); 
 const WebSocket = require("ws");
 const logger = require("./lib/logger");
+const { applyWordConfigurations } = require("./lib/word_configurations");
 
 // ── CLI args ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -114,6 +114,9 @@ if (STREAM_URL && !STREAM_URL.match(/^[a-zA-Z]+:\/\//)) {
 
 market.mediaStreamURL =
   market.mediaStreamURL || market.channelURL || STREAM_URL;
+
+// Apply custom word configurations (substitutions & custom buy amounts)
+market = applyWordConfigurations(market);
 
 // ── Auto-detect provider ─────────────────────────────────────────────
 let providerName = args.provider;

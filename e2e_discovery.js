@@ -4,7 +4,7 @@ const { findProgramsByZipAndKeyword } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
-const { scrapeNcaaSchedules } = require("./lib/ncaa_tip_off_times.js");
+const { scrapeNCAASchedule } = require("./lib/ncaa_tip_off_times.js");
 const path = require("path");
 const _ = require("lodash");
 
@@ -61,7 +61,7 @@ function isFileExpired(filePath, ttlMs) {
       () => frontPageMarkets(),
       () => findProgramsByZipAndKeyword(zip, "basketball"),
       () => scrapeEspnSchedule(new Date(), 3),
-      () => scrapeNcaaSchedules(new Date(), 3),
+      () => scrapeNCAASchedule(),
     ];
 
     for (let i = 0; i < functionCalls.length; i++) {
