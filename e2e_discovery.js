@@ -5,6 +5,7 @@ const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
 const { scrapeNCAASchedule } = require("./lib/ncaa_tip_off_times.js");
+const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
 const _ = require("lodash");
 
@@ -102,7 +103,8 @@ function isFileExpired(filePath, ttlMs) {
       fs.readFileSync(path.join(cacheDir, "ncaa_next_3_days.json"), "utf8"),
     );
 
-    const allResults = matchDiscoveryEvents(markets, tvSchedule, espnSchedule, ncaaSchedule);
+    const configuredMarkets = markets.map(m => applyWordConfigurations(m));
+    const allResults = matchDiscoveryEvents(configuredMarkets, tvSchedule, espnSchedule, ncaaSchedule);
 
     const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent);
     const unmatchedMarkets = allResults.filter(
