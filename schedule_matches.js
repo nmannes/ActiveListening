@@ -21,7 +21,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         || espnEvent && espnEvent?.link
         || null;
 
-    const scheduleStartTime = ncaaEvent && ncaaEvent?.time
+    let scheduleStartTime = ncaaEvent && ncaaEvent?.time
         || espnEvent && espnEvent?.startTimestamp
         || market?.eventStartTime
         || null;
@@ -44,7 +44,7 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
             continue;
         }
 
-        market.eventStartTime = scheduleStartTime;
+        market.eventStartTime = startTime;
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
         console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
 
