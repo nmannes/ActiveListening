@@ -30,21 +30,37 @@ function calculateKellyFraction(contractPriceCents, estimatedWinProb) {
 
 // --- User Inputs --- //
 const currentBankroll = 100 * 1000;       // 100,000 cents ($1,000.00)
-const bankrollRiskPercent = 0.10;         // You want to risk 10% of your bankroll per trade
+const bankrollRiskPercent = 0.10;         // Risk 10% of bankroll per trade
+
+// New Liquidity / Bet Sizing Caps (Empirical values from market_tracking data)
+const maxWagerCents = 200 * 100;           // Max wager capped at $200 (Median for NBA/NCAA)
+const maxProfitCents = 350 * 100;          // Max profit capped at $350 (Liquidity Limit)
 
 const contractPriceCents = 80;            // Price of a single contract (1 to 99)
 const myEstimatedWinProb = 0.95;          // You expect your bets to win 95% of the time
 
 // FATAL ERROR ADJUSTMENT
-// "Some number of the time the win rate is wrong and I lose everything"
 const modelConfidence = 1.0;              // Setting this to 1.0 so we use 95% exactly
-
-// Your *true* probability accounts for the chance of your model being wrong
 const trueWinProb = myEstimatedWinProb * modelConfidence;
+
+// Helper to calculate position sizing rules consistently across the scripts
+function getContractsToBuy(bankrollCents, priceCents) {
+    let wager = Math.min(bankrollCents * bankrollRiskPercent, maxWagerCents);
+    let contracts = Math.floor(wager / priceCents);
+    
+    // Enforce liquidity cap on potential profit
+    const profitPerContract = 100 - priceCents;
+    const maxContractsByProfit = Math.floor(maxProfitCents / profitPerContract);
+    
+    return Math.min(contracts, maxContractsByProfit);
+}
+
 
 console.log(`========== KALSHI TRADE ANALYSIS ==========`);
 console.log(`Starting Bankroll:   ${formatDollars(currentBankroll)}`);
 console.log(`Target Risk:         ${(bankrollRiskPercent * 100).toFixed(2)}% of bankroll`);
+console.log(`Max Wager Cap:       ${formatDollars(maxWagerCents)}`);
+console.log(`Max Profit Cap:      ${formatDollars(maxProfitCents)} (Liquidity Limit)`);
 console.log(`Contract Price:      ${formatDollars(contractPriceCents)}`);
 console.log(`-------------------------------------------`);
 
@@ -58,13 +74,12 @@ const evSign = evPerContract > 0 ? '+' : '';
 console.log(`Expected Value:      ${evSign}${formatDollars(Math.abs(evPerContract))} per contract`);
 
 console.log(`\n--- Position Sizing ---`);
-const targetWagerCents = currentBankroll * bankrollRiskPercent;
-const numContracts = Math.floor(targetWagerCents / contractPriceCents);
+
+const numContracts = getContractsToBuy(currentBankroll, contractPriceCents);
 const actualCostCents = numContracts * contractPriceCents;
 const profitIfWinCents = numContracts * (100 - contractPriceCents);
 const totalEVCents = numContracts * evPerContract;
 
-console.log(`Target Wager:        ${formatDollars(targetWagerCents)}`);
 console.log(`Actual Bet:          ${numContracts} contracts (Total Cost: ${formatDollars(actualCostCents)})`);
 console.log(`Potential Profit:    +${formatDollars(profitIfWinCents)}`);
 const totalEVSign = totalEVCents > 0 ? '+' : '';
@@ -90,8 +105,7 @@ for (let price = 10; price <= 95; price += 5) {
     const ev = calculateEV(price, trueWinProb);
     const optKelly = calculateKellyFraction(price, trueWinProb);
     
-    const wagerCents = currentBankroll * bankrollRiskPercent;
-    const numCont = Math.floor(wagerCents / price);
+    const numCont = getContractsToBuy(currentBankroll, price);
     const totalEVTrade = numCont * ev;
 
     const priceStr = formatDollars(price).padEnd(6);
@@ -110,7 +124,7 @@ for (let price = 10; price <= 95; price += 5) {
 console.log(`===========================================`);
 
 // --- MONTE CARLO SIMULATION --- //
-console.log(`\n--- Running Monte Carlo Simulation (At ${formatDollars(contractPriceCents)} Price) ---`);
+console.log(`\n--- Running Monte Carlo Simulation (Randomized Prices 45¢ - 95¢, Skewed High) ---`);
 // Simulating N paths of M trades to see actual Risk of Ruin
 const numSimulations = 10000;
 const tradesPerSim = 250;
@@ -118,28 +132,42 @@ let bankruptcies = 0;
 let profitableRuns = 0;
 
 let totalEndingBankrollCents = 0;
-const RUIN_THRESHOLD = contractPriceCents; // You are ruined if you can't even buy 1 contract
+
+// Helper for skewed random price (concentrated towards 45-95 range)
+function getRandomSimulationPrice() {
+    // Generates a price between 45 and 95, skewed towards the higher end (95)
+    // Using power 0.5 to push values higher
+    return 45 + Math.floor(Math.pow(Math.random(), 0.5) * 51);
+}
 
 for (let i = 0; i < numSimulations; i++) {
     let simBankrollCents = currentBankroll;
 
     for (let t = 0; t < tradesPerSim; t++) {
+        const randomPrice = getRandomSimulationPrice();
+        const ruinThreshold = randomPrice; 
+
+        // CRITICAL: Only bet if the trade has positive expected value
+        // If the price is 95 cents and your win rate is 95%, EV is zero. Skip!
+        const breakEvenWinProb = randomPrice / 100;
+        if (trueWinProb <= breakEvenWinProb) {
+            continue; 
+        }
+
         // Stop if ruined
-        if (simBankrollCents < RUIN_THRESHOLD) {
+        if (simBankrollCents < ruinThreshold) {
             break;
         }
 
-        // We use dynamic bet sizing: Risking 10% of current bankroll each trade
-        const currentTargetWager = simBankrollCents * bankrollRiskPercent;
-        const currentNumContracts = Math.floor(currentTargetWager / contractPriceCents);
+        const currentNumContracts = getContractsToBuy(simBankrollCents, randomPrice);
 
         // If bankroll dropped so low we can't buy 1 contract but we haven't hit threshold
         if (currentNumContracts === 0) {
             continue;
         }
 
-        const tradeCost = currentNumContracts * contractPriceCents;
-        const tradeProfit = currentNumContracts * (100 - contractPriceCents);
+        const tradeCost = currentNumContracts * randomPrice;
+        const tradeProfit = currentNumContracts * (100 - randomPrice);
 
         // Run the trade outcome
         if (Math.random() < trueWinProb) {
@@ -149,7 +177,7 @@ for (let i = 0; i < numSimulations; i++) {
         }
     }
 
-    if (simBankrollCents < RUIN_THRESHOLD) {
+    if (simBankrollCents < 75) { // Using 75 as a generic ruin floor for the summary
         bankruptcies++;
     } else if (simBankrollCents > currentBankroll) {
         profitableRuns++;
@@ -159,7 +187,7 @@ for (let i = 0; i < numSimulations; i++) {
 }
 
 console.log(`Simulated ${tradesPerSim} consecutive trades, repeated ${numSimulations} times.`);
-console.log(`Strategy: Dynamically wager ${(bankrollRiskPercent * 100).toFixed(2)}% of current bankroll every trade.`);
+console.log(`Strategy: Wager ${(bankrollRiskPercent * 100).toFixed(2)}% of current bankroll (capped at $200 wager and $350 profit) every trade.`);
 console.log(`Results:`);
 console.log(`- Bankruptcies (Ruin): ${(bankruptcies / numSimulations * 100).toFixed(2)}% of simulations`);
 console.log(`- Profitable Runs:     ${(profitableRuns / numSimulations * 100).toFixed(2)}% of simulations`);
