@@ -57,6 +57,7 @@ function getContractsToBuy(bankrollCents, priceCents) {
 
 
 console.log(`========== KALSHI TRADE ANALYSIS ==========`);
+console.log("START");
 console.log(`Starting Bankroll:   ${formatDollars(currentBankroll)}`);
 console.log(`Target Risk:         ${(bankrollRiskPercent * 100).toFixed(2)}% of bankroll`);
 console.log(`Max Wager Cap:       ${formatDollars(maxWagerCents)}`);
@@ -126,7 +127,7 @@ console.log(`===========================================`);
 // --- MONTE CARLO SIMULATION --- //
 console.log(`\n--- Running Monte Carlo Simulation (Randomized Prices 45¢ - 95¢, Skewed High) ---`);
 // Simulating N paths of M trades to see actual Risk of Ruin
-const numSimulations = 10000;
+const numSimulations = 1000;
 const tradesPerSim = 250;
 let bankruptcies = 0;
 let profitableRuns = 0;
@@ -141,6 +142,7 @@ function getRandomSimulationPrice() {
 }
 
 for (let i = 0; i < numSimulations; i++) {
+    if (i % 100 === 0) console.log("i=" + i);
     let simBankrollCents = currentBankroll;
 
     for (let t = 0; t < tradesPerSim; t++) {
