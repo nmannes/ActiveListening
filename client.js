@@ -43,7 +43,7 @@ Options:
   --server <ws://host:port> Remote WebSocket URL
   --matchJSON <json|base64> Market data as JSON or base64
   --fromFile <file.json>    Market data from file
-  --duration <minutes>      Auto-shutdown after N minutes
+  --duration <minutes>      Auto-shutdown after N minutes (default 90)
   --purchasePrice <price>   Optional purchase price for market
   --purchaseCount <count>   Optional purchase count for market
   --listen                  (tv only) Record 30s debug audio locally
@@ -282,12 +282,11 @@ setTimeout(async () => {
 }, 500);
 
 // Duration-based auto-shutdown
-if (args.duration) {
-  const durationMs = parseInt(args.duration, 10) * 60 * 1000;
-  if (!isNaN(durationMs)) {
-    logger.info(`Shutdown scheduled in ${args.duration} minutes`);
-    setTimeout(() => shutdown("Duration reached"), durationMs);
-  }
+const durationMinutes = args.duration || 90;
+const durationMs = parseInt(durationMinutes, 10) * 60 * 1000;
+if (!isNaN(durationMs)) {
+  logger.info(`Shutdown scheduled in ${durationMinutes} minutes`);
+  setTimeout(() => shutdown("Duration reached"), durationMs);
 }
 
 // ── Cleanup signals ──────────────────────────────────────────────────
