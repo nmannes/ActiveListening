@@ -48,6 +48,8 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
         fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
         console.log(`Scheduled ${market.title} for ${market.eventStartTime}`);
 
+        console.debug(`${JSON.stringify(market, null, 2)}`);
+
         let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration 75`;
         if (alreadyStarted) {
             cmd += " --client-only";
