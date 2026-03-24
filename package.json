@@ -13,6 +13,7 @@
         "puppeteer-extra": "^3.3.6",
         "puppeteer-extra-plugin-stealth": "^2.11.2",
         "sqlite3": "^5.1.7",
+        "typescript-telegram-bot-api": "^0.13.0",
         "ws": "^8.17.1",
         "xml2js": "^0.6.2"
     },
