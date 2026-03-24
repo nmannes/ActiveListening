@@ -4,7 +4,7 @@ const { findProgramsByZipAndKeyword } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
-const { scrapeNCAASchedule } = require("./lib/ncaa_tip_off_times.js");
+const { scrapeNCAASchedulesForDays } = require("./lib/ncaa_tip_off_times.js");
 const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
 const _ = require("lodash");
@@ -62,7 +62,7 @@ function isFileExpired(filePath, ttlMs) {
       () => frontPageMarkets(),
       () => findProgramsByZipAndKeyword(zip, "basketball"),
       () => scrapeEspnSchedule(new Date(), 3),
-      () => scrapeNCAASchedule(),
+      () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
 
     for (let i = 0; i < functionCalls.length; i++) {
@@ -106,7 +106,7 @@ function isFileExpired(filePath, ttlMs) {
     const configuredMarkets = markets.map(m => applyWordConfigurations(m));
     const allResults = matchDiscoveryEvents(configuredMarkets, tvSchedule, espnSchedule, ncaaSchedule);
 
-    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent);
+    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent || m.ncaaEvent);
     const unmatchedMarkets = allResults.filter(
       (m) => !m.tvEvent && !m.espnEvent && !m.ncaaEvent,
     );
