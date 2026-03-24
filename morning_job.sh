@@ -13,4 +13,4 @@ fi
 LOG_LEVEL=debug /home/nathan/.bun/bin/bun run e2e_discovery.js >> /home/nathan/kalshi/logs/run_discovery.log 2>&1
 
 
-LOG_LEVEL=debug /home/nathan/.bun/bin/bun run schedule_matches.js >> /home/nathan/kalshi/logs/schedule_matches.log 2>&1
+LOG_LEVEL=debug /home/nathan/.bun/bin/bun run schedule_matches.js --lookahead 20 >> /home/nathan/kalshi/logs/schedule_matches.log 2>&1

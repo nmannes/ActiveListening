@@ -8,11 +8,22 @@ const path = require('path');
 
 execSync('mkdir -p scheduled');
 
+const args = process.argv.slice(2);
+let lookaheadHours = 20;
+const lookaheadIdx = args.indexOf('--lookahead');
+if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
+    lookaheadHours = parseFloat(args[lookaheadIdx + 1]);
+}
+const lookaheadMs = lookaheadHours * 60 * 60 * 1000;
+
 const file = path.join('cache', 'matched_markets.json');
 
 if (fs.existsSync(file)) {
     console.log('File exists');
 }
+
+const now = new Date();
+const lookaheadLimit = new Date(now.getTime() + lookaheadMs);
 
 for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
     const { market, tvEvent, espnEvent, ncaaEvent } = match;
@@ -30,10 +41,15 @@ for (const match of JSON.parse(fs.readFileSync(file, 'utf8'))) {
     if (market.mediaStreamURL && scheduleStartTime) {
         let startTime = new Date(scheduleStartTime);
         let alreadyStarted = false;
-        if (startTime <= new Date()) {
+        if (startTime <= now) {
             alreadyStarted = true;
             startTime = new Date(Date.now() + 3 * 1000);
             scheduleStartTime = startTime.toISOString();
+        }
+
+        if (startTime > lookaheadLimit) {
+            console.log(`Skipping ${market.title} - starts in more than ${lookaheadHours} hours (${startTime.toLocaleString()})`);
+            continue;
         }
 
         delete market['keywords']['event does not qualify']
