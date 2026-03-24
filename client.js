@@ -13,9 +13,9 @@
  */
 
 const { execSync } = require("child_process");
-const fs = require("fs"); 
+const fs = require("fs");
 const WebSocket = require("ws");
-const logger = require("./lib/logger");
+const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 
 // ── CLI args ─────────────────────────────────────────────────────────
@@ -27,6 +27,9 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
   }
   return acc;
 }, {});
+
+// Initial logger with basic session ID if available via args
+let logger = baseLogger.child({ sessionId: args.id || "startup" });
 
 // ── Help ─────────────────────────────────────────────────────────────
 if (args.help) {
@@ -142,6 +145,8 @@ try {
 
 // ── Logging ──────────────────────────────────────────────────────────
 const sessionId = market.slug || args.id || new Date().getUTCSeconds();
+logger = baseLogger.child({ sessionId });
+
 logger.info(`Session ID: ${sessionId}`);
 logger.info(`Provider: ${provider.name}`);
 logger.info(`Market: ${market.title || market.slug}`);
@@ -192,21 +197,21 @@ function connectWebSocket() {
     try {
       const msg = JSON.parse(data.toString());
       if (msg.type === "signal") {
-        logger.info(`[remote] SIGNAL: ${msg.keyword} → ${msg.ticker}`);
+        logger.info(`SIGNAL: ${msg.keyword} → ${msg.ticker}`);
       } else if (msg.type === "transcript") {
-        logger.info(`[TRANSCRIPT] ${msg.text}`);
+        logger.info(`TRANSCRIPT: ${msg.text}`);
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
-        logger.info(`[ws] RTT: ${rtt}ms`);
+        logger.info(`RTT: ${rtt}ms`);
       } else if (msg.type === "telemetry") {
         logger.info(
           `[remote] Buffer: ${msg.buffer_ms}ms | Proc: ${msg.last_proc_ms}ms`,
         );
       } else {
-        logger.debug(`[remote][OTHER] ${JSON.stringify(msg)}`);
+        logger.debug(`[OTHER] ${JSON.stringify(msg)}`);
       }
     } catch (e) {
-      logger.debug(`[remote] data error: ${e.message}`);
+      logger.debug(`data error: ${e.message}`);
     }
   });
 
