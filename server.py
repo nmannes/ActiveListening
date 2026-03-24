@@ -79,7 +79,7 @@ async def main():
         default=os.environ.get("DEVICE", "cpu"),
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--buy-count", type=int, default=1)
+    parser.add_argument("--buy-count", type=int, default=40)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument(
         "--content-profile",
