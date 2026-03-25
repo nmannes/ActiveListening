@@ -35,6 +35,7 @@ from pylib.keyword_matching import (
 )
 from pylib.audio_decoder import AudioDecoder
 from pylib.transcriber import Transcriber, calculate_rms
+from pylib.nemo_transcriber import NemoTranscriber
 from pylib.clip import FrameClassifier
 from pylib.speaker_recognition import SpeakerRecognizer
 from pylib.vad import VoiceActivityDetector
@@ -87,6 +88,11 @@ async def main():
         default="basketball",
         help="CLIP content profile (default: basketball)",
     )
+    parser.add_argument(
+        "--whisper",
+        action="store_true",
+        help="Use faster-whisper instead of NeMo ASR (default)",
+    )
     args = parser.parse_args()
 
     # Auto-select model based on device if not specified
@@ -108,7 +114,13 @@ async def main():
     logger.info(f"Trading enabled: {trade_for_real}")
 
     # Init transcriber
-    transcriber = Transcriber(model_size=args.model, device=args.device)
+    if args.whisper:
+        logger.info(f"Using faster-whisper ({args.model})")
+        transcriber = Transcriber(model_size=args.model, device=args.device)
+    else:
+        logger.info("Using NeMo ASR (parakeet-tdt-1.1b)")
+        transcriber = NemoTranscriber(device=args.device)
+    
     speaker_recognizer = SpeakerRecognizer(device=args.device)
     vad = VoiceActivityDetector(device=args.device)
     frame_classifier = FrameClassifier(
