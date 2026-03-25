@@ -27,6 +27,8 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   const ffmpegArgs = [
     "-fflags", "nobuffer",
     "-flags", "low_delay",
+    "-probesize", "32",
+    "-analyzeduration", "0",
     "-i", inputUrl,
     "-f", "s16le",
     "-acodec", "pcm_s16le",

@@ -17,6 +17,7 @@ const fs = require("fs");
 const WebSocket = require("ws");
 const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
+const { waitIfNecessary } = require("./lib/event_started_yet");
 
 // ── CLI args ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -256,6 +257,11 @@ connectWebSocket();
 // Small delay to let WS connect before starting the provider
 setTimeout(async () => {
   try {
+    // Wait for the event to start if necessary
+    await waitIfNecessary(market, logger).catch(err => {
+      logger.error(`Error in waitIfNecessary: ${err.message}`);
+    });
+
     await provider.start({
       ws,
       market,

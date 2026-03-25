@@ -274,13 +274,13 @@ async def main():
             telemetry_task = asyncio.create_task(telemetry_loop())
 
             # VAD-based transcription parameters (Optimized for Real-Time)
-            VAD_WINDOW_SECS = 0.3
+            VAD_WINDOW_SECS = 0.1
             VAD_WINDOW_BYTES = int(VAD_WINDOW_SECS * 16000 * 2)
-            SILENCE_TIMEOUT_SECS = 0.4  # Aggressive: transcribe after 400ms pause
-            MAX_SEGMENT_SECS = 4.5      # Aggressive: force transcription after 4.5s
+            SILENCE_TIMEOUT_SECS = 0.1  # Aggressive: transcribe after 100ms pause
+            MAX_SEGMENT_SECS = 1.5      # Aggressive: force transcription after 1.5s
             PREROLL_SECS = 0.6          # Retain preroll padding
             PREROLL_BYTES = int(PREROLL_SECS * 16000 * 2)
-            MIN_STREAM_INTERVAL_SECS = 0.5
+            MIN_STREAM_INTERVAL_SECS = 0.1
             
             audio_buffer = b""
             speech_buffer = b""
