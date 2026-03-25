@@ -21,7 +21,6 @@ import open_clip
 open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
 EOF
 
-
 DEVICE="cpu"
 if [[ "${Environment}" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
     DEVICE="cuda"
