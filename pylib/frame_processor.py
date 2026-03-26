@@ -78,7 +78,7 @@ class FrameProcessor:
 
                 # Send to Telegram
                 caption = f"[{self.sid}] Content Visible: {current_result}\nConfidence: {result['confidence']:.2f}"
-                send_telegram_photo(str(frame_file), caption=caption, channel=self.telegram_channel)
+                send_telegram_photo(str(frame_file), caption=caption, channel='debug')
 
                 await self.websocket.send(json.dumps({"type": "frame_classification", **result}))
             except websockets.exceptions.ConnectionClosed:
