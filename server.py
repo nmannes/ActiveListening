@@ -120,7 +120,14 @@ async def handle_client(
 
                     audio_task = asyncio.create_task(audio_processor.run(audio_inbox, audio_inbox_lock))
                     if not audio_only:
-                        frame_processor = FrameProcessor(session_id, websocket, clip_executor, frame_classifier, ctx)
+                        frame_processor = FrameProcessor(
+                            session_id=session_id, 
+                            websocket=websocket, 
+                            clip_executor=clip_executor, 
+                            frame_classifier=frame_classifier, 
+                            ctx=ctx,
+                            telegram_channel=args.telegram_channel
+                        )
                         frame_task = asyncio.create_task(frame_processor.run())
 
                     logger.info(f"[{session_id}] Session ready")
@@ -154,6 +161,7 @@ async def main() -> None:
     parser.add_argument("--buy-count", type=int, default=40)
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument("--content-profile", type=str, default="basketball")
+    parser.add_argument("--telegram-channel", type=str, default="info", choices=["info", "debug"])
     parser.add_argument("--whisper", action="store_true")
     args = parser.parse_args()
 

@@ -22,13 +22,15 @@ class FrameProcessor:
         websocket: WebSocketServerProtocol, 
         clip_executor: ThreadPoolExecutor, 
         frame_classifier: FrameClassifier, 
-        ctx: SessionContext
+        ctx: SessionContext,
+        telegram_channel: str = 'info'
     ):
         self.sid = sid
         self.websocket = websocket
         self.clip_executor = clip_executor
         self.frame_classifier = frame_classifier
         self.ctx = ctx
+        self.telegram_channel = telegram_channel
         self.frame_path = Path(__file__).parent.parent / "debug" / f"frame-{sid}.jpg"
 
     async def run(self) -> None:
@@ -76,7 +78,7 @@ class FrameProcessor:
 
                 # Send to Telegram
                 caption = f"[{self.sid}] Content Visible: {current_result}\nConfidence: {result['confidence']:.2f}"
-                send_telegram_photo(str(frame_file), caption=caption)
+                send_telegram_photo(str(frame_file), caption=caption, channel=self.telegram_channel)
 
                 await self.websocket.send(json.dumps({"type": "frame_classification", **result}))
             except websockets.exceptions.ConnectionClosed:

@@ -20,38 +20,48 @@ def setup_env():
 # Initialize environment
 setup_env()
 
-BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-MY_ID = os.environ.get("TELEGRAM_MY_ID")
-BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+def get_bot(channel='info'):
+    is_debug = (channel == 'debug' or channel is True)
+    token = os.environ.get("TELEGRAM_KEY_DEBUG") if is_debug else os.environ.get("TELEGRAM_KEY")
+    chat_id = os.environ.get("TELEGRAM_MY_ID")
+    
+    if not token:
+        print(f"Warning: Telegram token for {'debug' if is_debug else 'info'} channel not found.")
+        
+    return token, chat_id
 
-def get_bot_info():
-    response = requests.get(f"{BASE_URL}/getMe")
+def get_bot_info(channel='info'):
+    token, _ = get_bot(channel)
+    response = requests.get(f"https://api.telegram.org/bot{token}/getMe")
     return response.json()
 
-def get_updates():
-    response = requests.get(f"{BASE_URL}/getUpdates")
+def get_updates(channel='info'):
+    token, _ = get_bot(channel)
+    response = requests.get(f"https://api.telegram.org/bot{token}/getUpdates")
     return response.json()
 
-def send_telegram(message):
-    response = requests.post(f"{BASE_URL}/sendMessage", json={
-        "chat_id": MY_ID,
+def send_telegram(message, channel='info'):
+    token, chat_id = get_bot(channel)
+    response = requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={
+        "chat_id": chat_id,
         "text": message
     })
     return response.json()
 
-def send_telegram_photo(photo, caption=None):
-    url = f"{BASE_URL}/sendPhoto"
+def send_telegram_photo(photo, caption=None, channel='info'):
+    token, chat_id = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
     
     if photo.startswith("http"):
         data = {
-            "chat_id": MY_ID,
+            "chat_id": chat_id,
             "photo": photo,
             "caption": caption
         }
         response = requests.post(url, json=data)
     else:
         data = {
-            "chat_id": MY_ID,
+            "chat_id": chat_id,
             "caption": caption
         }
         with open(photo, "rb") as f:
