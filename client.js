@@ -181,6 +181,7 @@ function connectWebSocket() {
     // Send handshake with market data
     const hello = { type: "hello", market };
     if (provider.audioOnly) hello.audioOnly = true;
+    if (market.clipProfile !== undefined) hello.clipProfile = market.clipProfile;
     ws.send(JSON.stringify(hello));
 
     // Update provider's ws reference
@@ -205,9 +206,8 @@ function connectWebSocket() {
         const rtt = Date.now() - msg.ts;
         logger.info(`RTT: ${rtt}ms`);
       } else if (msg.type === "telemetry") {
-        logger.info(
-          `[remote] Buffer: ${msg.buffer_ms}ms | Proc: ${msg.last_proc_ms}ms`,
-        );
+        delete msg.type;
+        logger.info(`[remote] ${JSON.stringify(msg)}`);
       } else {
         logger.debug(`[OTHER] ${JSON.stringify(msg)}`);
       }

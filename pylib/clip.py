@@ -116,10 +116,6 @@ class FrameClassifier:
         self.threshold = threshold
         self.content_profile = content_profile
 
-        profile = CONTENT_PROFILES[content_profile]
-        self.positive_prompts = profile["positive"]
-        self.negative_prompts = profile["negative"]
-
         logger.info(f"Loading CLIP model (ViT-B-32) on {device}...")
         self.model, _, self.preprocess = open_clip.create_model_and_transforms(
             "ViT-B-32", pretrained="laion2b_s34b_b79k", device=device
@@ -127,33 +123,39 @@ class FrameClassifier:
         self.tokenizer = open_clip.get_tokenizer("ViT-B-32")
         self.model.eval()
 
-        # Pre-encode text prompts
-        all_prompts = self.positive_prompts + self.negative_prompts
-        with torch.no_grad():
-            text_tokens = self.tokenizer(all_prompts).to(device)
-            self.text_features = self.model.encode_text(text_tokens)
-            self.text_features /= self.text_features.norm(dim=-1, keepdim=True)
+        self.profile_features = {}
+        self.pre_encode_all_profiles()
+        logger.info(f"CLIP model loaded with {len(self.profile_features)} profiles.")
 
-        self.n_positive = len(self.positive_prompts)
-        logger.info(
-            f"CLIP model loaded — profile='{content_profile}', "
-            f"{self.n_positive} positive / {len(self.negative_prompts)} negative prompts."
-        )
+    def pre_encode_all_profiles(self):
+        """Pre-encode all content profiles into the feature cache."""
+        for name, profile in CONTENT_PROFILES.items():
+            pos = profile["positive"]
+            neg = profile["negative"]
+            all_prompts = pos + neg
+            with torch.no_grad():
+                text_tokens = self.tokenizer(all_prompts).to(self.device)
+                features = self.model.encode_text(text_tokens)
+                features /= features.norm(dim=-1, keepdim=True)
+                self.profile_features[name] = {
+                    "features": features,
+                    "n_positive": len(pos)
+                }
 
-    def classify(self, frame_bytes: bytes) -> dict:
+    def classify(self, frame_bytes: bytes, profile_name: str = None) -> dict:
         """
         Classify a JPEG frame.
-
-        Args:
-            frame_bytes: raw JPEG bytes
-
-        Returns:
-            dict with keys:
-                - is_desired_content_visible (bool): True if classified as desired content
-                - confidence (float): probability score (0-1)
-                - elapsed_ms (int): inference time in milliseconds
-                - content_profile (str): which profile was used
+        profile_name: override the default content profile for this call
         """
+        profile_name = profile_name or self.content_profile
+        if profile_name not in self.profile_features:
+            logger.warning(f"Unknown profile '{profile_name}', falling back to '{self.content_profile}'")
+            profile_name = self.content_profile
+
+        features_data = self.profile_features[profile_name]
+        text_features = features_data["features"]
+        n_positive = features_data["n_positive"]
+
         t0 = time.time()
 
         image = Image.open(io.BytesIO(frame_bytes)).convert("RGB")
@@ -164,11 +166,11 @@ class FrameClassifier:
             image_features /= image_features.norm(dim=-1, keepdim=True)
 
             # Cosine similarity with all prompts
-            similarities = (image_features @ self.text_features.T).squeeze(0)
+            similarities = (image_features @ text_features.T).squeeze(0)
 
-            # Max similarity for positive vs negative prompt groups (better for zero-shot)
-            pos_score = similarities[: self.n_positive].max(-1).values.item()
-            neg_score = similarities[self.n_positive :].max(-1).values.item()
+            # Max similarity for positive vs negative prompt groups
+            pos_score = similarities[:n_positive].max(-1).values.item()
+            neg_score = similarities[n_positive:].max(-1).values.item()
 
             # Softmax over [positive, negative] to get probability
             scores = torch.tensor([pos_score, neg_score])

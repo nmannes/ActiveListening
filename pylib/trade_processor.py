@@ -29,70 +29,82 @@ class TradeProcessor:
         self.trading_speakers.add(str(speaker_id))
         logger.info(f"[{self.session.session_id}][TRADE] Added to whitelist: {speaker_id}")
 
-    async def process_tokens(self, tokens: list[str], speaker_id: str = None):
+    async def process_tokens(self, tokens: list[dict], speaker_id: str = None):
+        """
+        Processes incoming tokens from a specific speaker.
+        tokens: list of {'text': str, 'start': float}
+        """
         if not tokens:
             return
 
         speaker_id = str(speaker_id) if speaker_id is not None else "unknown"
         
+        # Sort incoming tokens by timestamp to handle potentially out-of-order delivery
+        sorted_tokens = sorted(tokens, key=lambda x: x.get("start", 0))
+
         # 1. Update global transcript (interleaved)
         new_tokens_added = []
-        for token in tokens:
-            if not token:
+        for token_dict in sorted_tokens:
+            text = token_dict.get("text", "").strip()
+            if not text:
                 continue
 
             # Deduplicate adjacent in global transcript
-            if self.session.transcript and self.session.transcript[-1] == token:
+            if self.session.transcript and self.session.transcript[-1]["text"] == text:
                 continue
-            if new_tokens_added and new_tokens_added[-1] == token:
+            if new_tokens_added and new_tokens_added[-1]["text"] == text:
                 continue
 
-            self.session.transcript.append(token)
-            new_tokens_added.append(token)
+            self.session.transcript.append(token_dict)
+            new_tokens_added.append(token_dict)
             if len(self.session.transcript) > 10000:
                 self.session.transcript.pop(0)
 
-        # 2. Update per-speaker buffer
+        # 2. Update per-speaker buffer and Match
         speaker_buffer = self.speaker_buffers[speaker_id]
         
-        # 3. Match and Trade
-        # We only match keywords if the speaker is in the trading_speakers set.
-        # If trading_speakers is empty, we don't trade on anyone (conservative).
-        
-        for token in tokens:
-            # We add to speaker buffer one by one as we process them for matching
-            speaker_buffer.append(token)
+        if speaker_id not in self.trading_speakers:
+            # Even if not trading, we update the buffer for visibility
+            for t in new_tokens_added:
+                speaker_buffer.append(t["text"])
+                if len(speaker_buffer) > 500:
+                    speaker_buffer.pop(0)
+            return
 
-            if speaker_id in self.trading_speakers:
-                matched = find_keyword_match(self.session.keyword_index, speaker_buffer, token)
-                if matched:
-                    logger.info(f"[{self.session.session_id}][SIGNAL] Detected for speaker {speaker_id}: \"{matched['key']}\"")
+        for t in new_tokens_added:
+            word = t["text"]
+            speaker_buffer.append(word)
+            if len(speaker_buffer) > 500:
+                speaker_buffer.pop(0)
 
-                    if not self.session.is_content_visible:
-                        logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen")
-                        continue
+            matched = find_keyword_match(self.session.keyword_index, speaker_buffer, word)
+            if matched:
+                logger.info(f"[{self.session.session_id}][SIGNAL] Detected for speaker {speaker_id}: \"{matched['key']}\"")
 
-                    if self.session.server.config.trade_for_real:
-                        await self.place_order(matched)
-                    else:
-                        logger.info(f"[{self.session.session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected for {speaker_id}")
+                if not self.session.is_content_visible:
+                    logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen")
+                    continue
 
-                    remove_market_from_index(self.session.keyword_index, matched["value"])
+                if self.session.server.config.trade_for_real:
+                    await self.place_order(matched)
+                else:
+                    logger.info(f"[{self.session.session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected for {speaker_id}")
 
-                    # Notify client
-                    try:
-                        await self.session.websocket.send(
-                            json.dumps(
-                                {
-                                    "type": "signal",
-                                    "keyword": matched["key"],
-                                    "ticker": matched["value"],
-                                    "speaker_id": speaker_id,
-                                }
-                            )
+                remove_market_from_index(self.session.keyword_index, matched["value"])
+
+                # Notify client
+                try:
+                    await self.session.websocket.send(
+                        json.dumps(
+                            {
+                                "type": "signal",
+                                "keyword": matched["key"],
+                                "start": t.get("start")
+                            }
                         )
-                    except websockets.exceptions.ConnectionClosed:
-                        pass
+                    )
+                except Exception as e:
+                    logger.error(f"[{self.session.session_id}] Error notifying client of signal: {e}")
 
         if new_tokens_added:
             recent = " ".join(self.session.transcript[-self.session.server.config.last_words_count :])

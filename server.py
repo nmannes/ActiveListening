@@ -136,10 +136,11 @@ class ClientSession:
         self.market = msg["market"]
         self.audio_only = msg.get("audioOnly", False)
         self.voice_profile = msg.get("voiceProfile")
+        self.clip_profile = msg.get("clipProfile")
         self.session_id = self.market.get("slug", f"session-{int(time.time())}")
 
         logger.info(
-            f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile})"
+            f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
         )
 
         if self.audio_only:
@@ -159,11 +160,14 @@ class ClientSession:
         if self.audio_task:
             self.audio_task.cancel()
 
-        if not self.audio_only:
+        if not self.audio_only and self.clip_profile is not None:
             self.frame_processor = FrameProcessor(self)
             self.frame_task = asyncio.create_task(self.frame_processor.run())
         else:
-            logger.info(f"[{self.session_id}] Audio-only mode — skipping frame classification")
+            if not self.audio_only:
+                logger.info(f"[{self.session_id}] clipProfile is null — skipping frame classification for this session")
+            else:
+                logger.info(f"[{self.session_id}] Audio-only mode — skipping frame classification")
 
         # Start the background tasks
         self.trade_processor = DiarizedTradeProcessor(self)

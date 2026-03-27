@@ -39,6 +39,7 @@ class FrameProcessor:
                     self.session.server.clip_executor,
                     self.session.server.frame_classifier.classify,
                     data,
+                    self.session.clip_profile
                 )
                 
                 current_result = result["is_desired_content_visible"]

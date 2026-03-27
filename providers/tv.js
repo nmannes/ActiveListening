@@ -257,7 +257,11 @@ module.exports = {
     if (_listen) _logger.info(`[listen] Local audio playback enabled`);
 
     spawnFFmpeg();
-    spawnFrameGrabber();
+    if (!args.audioOnly && market.clipProfile) {
+      spawnFrameGrabber();
+    } else {
+      _logger.info(`[tv] clipProfile is null or audioOnly requested — skipping local frame grabber`);
+    }
     if (_listen) spawnListener();
   },
 
