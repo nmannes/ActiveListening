@@ -2,13 +2,12 @@
 """
 server.py — Remote WebSocket server for audio transcription & Kalshi trading
 
-Receives compressed audio (AAC/ADTS) from tvclient.js over WebSocket,
-decodes to PCM via ffmpeg, transcribes in-process via faster-whisper,
+Receives PCM audio from client over WebSocket,
+streams to Deepgram for transcription/diarization,
 does keyword matching, and trades on Kalshi.
 
 Usage:
     python3 server.py --env prod --port 8090
-    python3 server.py --env prod --port 8090 --model base.en --device cpu
 """
 
 import argparse
@@ -29,11 +28,7 @@ import websockets
 from pylib.kalshi_client import KalshiClient
 from pylib.keyword_matching import build_keyword_index
 from pylib.audio_decoder import AudioDecoder
-from pylib.transcriber import Transcriber, calculate_rms
-from pylib.nemo_transcriber import NemoTranscriber
 from pylib.clip import FrameClassifier
-from pylib.speaker_recognition import SpeakerRecognizer
-from pylib.vad import VoiceActivityDetector
 from pylib.audio_processor import AudioProcessor
 from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
@@ -54,13 +49,6 @@ class Config:
         self.buy_count = getattr(args, "buy_count", 40)
         self.last_words_count = getattr(args, "last_words_count", 7)
         self.content_profile = getattr(args, "content_profile", "basketball")
-        self.whisper = getattr(args, "whisper", False)
-        self.model = getattr(args, "model", None)
-
-        # Auto-select model based on device if not specified
-        if self.model is None:
-            self.model = "small.en" if self.device == "cuda" else "base.en"
-            logger.info(f"Auto-selected model '{self.model}' for device '{self.device}'")
 
         # Load env file
         env_file = Path(__file__).parent / f".env.{self.env}"
@@ -217,16 +205,11 @@ class TradingServer:
         self.config = config
         
         # Shared resources
-        logger.info(f"Using faster-whisper ({config.model})")
-        self.transcriber = Transcriber(model_size=config.model, device=config.device)
-        self.speaker_recognizer = SpeakerRecognizer(device=config.device)
-        self.vad = VoiceActivityDetector(device=config.device)
         self.frame_classifier = FrameClassifier(
             device=config.device, content_profile=config.content_profile
         )
         
         self.clip_executor = ThreadPoolExecutor(max_workers=1)
-        self.vad_executor = ThreadPoolExecutor(max_workers=1)
 
         # Init Kalshi client
         self.kalshi = KalshiClient(
@@ -254,12 +237,6 @@ async def main():
     parser.add_argument("--port", type=int, default=8090, help="WebSocket listen port")
     parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
     parser.add_argument(
-        "--model",
-        type=str,
-        default=None,
-        help="Whisper model name (default: small.en for cuda, base.en for cpu)",
-    )
-    parser.add_argument(
         "--device",
         type=str,
         default=os.environ.get("DEVICE", "cpu"),
@@ -272,11 +249,6 @@ async def main():
         type=str,
         default="basketball",
         help="CLIP content profile (default: basketball)",
-    )
-    parser.add_argument(
-        "--whisper",
-        action="store_true",
-        help="Use faster-whisper instead of NeMo ASR (default)",
     )
  
     args = parser.parse_args()

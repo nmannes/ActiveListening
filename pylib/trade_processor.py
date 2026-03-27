@@ -107,15 +107,18 @@ class TradeProcessor:
                     logger.error(f"[{self.session.session_id}] Error notifying client of signal: {e}")
 
         if new_tokens_added:
-            recent = " ".join(self.session.transcript[-self.session.server.config.last_words_count :])
-            logger.info(f"[{self.session.session_id}][{speaker_id}] Transcript: {' '.join(new_tokens_added)} (Last {self.session.server.config.last_words_count}: {recent})")
-            transcript_logger.info(f"[{self.session.session_id}][{speaker_id}] {' '.join(new_tokens_added)}")
+            new_text = " ".join(t["text"] for t in new_tokens_added)
+            recent = " ".join(t["text"] for t in self.session.transcript[-self.session.server.config.last_words_count :])
+            
+            logger.info(f"[{self.session.session_id}][{speaker_id}] Transcript: {new_text} (Last {self.session.server.config.last_words_count}: {recent})")
+            transcript_logger.info(f"[{self.session.session_id}][{speaker_id}] {new_text}")
+            
             try:
                 await self.session.websocket.send(
                     json.dumps(
                         {
                             "type": "transcript",
-                            "text": " ".join(new_tokens_added),
+                            "text": new_text,
                             "speaker_id": speaker_id,
                         }
                     )

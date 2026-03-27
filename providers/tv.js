@@ -74,7 +74,7 @@ function spawnFFmpeg() {
 
       _ws.send(data);
     } else {
-      _logger.warn(`[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`);
+      _logger.debug(`[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`);
     }
   });
 
