@@ -6,15 +6,13 @@ import numpy as np
 import websockets
 from pathlib import Path
 
-from pylib.keyword_matching import find_keyword_match, remove_market_from_index
-from pylib.telegram import send_telegram
-
 logger = logging.getLogger("remote_server")
 transcript_logger = logging.getLogger("transcript")
 
 class AudioProcessor:
-    def __init__(self, session):
+    def __init__(self, session, on_tokens_callback=None):
         self.session = session
+        self.on_tokens_callback = on_tokens_callback
         self.audio_buffer = b""
         self.speech_buffer = b""
         self.preroll_buffer = b""
@@ -131,7 +129,7 @@ class AudioProcessor:
                 # If voice profile is active, verify speaker on the speech segment
                 if self.session.voice_profile:
                     if await self.verify_speaker(now):
-                        await self.emit_new_tokens(text)
+                        await self.emit_new_tokens(text, speaker_id=self.session.voice_profile)
                 else:
                     await self.emit_new_tokens(text)
                 
@@ -193,7 +191,7 @@ class AudioProcessor:
         self.in_speech = False
         self.committed_tokens.clear()
 
-    async def emit_new_tokens(self, text):
+    async def emit_new_tokens(self, text, speaker_id=None):
         raw_tokens = [self.session.punct_re.sub("", w).lower() for w in text.split() if self.session.punct_re.sub("", w).lower()]
         match_idx = 0
         for i in range(min(len(self.committed_tokens), len(raw_tokens))):
@@ -206,105 +204,9 @@ class AudioProcessor:
         
         if new_tokens:
             self.committed_tokens.extend(new_tokens)
-            await self.process_tokens(new_tokens)
+            if self.on_tokens_callback:
+                asyncio.create_task(self.on_tokens_callback(new_tokens, speaker_id=speaker_id))
 
-    async def process_tokens(self, tokens: list[str]):
-        if not tokens:
-            return
-
-        new_tokens_added = []
-        for token in tokens:
-            if not token:
-                continue
-
-            # Deduplicate adjacent
-            if self.session.transcript and self.session.transcript[-1] == token:
-                continue
-            if new_tokens_added and new_tokens_added[-1] == token:
-                continue
-
-            self.session.transcript.append(token)
-            new_tokens_added.append(token)
-            if len(self.session.transcript) > 10000:
-                self.session.transcript.pop(0)
-
-            matched = find_keyword_match(self.session.keyword_index, self.session.transcript, token)
-            if not matched:
-                continue
-
-            logger.info(f"[{self.session.session_id}][SIGNAL] Detected: \"{matched['key']}\"")
-
-            if not self.session.is_content_visible:
-                logger.info(f"[{self.session.session_id}][TRADE] Skipping trade because desired content not on screen")
-                continue
-
-            if self.session.server.config.trade_for_real:
-                await self.place_order(matched)
-            else:
-                logger.info(f"[{self.session.session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected")
-
-            remove_market_from_index(self.session.keyword_index, matched["value"])
-
-            # Notify client
-            try:
-                await self.session.websocket.send(
-                    json.dumps(
-                        {
-                            "type": "signal",
-                            "keyword": matched["key"],
-                            "ticker": matched["value"],
-                        }
-                    )
-                )
-            except websockets.exceptions.ConnectionClosed:
-                pass
-
-        if new_tokens_added:
-            recent = " ".join(self.session.transcript[-self.session.server.config.last_words_count :])
-            logger.info(f"[{self.session.session_id}] Transcript: {' '.join(new_tokens_added)} (Last {self.session.server.config.last_words_count}: {recent})")
-            transcript_logger.info(f"[{self.session.session_id}] {' '.join(new_tokens_added)}")
-            try:
-                await self.session.websocket.send(
-                    json.dumps(
-                        {
-                            "type": "transcript",
-                            "text": " ".join(new_tokens_added),
-                        }
-                    )
-                )
-            except websockets.exceptions.ConnectionClosed:
-                pass
-
-    async def place_order(self, matched):
-        order_result = None
-        try:
-            # Check if there are specific word configurations
-            keyword_configs = self.session.market.get("keywordConfigs", {})
-            word_config = keyword_configs.get(matched["key"], {})
-            
-            purchase_price = int(word_config.get("purchasePrice", self.session.market.get("purchasePrice", 90)))
-            purchase_count = int(word_config.get("purchaseCount", self.session.market.get("purchaseCount", self.session.server.config.buy_count)))
-            
-            t0_trade = time.time()
-            order_result = self.session.server.kalshi.place_fill_or_kill_order(
-                yes_price=purchase_price,
-                ticker=matched["value"],
-                count=purchase_count,
-            )
-            t1_trade = time.time()
-            logger.info(f"[{self.session.session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
-            logger.info(f"[{self.session.session_id}][TRADE] Order result: {order_result}")
-
-            # Send Telegram notification
-            msg = (
-                f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
-                f"Ticker: {matched['value']}\n"
-                f"Result: {order_result}"
-            )
-            asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
-            
-        except Exception as e:
-            logger.error(f"[{self.session.session_id}][TRADE] Error placing order. error: {e}, result: {order_result}")
 
     async def telemetry_loop(self):
         while True:

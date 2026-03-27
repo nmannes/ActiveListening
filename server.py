@@ -35,6 +35,7 @@ from pylib.clip import FrameClassifier
 from pylib.speaker_recognition import SpeakerRecognizer
 from pylib.vad import VoiceActivityDetector
 from pylib.audio_processor import AudioProcessor
+from pylib.trade_processor import TradeProcessor
 from pylib.frame_processor import FrameProcessor
 
 # ── Logging ───────────────────────────────────────────────────────────
@@ -178,8 +179,9 @@ class ClientSession:
         else:
             logger.info(f"[{self.session_id}] Audio-only mode — skipping frame classification")
 
-        # Start the background task that processes PCM from audio_inbox
-        self.audio_processor = AudioProcessor(self)
+        # Start the background tasks
+        self.trade_processor = DiarizedTradeProcessor(self)
+        self.audio_processor = AudioProcessor(self, on_tokens_callback=self.trade_processor.process_tokens)
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
         logger.info(f"[{self.session_id}] Session ready — receiving audio over WebSocket")
