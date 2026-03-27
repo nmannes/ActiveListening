@@ -60,7 +60,6 @@ class TradeProcessor:
             speaker_buffer.append(token)
             if len(speaker_buffer) > 100:
 
-
             if speaker_id in self.trading_speakers:
                 matched = find_keyword_match(self.session.keyword_index, speaker_buffer, token)
                 if matched:
@@ -141,7 +140,7 @@ class TradeProcessor:
             logger.error(f"[{self.session.session_id}][TRADE] Error placing order. error: {e}, result: {order_result}")
 
 class DiarizedTradeProcessor(TradeProcessor):
-    async def process_tokens(self, tokens: list[str], speaker_id: str = None):
+    async def process_tokens(self, tokens: list[dict], speaker_id: str = None):
         if speaker_id:
             logger.info(f"[{self.session.session_id}][DIARIZED] Processing {len(tokens)} tokens from speaker: {speaker_id}")
         await super().process_tokens(tokens, speaker_id=speaker_id)
