@@ -7,6 +7,7 @@ import websockets
 from pathlib import Path
 
 from pylib.keyword_matching import find_keyword_match, remove_market_from_index
+from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
 transcript_logger = logging.getLogger("transcript")
@@ -292,7 +293,16 @@ class AudioProcessor:
             )
             t1_trade = time.time()
             logger.info(f"[{self.session.session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)")
-            logger.info(f"[{self.session_id}][TRADE] Order result: {order_result}")
+            logger.info(f"[{self.session.session_id}][TRADE] Order result: {order_result}")
+
+            # Send Telegram notification
+            msg = (
+                f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
+                f"Ticker: {matched['value']}\n"
+                f"Result: {order_result}"
+            )
+            asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
+            
         except Exception as e:
             logger.error(f"[{self.session.session_id}][TRADE] Error placing order. error: {e}, result: {order_result}")
 
