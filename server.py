@@ -204,11 +204,8 @@ class TradingServer:
     def __init__(self, config):
         self.config = config
         
-        # Shared resources
-        self.frame_classifier = FrameClassifier(
-            device=config.device, content_profile=config.content_profile
-        )
-        
+        # Shared resources (initially None, loaded asynchronously)
+        self.frame_classifier = None
         self.clip_executor = ThreadPoolExecutor(max_workers=1)
 
         # Init Kalshi client
@@ -224,10 +221,32 @@ class TradingServer:
 
     async def start(self):
         logger.info(f"WebSocket server listening on port {self.config.port}")
+        
+        # Start background resource initialization
+        asyncio.create_task(self.initialize_resources())
+        
         async with websockets.serve(
             self.handle_client, "0.0.0.0", self.config.port, ping_interval=None, max_size=None
         ):
             await asyncio.Future()  # run forever
+
+    async def initialize_resources(self):
+        """Asynchronously load heavy models/resources."""
+        try:
+            logger.info("Starting background resource initialization...")
+            loop = asyncio.get_running_loop()
+            
+            # Load CLIP in executor to avoid blocking the event loop
+            self.frame_classifier = await loop.run_in_executor(
+                self.clip_executor,
+                lambda: FrameClassifier(
+                    device=self.config.device, 
+                    content_profile=self.config.content_profile
+                )
+            )
+            logger.info("Background resource initialization complete.")
+        except Exception as e:
+            logger.exception(f"Error during resource initialization: {e}")
 
 
 async def main():

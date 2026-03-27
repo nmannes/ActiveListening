@@ -35,6 +35,10 @@ class FrameProcessor:
                     or data[1] != 0xD8
                 ):
                     continue
+                if self.session.server.frame_classifier is None:
+                    # Still loading in background
+                    continue
+
                 result = await asyncio.get_running_loop().run_in_executor(
                     self.session.server.clip_executor,
                     self.session.server.frame_classifier.classify,
