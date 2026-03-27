@@ -108,8 +108,24 @@ class AudioProcessor:
     async def receive_results(self, dg_ws):
         """Handle transcripts and metrics returned by Deepgram."""
         logger.info(f"[{self.session.session_id}] Results receiver task started")
+        
+        # Ensure deepgram_responses directory exists
+        resp_dir = Path(__file__).parent.parent / "deepgram_responses"
+        resp_dir.mkdir(exist_ok=True)
+        
         try:
             async for message in dg_ws:
+                # Save raw response to file (non-blocking)
+                ts = time.time_ns()
+                filename = resp_dir / f"dg_{ts}.json"
+                
+                # Inline lambda or helper to write file
+                def _write():
+                    with open(filename, "w") as f:
+                        f.write(message)
+                
+                asyncio.get_running_loop().run_in_executor(None, _write)
+                
                 data = json.loads(message)
                 msg_type = data.get("type")
                 
