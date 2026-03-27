@@ -76,7 +76,6 @@ def load_env_file(env_name):
     return "".join(processed_lines)
 
 
-pylib_dir = os.path.join(template_dir, "..", "pylib")
 context = {
     "server_py": load_file("../server.py"),
     "setup_kalshi_sh": load_file("setup_kalshi.sh.j2"),
@@ -85,39 +84,39 @@ context = {
     "env_content": load_env_file(env_name),
 }
 
-# Load all pylib/*.py files as template variables (e.g. pylib_clip_py, pylib_transcriber_py)
+pylib_dir = os.path.join(template_dir, "..", "pylib")
+pylib_files = {}
+
+# Load all files in pylib (excluding __pycache__ and subdirectories)
 if os.path.isdir(pylib_dir):
     for fname in sorted(os.listdir(pylib_dir)):
-        if fname.endswith(".py"):
-            var_name = f"pylib_{fname.replace('.', '_')}"
-            with open(os.path.join(pylib_dir, fname), "r") as f:
-                content = f.read()
-                # Ensure __init__.py isn't empty to avoid CloudFormation parser issues
-                # (cfn-init "File specified without source or content" error)
-                if fname == "__init__.py" and not content.strip():
-                    content = "# pylib package\n"
-                context[var_name] = content
-                print(f"Loaded {fname} ({len(content)} bytes)")
+        if fname == "__pycache__" or os.path.isdir(os.path.join(pylib_dir, fname)):
+            continue
+            
+        var_name = f"pylib_{fname.replace('.', '_')}"
+        with open(os.path.join(pylib_dir, fname), "r") as f:
+            content = f.read()
+            # Ensure __init__.py isn't empty to avoid CloudFormation parser issues
+            if fname == "__init__.py" and not content.strip():
+                content = "# pylib package\n"
+            
+            pylib_files[fname] = content
+            # Keep individual variables for backward compatibility if needed
+            context[var_name] = content
+            print(f"Loaded {fname} ({len(content)} bytes)")
 
-expected_vars = [
-    "pylib___init___py",
-    "pylib_audio_decoder_py",
-    "pylib_clip_py",
-    "pylib_kalshi_client_py",
-    "pylib_keyword_matching_py",
-    "pylib_transcriber_py",
-    "pylib_speaker_recognition_py",
-    "pylib_vad_py",
-    "pylib_nemo_transcriber_py",
-    "pylib_test_nemo_transcriber_py",
-]
-missing = []
-for v in expected_vars:
-    if v not in context or not context.get(v):
-        missing.append(v)
+context["pylib_files"] = pylib_files
+
+# Validation - ensure core files and some pylib files are present
+required_core_files = ["server_py", "setup_kalshi_sh", "kalshi_service", "requirements_txt"]
+missing = [v for v in required_core_files if v not in context or not context.get(v)]
 
 if missing:
-    print(f"ERROR: Missing or empty required variables in context: {missing}")
+    print(f"ERROR: Missing or empty required core variables in context: {missing}")
+    sys.exit(1)
+
+if not pylib_files:
+    print("ERROR: No files found in pylib directory")
     sys.exit(1)
 
 template = env.get_template(template_name)
