@@ -61,14 +61,14 @@ transcript_logger.addHandler(logging.FileHandler("logs/transcript.log"))
 
 class Config:
     def __init__(self, args):
-        self.port = args.port
-        self.env = args.env
-        self.device = args.device
-        self.buy_count = args.buy_count
-        self.last_words_count = args.last_words_count
-        self.content_profile = args.content_profile
-        self.whisper = args.whisper
-        self.model = args.model
+        self.port = getattr(args, "port", 8090)
+        self.env = getattr(args, "env", "prod")
+        self.device = getattr(args, "device", os.environ.get("DEVICE", "cpu"))
+        self.buy_count = getattr(args, "buy_count", 40)
+        self.last_words_count = getattr(args, "last_words_count", 7)
+        self.content_profile = getattr(args, "content_profile", "basketball")
+        self.whisper = getattr(args, "whisper", False)
+        self.model = getattr(args, "model", None)
 
         # Auto-select model based on device if not specified
         if self.model is None:
@@ -280,6 +280,11 @@ async def main():
         type=str,
         default="basketball",
         help="CLIP content profile (default: basketball)",
+    )
+    parser.add_argument(
+        "--whisper",
+        action="store_true",
+        help="Use faster-whisper instead of NeMo ASR (default)",
     )
  
     args = parser.parse_args()

@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import time
+import base64
 from pathlib import Path
+from pylib.telegram import send_telegram_photo
 
 logger = logging.getLogger("remote_server")
 
@@ -72,10 +74,28 @@ class FrameProcessor:
                     json.dumps(result, indent=2)
                 )
 
+                # Send to Telegram debug channel
+                caption = (
+                    f"[{sid}][{result['content_profile']}] "
+                    f"visible={current_result} "
+                    f"conf={result['confidence']:.2f} "
+                    f"({result['elapsed_ms']}ms)"
+                )
+                asyncio.get_running_loop().run_in_executor(
+                    None,
+                    send_telegram_photo,
+                    str(frames_dir / f"{prefix}.jpg"),
+                    caption,
+                    "debug",
+                )
+
+                # Send to client with image data for debugging
+                img_b64 = base64.b64encode(data).decode("utf-8")
                 await self.session.websocket.send(
                     json.dumps(
                         {
                             "type": "frame_classification",
+                            "image": f"data:image/jpeg;base64,{img_b64}",
                             **result,
                         }
                     )

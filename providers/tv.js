@@ -172,7 +172,7 @@ function spawnFrameGrabber() {
       if (_ws && _ws.readyState === WebSocket.OPEN) {
         const header = Buffer.from([0x01]);
         _ws.send(Buffer.concat([header, frame]));
-        _logger.info(`[frames] Sent frame: ${frame.length / 1024} KB`);
+        _logger.info(`[frames] Sent frame: ${(frame.length / 1024).toFixed(2)} KB`);
       }
     }
   });
