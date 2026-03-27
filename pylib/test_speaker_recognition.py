@@ -5,8 +5,8 @@ from pylib.speaker_recognition import SpeakerRecognizer
 import logging
 import sys
 
-# Configure logging to see output
-logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+from pylib.log_config import setup_logging
+setup_logging()
 
 
 async def test_speaker_recognition():

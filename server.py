@@ -35,30 +35,16 @@ from pylib.clip import FrameClassifier
 from pylib.speaker_recognition import SpeakerRecognizer
 from pylib.vad import VoiceActivityDetector
 from pylib.audio_processor import AudioProcessor
-from pylib.trade_processor import TradeProcessor
+from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
+
+from pylib.log_config import setup_logging
 
 # ── Logging ───────────────────────────────────────────────────────────
 
-os.makedirs("debug", exist_ok=True)
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s.%(msecs)03d %(levelname)s [%(threadName)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[
-        logging.StreamHandler(sys.stderr),
-        logging.FileHandler("logs/remote_server.log"),
-    ],
-)
-logger = logging.getLogger("remote_server")
-transcript_logger = logging.getLogger("transcript")
-transcript_logger.setLevel(logging.INFO)
-transcript_logger.addHandler(logging.FileHandler("logs/transcript.log"))
-
+logger, transcript_logger = setup_logging()
 
 # ── Main server ───────────────────────────────────────────────────────
-
 
 class Config:
     def __init__(self, args):

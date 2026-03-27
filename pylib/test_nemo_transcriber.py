@@ -8,6 +8,8 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from pylib.nemo_transcriber import NemoTranscriber
+from pylib.log_config import setup_logging
+setup_logging()
 
 async def main():
     if len(sys.argv) < 2:

@@ -1,3 +1,7 @@
+import asyncio
+import json
+import logging
+import time
 import websockets
 from collections import defaultdict
 from pylib.keyword_matching import find_keyword_match, remove_market_from_index
@@ -58,7 +62,6 @@ class TradeProcessor:
         for token in tokens:
             # We add to speaker buffer one by one as we process them for matching
             speaker_buffer.append(token)
-            if len(speaker_buffer) > 100:
 
             if speaker_id in self.trading_speakers:
                 matched = find_keyword_match(self.session.keyword_index, speaker_buffer, token)

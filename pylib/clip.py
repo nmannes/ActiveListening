@@ -14,7 +14,7 @@ from PIL import Image
 import torch
 import open_clip
 
-logger = logging.getLogger("clip_classifier")
+logger = logging.getLogger("remote_server")
 
 # ── Content profiles ─────────────────────────────────────────────────
 
