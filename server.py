@@ -114,12 +114,8 @@ async def main():
     logger.info(f"Trading enabled: {trade_for_real}")
 
     # Init transcriber
-    if args.whisper:
-        logger.info(f"Using faster-whisper ({args.model})")
-        transcriber = Transcriber(model_size=args.model, device=args.device)
-    else:
-        logger.info("Using NeMo ASR (parakeet-tdt-1.1b)")
-        transcriber = NemoTranscriber(device=args.device)
+    logger.info(f"Using faster-whisper ({args.model})")
+    transcriber = Transcriber(model_size=args.model, device=args.device)
     
     speaker_recognizer = SpeakerRecognizer(device=args.device)
     vad = VoiceActivityDetector(device=args.device)
