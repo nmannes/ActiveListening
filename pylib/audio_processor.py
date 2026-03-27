@@ -1,9 +1,10 @@
 import asyncio
 import json
 import logging
+import os
 import time
-import numpy as np
 import websockets
+import numpy as np
 from pathlib import Path
 
 logger = logging.getLogger("remote_server")
@@ -13,34 +14,61 @@ class AudioProcessor:
     def __init__(self, session, on_tokens_callback=None):
         self.session = session
         self.on_tokens_callback = on_tokens_callback
-        self.audio_buffer = b""
-        self.speech_buffer = b""
-        self.preroll_buffer = b""
-        self.in_speech = False
-        self.last_speech_time = 0
-        self.speech_start_time = 0
-        self.last_transcription_time = 0
-        self.committed_tokens = []
         
-        # VAD-based transcription parameters (Optimized for Real-Time)
-        self.VAD_WINDOW_SECS = 0.1
-        self.VAD_WINDOW_BYTES = int(self.VAD_WINDOW_SECS * 16000 * 2)
-        self.SILENCE_TIMEOUT_SECS = 0.1  # Aggressive: transcribe after 100ms pause
-        self.MAX_SEGMENT_SECS = 1.5      # Aggressive: force transcription after 1.5s
-        self.PREROLL_SECS = 0.6          # Retain preroll padding
-        self.PREROLL_BYTES = int(self.PREROLL_SECS * 16000 * 2)
-        self.MIN_STREAM_INTERVAL_SECS = 0.1
+        # Deepgram specific configuration
+        self.api_key = os.environ.get("DEEPGRAM_API_KEY")
+        # URL parameters: Linear16, 16kHz, diarization enabled, nova-2 model
+        self.dg_url = (
+            "wss://api.deepgram.com/v1/listen?"
+            "encoding=linear16&"
+            "sample_rate=16000&"
+            "channels=1&"
+            "diarize=true&"
+            "interim_results=true&"
+            "punctuate=true&"
+            "model=nova-2-general&"
+            "no_delay=true"
+        )
 
     async def run(self):
         self.session.transcript.clear()
-        self.committed_tokens.clear()
         
+        if not self.api_key:
+            logger.error(f"[{self.session.session_id}] DEEPGRAM_API_KEY not found in environment!")
+            return
+
         logger.info(
-            f"[{self.session.session_id}] Audio processing loop started (Device: {self.session.server.transcriber.device}, voiceProfile: {self.session.voice_profile})"
+            f"[{self.session.session_id}] Audio processing loop started via Deepgram (speaker validation: {self.session.voice_profile})"
         )
 
-        telemetry_task = asyncio.create_task(self.telemetry_loop())
+        headers = {
+            "Authorization": f"Token {self.api_key}"
+        }
 
+        try:
+            async with websockets.connect(self.dg_url, extra_headers=headers) as dg_ws:
+                logger.info(f"[{self.session.session_id}] Deepgram WebSocket connected")
+
+                # Spawn sender and receiver tasks
+                send_task = asyncio.create_task(self.send_audio(dg_ws))
+                receive_task = asyncio.create_task(self.receive_results(dg_ws))
+                telemetry_task = asyncio.create_task(self.telemetry_loop())
+
+                try:
+                    await asyncio.gather(send_task, receive_task, telemetry_task)
+                except asyncio.CancelledError:
+                    logger.info(f"[{self.session.session_id}] Deepgram tasks cancelled")
+                finally:
+                    # Clean shutdown
+                    send_task.cancel()
+                    receive_task.cancel()
+                    telemetry_task.cancel()
+                    
+        except Exception as e:
+            logger.exception(f"[{self.session.session_id}] Deepgram connection error: {e}")
+
+    async def send_audio(self, dg_ws):
+        """Stream PCM audio data from session inbox to Deepgram."""
         try:
             while True:
                 await asyncio.sleep(0.01)
@@ -49,181 +77,79 @@ class AudioProcessor:
                     if not self.session.audio_inbox:
                         continue
                     
-                    # Capping inbox to prevent runaway buildup (increased to 30s)
-                    max_inbox_bytes = 16000 * 2 * 30
-                    if len(self.session.audio_inbox) > max_inbox_bytes:
-                        del self.session.audio_inbox[:len(self.session.audio_inbox) - max_inbox_bytes]
-                    
                     pcm_data = bytes(self.session.audio_inbox)
                     self.session.audio_inbox.clear()
 
-                self.audio_buffer += pcm_data
-
-                # Process VAD in windows
-                while len(self.audio_buffer) >= self.VAD_WINDOW_BYTES:
-                    chunk = self.audio_buffer[:self.VAD_WINDOW_BYTES]
-                    self.audio_buffer = self.audio_buffer[self.VAD_WINDOW_BYTES:]
-                    
-                    samples = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
-                    
-                    t0_vad = time.time()
-                    is_speech = await asyncio.get_running_loop().run_in_executor(
-                        self.session.server.vad_executor, self.session.server.vad.is_speech, samples
-                    )
-                    t1_vad = time.time()
-                    
-                    now = time.time()
-                    if t1_vad - t0_vad > 0.1:
-                        logger.debug(f"[{self.session.session_id}] VAD took {t1_vad - t0_vad:.3f}s")
-
-                    if is_speech:
-                        await self.handle_speech_onset(chunk, now)
-                    else:
-                        await self.handle_speech_offset(chunk, now)
-
-                    # Force transcription if a very long segment is active
-                    if self.in_speech and (now - self.speech_start_time) >= self.MAX_SEGMENT_SECS:
-                        await self.force_intermediate_transcription(now)
-
-        except asyncio.CancelledError:
-            logger.info(f"[{self.session.session_id}] Audio processing loop cancelled")
-        except Exception as e:
-            logger.exception(f"[{self.session.session_id}] Unexpected error in AudioProcessor: {e}")
-        finally:
-            telemetry_task.cancel()
-
-    async def handle_speech_onset(self, chunk, now):
-        if not self.in_speech:
-            logger.info(f"[{self.session.session_id}] Speech onset detected")
-            self.in_speech = True
-            self.speech_start_time = now
-            self.last_transcription_time = now
-            self.committed_tokens.clear()
-            # Start with a bit of pre-roll
-            self.speech_buffer = self.preroll_buffer + chunk
-        else:
-            self.speech_buffer += chunk
-        self.last_speech_time = now
-
-        if now - self.last_transcription_time >= self.MIN_STREAM_INTERVAL_SECS:
-            t0_audio = now
-            text = await self.session.server.transcriber.transcribe_raw(self.speech_buffer)
-            self.session.last_proc_time[0] = time.time() - t0_audio
-            self.last_transcription_time = time.time()
-            await self.emit_new_tokens(text)
-
-    async def handle_speech_offset(self, chunk, now):
-        if self.in_speech:
-            self.speech_buffer += chunk
-            # Check for silence timeout or max duration
-            duration = now - self.speech_start_time
-            silence_duration = now - self.last_speech_time
-            
-            if silence_duration >= self.SILENCE_TIMEOUT_SECS or duration >= self.MAX_SEGMENT_SECS:
-                logger.info(f"[{self.session.session_id}] Speech offset detected (duration: {duration:.2f}s)")
-                
-                t0_audio = now
-                text = await self.session.server.transcriber.transcribe_raw(self.speech_buffer)
-                self.session.last_proc_time[0] = time.time() - t0_audio
-                
-                # If voice profile is active, verify speaker on the speech segment
-                if self.session.voice_profile:
-                    if await self.verify_speaker(now):
-                        await self.emit_new_tokens(text, speaker_id=self.session.voice_profile)
-                else:
-                    await self.emit_new_tokens(text)
-                
-                self.speech_buffer = b""
-                self.in_speech = False
-                self.preroll_buffer = chunk
-                self.committed_tokens.clear()
-        else:
-            # Keep a bit of pre-roll in the buffer
-            self.preroll_buffer += chunk
-            if len(self.preroll_buffer) > self.PREROLL_BYTES:
-                self.preroll_buffer = self.preroll_buffer[-self.PREROLL_BYTES:]
-
-    async def verify_speaker(self, now):
-        t0_speaker = time.time()
-        similarity = await self.session.server.speaker_recognizer.verify_speaker(
-            self.speech_buffer, self.session.voice_profile
-        )
-        t1_speaker = time.time()
-        logger.info(
-            f"[{self.session.session_id}][SPEAKER] Profile '{self.session.voice_profile}' similarity: {similarity:.4f} (took {t1_speaker - t0_speaker:.4f}s)"
-        )
-
-        # Notify client of speaker match result
-        try:
-            await self.session.websocket.send(
-                json.dumps(
-                    {
-                        "type": "speaker_match",
-                        "profile": self.session.voice_profile,
-                        "similarity": similarity,
-                    }
-                )
-            )
+                await dg_ws.send(pcm_data)
         except websockets.exceptions.ConnectionClosed:
-            pass
+            logger.info(f"[{self.session.session_id}] Deepgram WebSocket closed (sender)")
+        except Exception as e:
+            logger.error(f"[{self.session.session_id}] Error in send_audio: {e}")
 
-        if similarity < 0.8:
-            logger.info(
-                f"[{self.session.session_id}][SPEAKER] Skipping trade: speaker similarity {similarity:.4f} below threshold 0.8"
-            )
-            self.speech_buffer = b""
-            self.in_speech = False
-            self.preroll_buffer = b"" # Reset as we shouldn't continue from here easily
-            self.committed_tokens.clear()
-            return False
-        return True
+    async def receive_results(self, dg_ws):
+        """Handle transcripts and metrics returned by Deepgram."""
+        try:
+            async for message in dg_ws:
+                data = json.loads(message)
+                
+                if data.get("type") == "Results":
+                    is_final = data.get("is_final", False)
+                    # We process final results for highest accuracy, but could use interim for lower latency
+                    if not is_final:
+                        continue
+                        
+                    channel = data.get("channel", {})
+                    alternatives = channel.get("alternatives", [])
+                    if not alternatives:
+                        continue
+                        
+                    alt = alternatives[0]
+                    words = alt.get("words", [])
+                    if not words:
+                        continue
+                        
+                    # Format tokens for TradeProcessor
+                    formatted_tokens = [
+                        {
+                            "text": w["word"].lower(),
+                            "start": w["start"]
+                        }
+                        for w in words
+                    ]
+                    
+                    # Extract speaker from first word if diarized
+                    # Deepgram speaker labels are integers (0, 1, 2...)
+                    speaker_id = str(words[0].get("speaker", "0"))
+                    
+                    if self.on_tokens_callback:
+                        # Use call_soon or similar if blocking, but process_tokens is async
+                        # We use create_task to ensure we don't block the receiver loop
+                        asyncio.create_task(self.on_tokens_callback(formatted_tokens, speaker_id=speaker_id))
 
-    async def force_intermediate_transcription(self, now):
-        logger.info(f"[{self.session.session_id}] Segment limit reached, forcing intermediate transcription")
-        t0_audio = now
-        text = await self.session.server.transcriber.transcribe_raw(self.speech_buffer)
-        self.session.last_proc_time[0] = time.time() - t0_audio
-        await self.emit_new_tokens(text)
+                    # Log transcript segment
+                    transcript_text = alt.get("transcript", "").strip()
+                    if transcript_text:
+                        logger.info(f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}")
 
-        # For continuation, keep the last bit of audio as preroll
-        self.preroll_buffer = self.speech_buffer[-self.PREROLL_BYTES:] if len(self.speech_buffer) > self.PREROLL_BYTES else self.speech_buffer
-        self.speech_buffer = b""
-        self.in_speech = False
-        self.committed_tokens.clear()
-
-    async def emit_new_tokens(self, text, speaker_id=None):
-        raw_tokens = [self.session.punct_re.sub("", w).lower() for w in text.split() if self.session.punct_re.sub("", w).lower()]
-        match_idx = 0
-        for i in range(min(len(self.committed_tokens), len(raw_tokens))):
-            if self.committed_tokens[i] == raw_tokens[i]:
-                match_idx = i + 1
-            else:
-                break
-        emit_start = max(match_idx, len(self.committed_tokens))
-        new_tokens = raw_tokens[emit_start:]
-        
-        if new_tokens:
-            self.committed_tokens.extend(new_tokens)
-            if self.on_tokens_callback:
-                asyncio.create_task(self.on_tokens_callback(new_tokens, speaker_id=speaker_id))
-
+        except websockets.exceptions.ConnectionClosed:
+            logger.info(f"[{self.session.session_id}] Deepgram WebSocket closed (receiver)")
+        except Exception as e:
+            logger.error(f"[{self.session.session_id}] Error in receive_results: {e}")
 
     async def telemetry_loop(self):
+        """Report buffer status and latency metrics to client."""
         while True:
             await asyncio.sleep(5)
             try:
-                # Audio buffer backlog in ms
-                # This needs to access audio_buffer from the outer scope, but it's now an instance var
                 with self.session.audio_inbox_lock:
                     inbox_ms = int(len(self.session.audio_inbox) / (16000 * 2) * 1000)
-                buffer_ms = int(len(self.audio_buffer) / (16000 * 2) * 1000)
 
                 await self.session.websocket.send(
                     json.dumps(
                         {
                             "type": "telemetry",
-                            "buffer_ms": inbox_ms + buffer_ms,
-                            "last_proc_ms": int(self.session.last_proc_time[0] * 1000),
+                            "buffer_ms": inbox_ms,
+                            "dg_stream": "active"
                         }
                     )
                 )
