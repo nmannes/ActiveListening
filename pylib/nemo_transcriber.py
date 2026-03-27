@@ -13,7 +13,7 @@ logger = logging.getLogger("remote_server")
 class NemoTranscriber:
     """In-process NeMo ASR transcription."""
 
-    def __init__(self, model_name: str = "nvidia/parakeet-tdt-1.1b", device: str = "cpu"):
+    def __init__(self, model_name: str = "parakeet-tdt-1.1b", device: str = "cpu"):
         self.device = device
         logger.info(f"Loading NeMo ASR model '{model_name}' on {device}...")
         
