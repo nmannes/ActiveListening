@@ -42,23 +42,24 @@ class TradeProcessor:
         # Sort incoming tokens by timestamp to handle potentially out-of-order delivery
         sorted_tokens = sorted(tokens, key=lambda x: x.get("start", 0))
 
-        # 1. Update global transcript (interleaved)
+        # 1. Update per-speaker transcript
+        speaker_transcript = self.session.transcript[speaker_id]
         new_tokens_added = []
         for token_dict in sorted_tokens:
             text = token_dict.get("text", "").strip()
             if not text:
                 continue
 
-            # Deduplicate adjacent in global transcript
-            if self.session.transcript and self.session.transcript[-1]["text"] == text:
+            # Deduplicate adjacent in this speaker's transcript
+            if speaker_transcript and speaker_transcript[-1]["text"] == text:
                 continue
             if new_tokens_added and new_tokens_added[-1]["text"] == text:
                 continue
 
-            self.session.transcript.append(token_dict)
+            speaker_transcript.append(token_dict)
             new_tokens_added.append(token_dict)
-            if len(self.session.transcript) > 10000:
-                self.session.transcript.pop(0)
+            if len(speaker_transcript) > 10000:
+                speaker_transcript.pop(0)
 
         # 2. Update per-speaker buffer and Match
         speaker_buffer = self.speaker_buffers[speaker_id]
@@ -108,7 +109,7 @@ class TradeProcessor:
 
         if new_tokens_added:
             new_text = " ".join(t["text"] for t in new_tokens_added)
-            recent = " ".join(t["text"] for t in self.session.transcript[-self.session.server.config.last_words_count :])
+            recent = " ".join(t["text"] for t in speaker_transcript[-self.session.server.config.last_words_count :])
             
             logger.info(f"[{self.session.session_id}][{speaker_id}] Transcript: {new_text} (Last {self.session.server.config.last_words_count}: {recent})")
             transcript_logger.info(f"[{self.session.session_id}][{speaker_id}] {new_text}")

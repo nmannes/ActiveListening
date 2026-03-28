@@ -20,6 +20,7 @@ import re
 import sys
 import time
 import threading
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -74,7 +75,7 @@ class ClientSession:
         self.voice_profile = None
         self.keyword_index = None
         
-        self.transcript = []
+        self.transcript = defaultdict(list)  # {speaker_id: [token_dicts]}
         self.is_content_visible = False
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]

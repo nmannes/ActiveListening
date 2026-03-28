@@ -150,7 +150,8 @@ class AudioProcessor:
                     formatted_tokens = [
                         {
                             "text": w["word"].lower(),
-                            "start": w["start"]
+                            "start": w["start"],
+                            "end": w["end"],
                         }
                         for w in words
                     ]
