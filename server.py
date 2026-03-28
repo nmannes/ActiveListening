@@ -17,6 +17,7 @@ import numpy as np
 import logging
 import os
 import re
+import signal
 import sys
 import time
 import threading
@@ -204,6 +205,7 @@ class ClientSession:
 class TradingServer:
     def __init__(self, config):
         self.config = config
+        self.active_sessions = []  # track for graceful shutdown
         
         # Shared resources (initially None, loaded asynchronously)
         self.frame_classifier = None
@@ -218,10 +220,19 @@ class TradingServer:
 
     async def handle_client(self, websocket):
         session = ClientSession(websocket, self)
-        await session.run()
+        self.active_sessions.append(session)
+        try:
+            await session.run()
+        finally:
+            self.active_sessions.remove(session)
 
     async def start(self):
         logger.info(f"WebSocket server listening on port {self.config.port}")
+        
+        # Register signal handlers for graceful shutdown
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(self.shutdown(s)))
         
         # Start background resource initialization
         asyncio.create_task(self.initialize_resources())
@@ -230,6 +241,16 @@ class TradingServer:
             self.handle_client, "0.0.0.0", self.config.port, ping_interval=None, max_size=None
         ):
             await asyncio.Future()  # run forever
+
+    async def shutdown(self, sig):
+        """Graceful shutdown: cleanup all active sessions (saves WAVs + uploads to S3)."""
+        logger.info(f"Received {signal.Signals(sig).name}, shutting down {len(self.active_sessions)} active session(s)...")
+        for session in list(self.active_sessions):
+            session.cleanup()
+        # Give cleanup tasks time to finish (WAV close + S3 upload)
+        await asyncio.sleep(2)
+        logger.info("Shutdown complete.")
+        asyncio.get_running_loop().stop()
 
     async def initialize_resources(self):
         """Asynchronously load heavy models/resources."""

@@ -99,7 +99,18 @@ class AudioProcessor:
                 self._wav_file.close()
             for sid, wf in self._speaker_wav_files.items():
                 wf.close()
+            
+            # Save transcript alongside recordings
+            if self._recordings_dir:
+                transcript_path = self._recordings_dir / "transcript.json"
+                transcript_data = dict(self.session.transcript)
+                with open(transcript_path, "w") as f:
+                    json.dump(transcript_data, f, indent=2)
+
             logger.info(f"[{self.session.session_id}] Audio recordings saved to {self._recordings_dir}")
+
+            # Upload to S3 in background
+            asyncio.get_running_loop().run_in_executor(None, self._upload_to_s3)
 
     async def send_audio(self, dg_ws):
         """Stream PCM audio data from session inbox to Deepgram."""
@@ -240,6 +251,27 @@ class AudioProcessor:
             logger.info(f"[{self.session.session_id}] Opened speaker WAV: {path}")
 
         self._speaker_wav_files[speaker_id].writeframes(audio_slice)
+
+    def _upload_to_s3(self):
+        """Upload the recordings directory to S3."""
+        bucket = os.environ.get("S3_BUCKET", "kalshi-recordings")
+        if not self._recordings_dir or not self._recordings_dir.exists():
+            return
+
+        try:
+            import boto3
+            s3 = boto3.client("s3")
+            prefix = self._recordings_dir.name  # e.g. session-id_1711640123
+
+            for file_path in self._recordings_dir.iterdir():
+                if file_path.is_file():
+                    s3_key = f"{prefix}/{file_path.name}"
+                    logger.info(f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}")
+                    s3.upload_file(str(file_path), bucket, s3_key)
+
+            logger.info(f"[{self.session.session_id}] S3 upload complete: s3://{bucket}/{prefix}/")
+        except Exception as e:
+            logger.error(f"[{self.session.session_id}] S3 upload failed: {e}")
 
     async def telemetry_loop(self):
         """Report buffer status and latency metrics to client."""
