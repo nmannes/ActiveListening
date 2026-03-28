@@ -93,6 +93,11 @@ function isFileExpired(filePath, ttlMs) {
     const markets = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_markets.json"), "utf8"),
     );
+
+    // Extract earnings calls and save to a separate file
+    const earningsCalls = markets.filter(m => m.title && m.title.toLowerCase().includes("earnings call"));
+    fs.writeFileSync(path.join(cacheDir, "earnings_calls.json"), JSON.stringify(earningsCalls, null, 2));
+
     const tvSchedule = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_tv_schedule.json"), "utf8"),
     );
