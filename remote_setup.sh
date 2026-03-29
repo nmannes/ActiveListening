@@ -41,7 +41,7 @@ pip3 install -r requirements.txt >> logs/remote_setup.log 2>&1 || (echo "Pip ins
 
 echo "Pre-downloading CLIP model..."
 python3 -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')" >> logs/remote_setup.log 2>&1
-
+    
 echo "Detecting hardware..."
 # DEVICE="cpu"
 # if [[ "$ENV" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
