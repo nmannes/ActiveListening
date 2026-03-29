@@ -71,7 +71,7 @@ if [[ -n "$INSTANCE_TYPE_ARG" ]]; then
 elif [[ "$ENV" == "prod" ]]; then
     INSTANCE_TYPE="a1.xlarge"
 else
-    INSTANCE_TYPE="a1.xlarge"
+    INSTANCE_TYPE="t2.micro"
 fi
 
 SPOT_OPTIONS=""
@@ -143,7 +143,7 @@ aws cloudformation deploy \
     --region "$REGION" \
     --parameter-overrides \
         Environment="$ENV" \
-        InstanceTypeOverride="$INSTANCE_TYPE_ARG" \
+        InstanceTypeOverride="$INSTANCE_TYPE" \
         UseSpot="$USE_SPOT" \
         OperatorIp="${MY_IP}/32" \
         KeyName="$KEY_NAME" \
