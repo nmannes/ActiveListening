@@ -5,8 +5,8 @@ exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 sudo shutdown -h +${ShutdownMinutes}
 
-# Create 4GB swap file to prevent OOM
-sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+# Create 8GB swap file to prevent OOM
+sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
 sudo chmod 600 /swapfile
 sudo mkswap /swapfile
 sudo swapon /swapfile
@@ -23,7 +23,15 @@ if ! command -v ffmpeg &> /dev/null; then
     rm -rf ffmpeg_tmp ffmpeg.tar.xz
 fi
 
-    pip3 install -r /home/ec2-user/requirements.txt
+# Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
+mkdir -p /home/ec2-user/pip_tmp
+export TMPDIR=/home/ec2-user/pip_tmp
+
+# Install with --no-cache-dir to save space and use CPU-only index to avoid 5GB+ of NVIDIA/CUDA wheels
+pip3 install --no-cache-dir -r /home/ec2-user/requirements.txt \
+    --extra-index-url https://download.pytorch.org/whl/cpu
+
+rm -rf /home/ec2-user/pip_tmp
 
 DEVICE="cpu"
 echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
