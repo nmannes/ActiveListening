@@ -99,6 +99,12 @@ fi
 KEY_ID=$(grep "KALSHI_KEY_ID" "$ENV_FILE" | cut -d= -f2 | xargs)
 PRIVATE_KEY_PATH=$(grep "KALSHI_PRIVATE_KEY_PATH" "$ENV_FILE" | cut -d= -f2 | xargs)
 
+# Allow optionally overriding the S3 bucket via .env
+RECORDINGS_BUCKET=$(grep "^S3_BUCKET=" "$ENV_FILE" | cut -d= -f2 | xargs || true)
+if [ -z "$RECORDINGS_BUCKET" ]; then
+    RECORDINGS_BUCKET="recordings-846345203908-us-east-1-an"
+fi
+
 # Resolve relative paths in .env
 if [[ "$PRIVATE_KEY_PATH" == ./* ]]; then
     PRIVATE_KEY_PATH="$LOCAL_DIR/${PRIVATE_KEY_PATH#./}"
@@ -151,6 +157,7 @@ aws cloudformation deploy \
         ShutdownMinutes="$SHUTDOWN_MINUTES" \
         KalshiKeyId="$KEY_ID" \
         KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
+        S3RecordingsBucket="$RECORDINGS_BUCKET" \
     --s3-bucket "$S3_BUCKET" \
     --capabilities CAPABILITY_IAM \
     --no-fail-on-empty-changeset

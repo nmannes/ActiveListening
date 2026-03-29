@@ -254,7 +254,7 @@ class AudioProcessor:
 
     def _upload_to_s3(self):
         """Upload the recordings directory to S3."""
-        bucket = os.environ.get("S3_BUCKET", "kalshi-recordings")
+        bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
         if not self._recordings_dir or not self._recordings_dir.exists():
             return
 

@@ -8,6 +8,9 @@ Parameters:
     Type: String
     Default: demo
     AllowedValues: [prod, demo]
+  S3RecordingsBucket:
+    Type: String
+    Default: recordings-846345203908-us-east-1-an
   InstanceTypeOverride:
     Type: String
     Default: ""
@@ -39,7 +42,7 @@ Conditions:
 Mappings:
   EnvToInstanceType:
     prod:
-      InstanceType: t2.micro
+      InstanceType: t3.medium
     demo:
       InstanceType: t3.medium
 
@@ -211,6 +214,15 @@ Resources:
             Principal:
               Service: ec2.amazonaws.com
             Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3RecordingsWriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${S3RecordingsBucket}/*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
 
