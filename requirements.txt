@@ -1,15 +1,8 @@
-faster-whisper
 numpy
 dotenv
 websockets
-kalshi-python-sync
-open-clip-torch
-pillow
 librosa==0.9.2
-omegaconf
-pytorch-lightning
 markupsafe==2.0.1
-torchaudio
 requests
 cryptography
 boto3==1.42.77

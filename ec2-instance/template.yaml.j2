@@ -155,7 +155,8 @@ Resources:
 
           commands:
             01_run_setup:
-              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh'"
+              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh' && touch /home/ec2-user/.setup_done"
+              test: "test ! -f /home/ec2-user/.setup_done"
             02_start_cw_agent:
               command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
             03_enable_service:

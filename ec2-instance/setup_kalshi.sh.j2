@@ -6,11 +6,13 @@ echo "Starting setup_kalshi.sh at $(date)"
 sudo shutdown -h +${ShutdownMinutes}
 
 # Create 8GB swap file to prevent OOM
-sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+if [ ! -f /swapfile ]; then
+    sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+fi
 
 if ! command -v ffmpeg &> /dev/null; then
     echo "Installing FFmpeg..."
@@ -27,11 +29,17 @@ fi
 mkdir -p /home/ec2-user/pip_tmp
 export TMPDIR=/home/ec2-user/pip_tmp
 
-# Install with --no-cache-dir to save space and use CPU-only index to avoid 5GB+ of NVIDIA/CUDA wheels
-pip3 install --no-cache-dir -r /home/ec2-user/requirements.txt \
-    --extra-index-url https://download.pytorch.org/whl/cpu
+# Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
+# We use --index-url (instead of --extra-index-url) for torch to avoid PyPI's GPU versions
+pip3 install --no-cache-dir open-clip-torch \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Install the rest of the requirements from PyPI
+pip3 install --no-cache-dir -r /home/ec2-user/requirements.txt
 
 rm -rf /home/ec2-user/pip_tmp
 
 DEVICE="cpu"
-echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
+if ! grep -q "export DEVICE=$DEVICE" /home/ec2-user/.bashrc; then
+    echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
+fi
