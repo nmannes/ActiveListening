@@ -69,7 +69,7 @@ fi
 if [[ -n "$INSTANCE_TYPE_ARG" ]]; then
     INSTANCE_TYPE="$INSTANCE_TYPE_ARG"
 elif [[ "$ENV" == "prod" ]]; then
-    INSTANCE_TYPE="a1.xlarge"
+    INSTANCE_TYPE="t3.medium"
 else
     INSTANCE_TYPE="t3.medium"
 fi

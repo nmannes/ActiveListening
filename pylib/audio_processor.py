@@ -33,6 +33,8 @@ class AudioProcessor:
         self._pcm_buffer = bytearray()       # all PCM sent, for slicing by timestamp
         self._speaker_wav_files = {}         # {speaker_id: wave.Wave_write}
         self._recordings_dir = None
+        self._audio_dir = None
+        self._dg_dir = None
         self._wav_file = None
 
         # Performance counters
@@ -58,9 +60,13 @@ class AudioProcessor:
         # Set up recording directories
         self._recordings_dir = Path(__file__).parent.parent / "recordings" / f"{self.session.session_id}_{int(time.time())}"
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
+        self._audio_dir = self._recordings_dir / "audio"
+        self._audio_dir.mkdir(parents=True, exist_ok=True)
+        self._dg_dir = self._recordings_dir / "deepgram_responses"
+        self._dg_dir.mkdir(parents=True, exist_ok=True)
         
         # Full raw audio WAV
-        wav_path = self._recordings_dir / "full.wav"
+        wav_path = self._audio_dir / "full.wav"
         self._wav_file = wave.open(str(wav_path), "wb")
         self._wav_file.setnchannels(1)
         self._wav_file.setsampwidth(2)  # 16-bit
@@ -101,8 +107,8 @@ class AudioProcessor:
                 wf.close()
             
             # Save transcript alongside recordings
-            if self._recordings_dir:
-                transcript_path = self._recordings_dir / "transcript.json"
+            if self._audio_dir:
+                transcript_path = self._audio_dir / "transcript.json"
                 transcript_data = dict(self.session.transcript)
                 with open(transcript_path, "w") as f:
                     json.dump(transcript_data, f, indent=2)
@@ -152,8 +158,10 @@ class AudioProcessor:
         logger.info(f"[{self.session.session_id}] Results receiver task started")
         
         # Ensure deepgram_responses directory exists
-        resp_dir = Path(__file__).parent.parent / "deepgram_responses"
-        resp_dir.mkdir(exist_ok=True)
+        resp_dir = self._dg_dir
+        if resp_dir is None:
+            resp_dir = Path(__file__).parent.parent / "deepgram_responses"
+            resp_dir.mkdir(exist_ok=True)
         
         try:
             async for message in dg_ws:
@@ -242,7 +250,7 @@ class AudioProcessor:
 
         # Lazily open per-speaker WAV file
         if speaker_id not in self._speaker_wav_files:
-            path = self._recordings_dir / f"speaker_{speaker_id}.wav"
+            path = self._audio_dir / f"speaker_{speaker_id}.wav"
             wf = wave.open(str(path), "wb")
             wf.setnchannels(1)
             wf.setsampwidth(2)
@@ -263,11 +271,14 @@ class AudioProcessor:
             s3 = boto3.client("s3")
             prefix = self._recordings_dir.name  # e.g. session-id_1711640123
 
-            for file_path in self._recordings_dir.iterdir():
-                if file_path.is_file():
-                    s3_key = f"{prefix}/{file_path.name}"
-                    logger.info(f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}")
-                    s3.upload_file(str(file_path), bucket, s3_key)
+            for sub_dir in ["audio", "deepgram_responses"]:
+                dir_path = self._recordings_dir / sub_dir
+                if dir_path.exists():
+                    for file_path in dir_path.iterdir():
+                        if file_path.is_file():
+                            s3_key = f"{prefix}/{sub_dir}/{file_path.name}"
+                            logger.info(f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}")
+                            s3.upload_file(str(file_path), bucket, s3_key)
 
             logger.info(f"[{self.session.session_id}] S3 upload complete: s3://{bucket}/{prefix}/")
         except Exception as e:
