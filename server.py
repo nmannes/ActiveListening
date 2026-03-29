@@ -53,7 +53,7 @@ class Config:
         self.port = getattr(args, "port", 8090)
         self.env = getattr(args, "env", "prod")
         self.device = getattr(args, "device", os.environ.get("DEVICE", "cpu"))
-        self.buy_count = getattr(args, "buy_count", 40)
+        self.buy_count = getattr(args, "buy_count", 1)
         self.last_words_count = getattr(args, "last_words_count", 7)
         self.content_profile = getattr(args, "content_profile", "basketball")
 
@@ -65,7 +65,7 @@ class Config:
                     line = line.strip()
                     if line and not line.startswith("#") and "=" in line:
                         key, _, value = line.partition("=")
-                    os.environ.setdefault(key.strip(), value.strip())
+                        os.environ.setdefault(key.strip(), value.strip())
                 break
 
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
