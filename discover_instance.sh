@@ -6,12 +6,11 @@ REGION="${REGION:-us-east-1}"
 # and specifically of type g6.large or g6.xlarge
 
 FILTER_NAME="Name=tag:Name,Values=kalshi-worker-*"
-FILTER_INSTANCE_TYPE="Name=instance-type,Values=g6.large,g6.xlarge,a1.xlarge"
 FILTER_STATE="Name=instance-state-name,Values=running"
 
 PUBLIC_IP=$(aws ec2 describe-instances \
     --region "$REGION" \
-    --filters "$FILTER_NAME" "$FILTER_INSTANCE_TYPE" "$FILTER_STATE" \
+    --filters "$FILTER_NAME" "$FILTER_STATE" \
     --query 'Reservations[].Instances[0].PublicIpAddress' \
     --output text)
 
