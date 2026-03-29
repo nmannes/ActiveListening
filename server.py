@@ -37,10 +37,6 @@ from pylib.frame_processor import FrameProcessor
 
 from pylib.log_config import setup_logging
 
-from dotenv import load_dotenv
-
-load_dotenv(".env.prod")
-
 
 # ── Logging ───────────────────────────────────────────────────────────
 
