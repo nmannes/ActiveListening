@@ -43,24 +43,24 @@ echo "Pre-downloading CLIP model..."
 python3 -c "import open_clip; open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')" >> logs/remote_setup.log 2>&1
 
 echo "Detecting hardware..."
-DEVICE="cpu"
-if [[ "$ENV" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
-    DEVICE="cuda"
-    echo "Found GPU, setting DEVICE to cuda"
-    echo "Installing CUDA libraries via pip..."
-    pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12 >> logs/remote_setup.log 2>&1
+# DEVICE="cpu"
+# if [[ "$ENV" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
+#     DEVICE="cuda"
+#     echo "Found GPU, setting DEVICE to cuda"
+#     echo "Installing CUDA libraries via pip..."
+#     pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12 >> logs/remote_setup.log 2>&1
     
-    # Configure LD_LIBRARY_PATH for the server.py process
-    # Find CUDA libs installed via pip (works across Python versions)
-    CUBLAS_DIR=$(dirname "$(find ~/.local /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
-    CUDNN_DIR=$(dirname "$(find ~/.local /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
-    CUDA_PATHS="${CUBLAS_DIR}:${CUDNN_DIR}"
-    if [ ! -z "$CUBLAS_DIR" ]; then
-        echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" >> ~/.bashrc
-        echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" > ~/.cuda_env
-        echo "CUDA env written to ~/.cuda_env: $CUDA_PATHS"
-    fi
-fi
+#     # Configure LD_LIBRARY_PATH for the server.py process
+#     # Find CUDA libs installed via pip (works across Python versions)
+#     CUBLAS_DIR=$(dirname "$(find ~/.local /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
+#     CUDNN_DIR=$(dirname "$(find ~/.local /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
+#     CUDA_PATHS="${CUBLAS_DIR}:${CUDNN_DIR}"
+#     if [ ! -z "$CUBLAS_DIR" ]; then
+#         echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" >> ~/.bashrc
+#         echo "export LD_LIBRARY_PATH=\"$CUDA_PATHS:\$LD_LIBRARY_PATH\"" > ~/.cuda_env
+#         echo "CUDA env written to ~/.cuda_env: $CUDA_PATHS"
+#     fi
+# fi
 
 echo "export ENV=$ENV" >> ~/.bashrc
 echo "export DEVICE=$DEVICE" >> ~/.bashrc
