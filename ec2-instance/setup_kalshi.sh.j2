@@ -23,7 +23,7 @@ if ! command -v ffmpeg &> /dev/null; then
     rm -rf ffmpeg_tmp ffmpeg.tar.xz
 fi
 
-sudo pip3 install -r /home/ec2-user/requirements.txt
+    pip3 install -r /home/ec2-user/requirements.txt
 
 DEVICE="cpu"
 echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
