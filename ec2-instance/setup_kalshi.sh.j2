@@ -5,30 +5,25 @@ exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 sudo shutdown -h +${ShutdownMinutes}
 
+# Create 4GB swap file to prevent OOM
+sudo dd if=/dev/zero of=/swapfile bs=1M count=4096
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+
 if ! command -v ffmpeg &> /dev/null; then
+    echo "Installing FFmpeg..."
     URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
-    curl -L -O "$URL"
-    tar -xvf ffmpeg-master-latest-linux64-gpl.tar.xz > /dev/null
-    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
-    sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
-    rm -rf ffmpeg-master-latest-linux64-gpl*
+    curl -L -o ffmpeg.tar.xz "$URL"
+    mkdir -p ffmpeg_tmp
+    tar -xvf ffmpeg.tar.xz -C ffmpeg_tmp --strip-components=1 > /dev/null
+    sudo mv ffmpeg_tmp/bin/ffmpeg /usr/local/bin/
+    sudo mv ffmpeg_tmp/bin/ffprobe /usr/local/bin/
+    rm -rf ffmpeg_tmp ffmpeg.tar.xz
 fi
 
-pip3 install -r /home/ec2-user/requirements.txt
-
-python3 <<EOF
-import open_clip
-open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
-EOF
+sudo pip3 install -r /home/ec2-user/requirements.txt
 
 DEVICE="cpu"
-if [[ "${Environment}" == "prod" ]] && command -v nvidia-smi &> /dev/null; then 
-    DEVICE="cuda"
-    pip3 install nvidia-cublas-cu12 nvidia-cudnn-cu12
-    CUBLAS_DIR=$(dirname "$(find /usr -name 'libcublas.so*' 2>/dev/null | head -1)" 2>/dev/null)
-    CUDNN_DIR=$(dirname "$(find /usr -name 'libcudnn.so*' 2>/dev/null | head -1)" 2>/dev/null)
-    if [ ! -z "$CUBLAS_DIR" ]; then
-        echo "export LD_LIBRARY_PATH=\"$CUBLAS_DIR:$CUDNN_DIR:\$LD_LIBRARY_PATH\"" > /home/ec2-user/.cuda_env
-    fi
-fi
 echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
