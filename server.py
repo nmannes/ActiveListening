@@ -37,6 +37,11 @@ from pylib.frame_processor import FrameProcessor
 
 from pylib.log_config import setup_logging
 
+from dotenv import load_dotenv
+
+load_dotenv(".env.prod")
+
+
 # ── Logging ───────────────────────────────────────────────────────────
 
 logger, transcript_logger = setup_logging()
@@ -53,13 +58,15 @@ class Config:
         self.content_profile = getattr(args, "content_profile", "basketball")
 
         # Load env file
-        env_file = Path(__file__).parent / f".env.{self.env}"
-        if env_file.exists():
-            for line in env_file.read_text().splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
+        env_files = [Path(__file__).parent / ".env", Path(__file__).parent / f".env.{self.env}" ]
+        for env_file in env_files:
+            if env_file.exists():
+                for line in env_file.read_text().splitlines():
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, _, value = line.partition("=")
                     os.environ.setdefault(key.strip(), value.strip())
+                break
 
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
         logger.info(f"Environment: {self.env}")
