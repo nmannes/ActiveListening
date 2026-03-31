@@ -7,6 +7,7 @@ execSync(`mkdir -p ${scheduledDir}`);
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
+const mentionsOnly = args.includes('--mentions-only');
 let lookaheadHours = 20;
 const lookaheadIdx = args.indexOf('--lookahead');
 if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
@@ -50,6 +51,8 @@ const candidates = [];
 
 for (const match of matches) {
     const { market, tvEvent, espnEvent, ncaaEvent } = match;
+
+    if (mentionsOnly && market?.category !== 'Mentions') continue;
 
     const streamURL = tvEvent?.channelURL || espnEvent?.link || market?.mediaStreamURL || null;
     let scheduleStartTime = ncaaEvent?.time || espnEvent?.startTimestamp || market?.eventStartTime || null;
