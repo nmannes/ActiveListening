@@ -8,6 +8,7 @@ const { scrapeNCAASchedulesForDays } = require("./lib/ncaa_tip_off_times.js");
 const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
 const _ = require("lodash");
+const { getSpeakerEntities } = require("./lib/speaker_identification.js");
 
 /**
  * Checks if a file exists and is not expired based on TTL.
@@ -93,6 +94,11 @@ function isFileExpired(filePath, ttlMs) {
     const markets = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_markets.json"), "utf8"),
     );
+
+    // Dynamically recalculate speakers so that changes to speaker_identification.js apply immediately
+    markets.forEach(m => {
+      m.speakerEntities = getSpeakerEntities(m.title);
+    });
 
     // Extract earnings calls and save to a separate file
     const earningsCalls = markets.filter(m => m.title && m.title.toLowerCase().includes("earnings call"));

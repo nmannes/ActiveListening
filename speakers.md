@@ -7,14 +7,14 @@
 | Announcers at Detroit vs Oklahoma City Professional Basketball Game | announcer | No |
 | Announcers at San Francisco vs San Diego Professional Baseball Game | announcer | No |
 | What will Rachel Maddow say during her show? | rachel maddow | No |
-| What will NASA say during the Artemis II Pre-Launch Press Conference? | nasa, pre-launch press conference? | No |
+| What will NASA say during the Artemis II Pre-Launch Press Conference? | nasa | No |
 | What will Nancy Pelosi say during her MS NOW interview? | nancy pelosi | No |
 | What will Pete Hegseth say during the Operation Epic Fury Press Conference? | pete hegseth | No |
 | What will Michelle Bowman say during her consumer banking speech? | michelle bowman | No |
 | What will Jamie Dimon say during his Fox News interview? | jamie dimon | No |
 | What will Mark Carney say during his announcement? | mark carney | No |
-| What will Fed Governor Barr say during his stablecoin discussion? | none | No |
-| What will the contestants say during Survivor Ep 6? | none | No |
+| What will Fed Governor Barr say during his stablecoin discussion? | fed governor barr | No |
+| What will the contestants say during Survivor Ep 6? | contestants | No |
 | What will Jeff Probst say during Survivor Ep 6? | jeff probst | No |
 | What will the Supreme Court Justices say during the Trump birthright citizenship hearing? | supreme court | No |
 | What will Fed Gov Barr say during his AI speech? | fed gov barr | No |
