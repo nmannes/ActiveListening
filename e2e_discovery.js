@@ -118,9 +118,21 @@ function isFileExpired(filePath, ttlMs) {
 
     const matchedPath = path.join(cacheDir, "matched_markets.json");
     const unmatchedPath = path.join(cacheDir, "unmatched_markets.json");
+    const speakersPath = path.join(__dirname, "speakers.md");
 
     fs.writeFileSync(matchedPath, JSON.stringify(matchedMarkets, null, 2));
     fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
+
+    let markdownTable = `| Title | Speakers | HasMediaSource |\n| :--- | :--- | :--- |\n`;
+    allResults.forEach(result => {
+      const { market, tvEvent, espnEvent, ncaaEvent } = result;
+      const speakers = (market.speakerEntities && market.speakerEntities.length > 0)
+        ? market.speakerEntities.map(s => s.toLowerCase()).join(', ')
+        : 'none';
+      const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent);
+      markdownTable += `| ${market.title} | ${speakers} | ${hasMediaSource ? "Yes" : "No"} |\n`;
+    });
+    fs.writeFileSync(speakersPath, markdownTable);
 
     logger.info(`E2E Discovery complete.`);
     logger.info(
@@ -129,6 +141,7 @@ function isFileExpired(filePath, ttlMs) {
     logger.info(
       `- Saved ${unmatchedMarkets.length} unmatched markets to ${unmatchedPath}`,
     );
+    logger.info(`- Saved speakers markdown table to ${speakersPath}`);
   } catch (err) {
     logger.error(`Fatal execution error: ${err.message}`);
   }
