@@ -83,9 +83,9 @@ class ClientSession:
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]
         
-        # Simple thread-safe audio buffer — receives PCM from WebSocket binary messages
+        # Simple audio buffer — receives PCM from WebSocket binary messages
         self.audio_inbox = bytearray()
-        self.audio_inbox_lock = threading.Lock()
+        self.audio_inbox_event = asyncio.Event()
         
         self.audio_task = None
         self.frame_task = None
@@ -148,9 +148,6 @@ class ClientSession:
         (debug_dir / f"indexedKeywordsByLastWord-{self.session_id}.json").write_text(
             json.dumps(self.keyword_index, indent=2, default=str)
         )
-
-        if self.audio_task:
-            self.audio_task.cancel()
 
         if not self.audio_only and self.clip_profile is not None:
             self.frame_processor = FrameProcessor(self)

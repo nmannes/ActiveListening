@@ -120,7 +120,7 @@ class AudioProcessor:
 
     async def send_audio(self, dg_ws):
         """Stream PCM audio data from session inbox to Deepgram."""
-        logger.info(f"[{self.session.session_id}] Audio sender task started")
+        logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Task started")
         try:
             while True:
                 await asyncio.sleep(0.01)
@@ -132,10 +132,29 @@ class AudioProcessor:
                     pcm_data = bytes(self.session.audio_inbox)
                     self.session.audio_inbox.clear()
 
-                chunk_size = len(pcm_data)
-                self.total_bytes_sent += chunk_size
-                self._pcm_buffer.extend(pcm_data)
-                
+                # Chunking: send in 32KB pieces (approx 1s of audio) 
+                # to avoid massive WebSocket frames and allow event loop to breathe
+                chunk_len = 32000
+                for i in range(0, len(pcm_data), chunk_len):
+                    chunk = pcm_data[i : i + chunk_len]
+                    
+                    self.total_bytes_sent += len(chunk)
+                    self._pcm_buffer.extend(chunk)
+                    
+                    # Record audio to WAV file
+                    if self._wav_file:
+                        self._wav_file.writeframes(chunk)
+
+                    # Send to Deepgram with a timeout to prevent permanent hangs
+                    try:
+                        await asyncio.wait_for(dg_ws.send(chunk), timeout=2.0)
+                    except asyncio.TimeoutError:
+                        logger.error(f"[{self.session.session_id}][AUDIO_SENDER] Timeout sending {len(chunk)} bytes to Deepgram")
+                        raise
+                    except Exception as e:
+                        logger.error(f"[{self.session.session_id}][AUDIO_SENDER] Error sending to Deepgram: {e}")
+                        raise
+
                 # Periodically log throughput (every 10s)
                 now = time.time()
                 if now - self.last_stats_time > 10:
@@ -143,15 +162,13 @@ class AudioProcessor:
                     logger.info(f"[{self.session.session_id}][STATS] Sent {kb_sent:.2f} KB total")
                     self.last_stats_time = now
 
-                # Record audio to WAV file
-                if self._wav_file:
-                    self._wav_file.writeframes(pcm_data)
-
-                await dg_ws.send(pcm_data)
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"[{self.session.session_id}] Deepgram WebSocket closed (sender)")
+            logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Deepgram WebSocket closed")
+        except asyncio.CancelledError:
+            logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Task cancelled")
         except Exception as e:
-            logger.error(f"[{self.session.session_id}] Error in send_audio: {e}")
+            logger.error(f"[{self.session.session_id}][AUDIO_SENDER] Fatal error: {e}")
+            raise
 
     async def receive_results(self, dg_ws):
         """Handle transcripts and metrics returned by Deepgram."""
