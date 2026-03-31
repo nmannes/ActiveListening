@@ -5,11 +5,22 @@ import logging
 from pathlib import Path
 import nemo.collections.asr.models as nemo_asr
 from omegaconf import OmegaConf
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger("remote_server")
 
+# Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
-class SpeakerRecognizer:
+class BaseSpeakerRecognizer(ABC):
+    @abstractmethod
+    async def verify_speaker(self, data, profile_name: str) -> float:
+        """
+        Verify if the speaker in data matches the reference profile.
+        Returns confidence score (0.0 to 1.0).
+        """
+        pass
+
+class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
     def __init__(self, device: str = "cpu"):
         self.device = device
         logger.info(f"Loading NeMo SpeakerVerificationModel on {device}...")
@@ -80,3 +91,45 @@ class SpeakerRecognizer:
             current_embedding, ref_embedding
         ).item()
         return similarity
+
+class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
+    def __init__(self):
+        pass
+
+    async def verify_speaker(self, transcript_text: str, profile_name: str) -> float:
+        """
+        Verify if the transcript matches a profile using word analysis / NLP.
+        """
+        # TODO: Scaffold logic for transcript word analysis
+        return 0.0
+
+class SpeakerRecognitionSession:
+    """Manages speaker recognition and entity mapping for a specific broadcast session."""
+    def __init__(self, session_id: str, market_entities: list[str]):
+        self.session_id = session_id
+        self.market_entities = market_entities
+        
+        # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
+        self.profile_labels = {}
+        
+        # Instantiated recognizers for this session
+        self.audio_recognizer = AudioSpeakerRecognizer()
+        self.transcript_recognizer = TranscriptSpeakerRecognizer()
+
+    def set_profile_label(self, voice_profile_id: str, label: str):
+        self.profile_labels[voice_profile_id] = label
+
+    def map_voice_profile_to_entity(self, voice_profile_id: str) -> str | None:
+        """
+        Maps a given voice profile ID to a known entity in the market for this session.
+        """
+        label = self.profile_labels.get(voice_profile_id)
+        if label == "advertisement":
+            return "advertisement"
+
+        # TODO: Implement mapping logic here
+        # Speaker identification will be done on a loop. Given the speaker entities,
+        # this function should attempt to assign a mapping of voice profile id
+        # to the known entity in the market.
+        return None
+
