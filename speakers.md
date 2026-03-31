@@ -1,13 +1,13 @@
 | Title | Speakers | HasMediaSource |
 | :--- | :--- | :--- |
-| What will EA say during their next earnings call? | ea | No |
-| What will Nike say during their next earnings call? | nike | No |
-| What will Delta say during their next earnings call? | delta | No |
+| What will EA say during their next earnings call? | ea employee | No |
+| What will Nike say during their next earnings call? | nike employee | No |
+| What will Delta say during their next earnings call? | delta employee | No |
 | Announcers at Chicago vs San Antonio Professional Basketball Game | announcer | No |
 | Announcers at Detroit vs Oklahoma City Professional Basketball Game | announcer | No |
 | Announcers at San Francisco vs San Diego Professional Baseball Game | announcer | No |
 | What will Rachel Maddow say during her show? | rachel maddow | No |
-| What will NASA say during the Artemis II Pre-Launch Press Conference? | nasa | No |
+| What will NASA say during the Artemis II Pre-Launch Press Conference? | nasa employee | No |
 | What will Nancy Pelosi say during her MS NOW interview? | nancy pelosi | No |
 | What will Pete Hegseth say during the Operation Epic Fury Press Conference? | pete hegseth | No |
 | What will Michelle Bowman say during her consumer banking speech? | michelle bowman | No |
@@ -21,7 +21,7 @@
 | What will Jack Black say during his SNL opening monologue? | jack black | No |
 | What will Keir Starmer say during the next Prime Minister's Questions? | keir starmer | No |
 | What will Powell say during his April press conference? | powell | No |
-| What will MrBeast say during his next Youtube Video? | youtube | No |
+| What will MrBeast say during his next Youtube Video? | youtube employee | No |
 | Announcers at Pittsburgh vs Cincinnati Professional Baseball Game | announcer | No |
 | Announcers at New York vs Houston Professional Basketball Game | announcer | Yes |
 | Announcers at Portland vs Los Angeles C Professional Basketball Game | announcer | No |
