@@ -4,9 +4,9 @@
 | What will Nike say during their next earnings call? | nike employee | No |
 | What will Delta say during their next earnings call? | delta employee | No |
 | What will Nancy Pelosi say during her MS NOW interview? | nancy pelosi | No |
-| What will Jamie Dimon say during his Fox News interview? | jamie dimon | No |
 | What will Pete Hegseth say during the Operation Epic Fury Press Conference? | pete hegseth | No |
 | What will Rachel Maddow say during her show? | rachel maddow | No |
+| What will Jamie Dimon say during his Fox News interview? | jamie dimon | No |
 | What will NASA say during the Artemis II Pre-Launch Press Conference? | nasa employee | No |
 | What will Michelle Bowman say during her consumer banking speech? | michelle bowman | No |
 | What will Mark Carney say during his announcement? | mark carney | No |

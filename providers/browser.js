@@ -104,7 +104,7 @@ async function runBrowserCapture() {
   browser = await puppeteer.launch({
     executablePath: browserPath,
     defaultViewport: null,
-    headless: false,
+    headless: true,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
