@@ -117,9 +117,9 @@ function isFileExpired(filePath, ttlMs) {
     const configuredMarkets = markets.map(m => applyWordConfigurations(m));
     const allResults = matchDiscoveryEvents(configuredMarkets, tvSchedule, espnSchedule, ncaaSchedule);
 
-    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent);
+    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL);
     const unmatchedMarkets = allResults.filter(
-      (m) => !m.tvEvent && !m.espnEvent,
+      (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
     );
 
     const matchedPath = path.join(cacheDir, "matched_markets.json");
