@@ -21,7 +21,8 @@ class BaseSpeakerRecognizer(ABC):
         pass
 
 class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
-    def __init__(self, device: str = "cpu"):
+    def __init__(self, listening_session, device: str = "cpu"):
+        self.listening_session = listening_session
         self.device = device
         logger.info(f"Loading NeMo SpeakerVerificationModel on {device}...")
 
@@ -93,8 +94,8 @@ class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
         return similarity
 
 class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
-    def __init__(self):
-        pass
+    def __init__(self, listening_session):
+        self.listening_session = listening_session
 
     async def verify_speaker(self, transcript_text: str, profile_name: str) -> float:
         """
@@ -105,16 +106,17 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
-    def __init__(self, session_id: str, market_entities: list[str]):
-        self.session_id = session_id
+    def __init__(self, listening_session, market_entities: list[str]):
+        self.listening_session = listening_session
+        self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
         
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
         
         # Instantiated recognizers for this session
-        self.audio_recognizer = AudioSpeakerRecognizer()
-        self.transcript_recognizer = TranscriptSpeakerRecognizer()
+        self.audio_recognizer = AudioSpeakerRecognizer(listening_session=self.listening_session)
+        self.transcript_recognizer = TranscriptSpeakerRecognizer(listening_session=self.listening_session)
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
