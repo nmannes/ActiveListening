@@ -29,7 +29,6 @@ import websockets
 
 from pylib.kalshi_client import KalshiClient
 from pylib.keyword_matching import build_keyword_index
-from pylib.audio_decoder import AudioDecoder
 from pylib.clip import FrameClassifier
 from pylib.audio_processor import AudioProcessor
 from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor

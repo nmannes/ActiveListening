@@ -1,6 +1,6 @@
 const fs = require("fs");
 const { fetchOpenMarkets } = require("./lib/discover_markets.js");
-const { findProgramsByZipAndKeyword } = require("./lib/tv_discovery.js");
+const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
@@ -60,7 +60,7 @@ function isFileExpired(filePath, ttlMs) {
     ];
     const functionCalls = [
       () => fetchOpenMarkets(),
-      () => findProgramsByZipAndKeyword(zip, "basketball"),
+      () => findProgramsAcrossZipsAndKeywords([zip], "basketball"),
       () => scrapeEspnSchedule(new Date(), 3),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
