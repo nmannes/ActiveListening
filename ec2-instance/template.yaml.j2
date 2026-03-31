@@ -1,0 +1,242 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Blueprint for Kalshi GPU Worker.
+  Python modules in pylib/ and server.py are injected by the render script.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: demo
+    AllowedValues: [prod, demo]
+  S3RecordingsBucket:
+    Type: String
+    Default: recordings-846345203908-us-east-1-an
+  InstanceTypeOverride:
+    Type: String
+    Default: ""
+  UseSpot:
+    Type: String
+    Default: 'false'
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Default: us-east-1
+  OperatorIp:
+    Type: String
+  AmiId:
+    Type: String
+    Default: ami-0bbf3a5a5f8ea3603
+  ShutdownMinutes:
+    Type: Number
+    Default: 30
+  KalshiKeyId:
+    Type: String
+    NoEcho: true
+  KalshiPrivateKey:
+    Type: String
+    NoEcho: true
+
+Conditions:
+  UseSpotInstances: !Equals [!Ref UseSpot, 'true']
+  HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
+
+Mappings:
+  EnvToInstanceType:
+    prod:
+      InstanceType: t3.large
+    demo:
+      InstanceType: t3.large
+
+Resources:
+  KalshiWorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DeletionPolicy: Delete
+    Properties:
+      GroupDescription: Security group for Kalshi Worker
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref OperatorIp
+        - IpProtocol: tcp
+          FromPort: 8090
+          ToPort: 8090
+          CidrIp: !Ref OperatorIp
+
+  KalshiWorkerInstance:
+    Type: AWS::EC2::Instance
+    DeletionPolicy: Delete
+    Metadata:
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              python3-pip: []
+              amazon-cloudwatch-agent: []
+              libsndfile: []
+
+          files:
+            "/home/ec2-user/.env":
+              content: !Sub |
+{{ env_content | indent(16, true) | default('# missing env content') }}
+              mode: "000600"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/private_key.txt":
+              content: !Ref KalshiPrivateKey
+              mode: "000600"
+              owner: "ec2-user"
+              group: "ec2-user"
+            "/home/ec2-user/requirements.txt":
+              content: |
+{{ requirements_txt | indent(16, true) | default('# missing requirements') }}
+              mode: "000644"
+              owner: "ec2-user"
+              group: "ec2-user"
+{% for filename, content in pylib_files.items() %}
+            "/home/ec2-user/pylib/{{ filename }}":
+              content: |
+{{ content | indent(16, true) }}
+              mode: "000644"
+              owner: ec2-user
+              group: ec2-user
+{% endfor %}
+            "/home/ec2-user/server.py":
+              content: |
+{{ server_py | indent(16, true) | default('# missing') }}
+              mode: "000755"
+              owner: ec2-user
+              group: ec2-user
+            "/home/ec2-user/setup_kalshi.sh":
+              content: !Sub |
+{{ setup_kalshi_sh | indent(16, true) }}
+              mode: "000755"
+              owner: ec2-user
+              group: ec2-user
+            "/etc/systemd/system/kalshi.service":
+              content: !Sub |
+{{ kalshi_service | indent(16, true) }}
+
+              mode: "000644"
+              owner: root
+              group: root
+            "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json":
+              content: !Sub |
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/cfn-init.log",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/cfn-init",
+                            "retention_in_days": 7
+                          },
+                          {
+                            "file_path": "/home/ec2-user/logs/remote_server.log",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/remote_server",
+                            "retention_in_days": 7
+                          },
+                          {
+                            "file_path": "/home/ec2-user/logs/setup_trace.log",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/setup_trace",
+                            "retention_in_days": 7
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              mode: "000644"
+              owner: root
+              group: root
+
+          commands:
+            01_run_setup:
+              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh' && touch /home/ec2-user/.setup_done"
+              test: "test ! -f /home/ec2-user/.setup_done"
+            02_start_cw_agent:
+              command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
+            03_enable_service:
+                command: "systemctl enable --now kalshi"
+
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: 
+        !If 
+          - HasInstanceTypeOverride
+          - !Ref InstanceTypeOverride
+          - !FindInMap [EnvToInstanceType, !Ref Environment, InstanceType]
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref KalshiWorkerInstanceProfile
+      SecurityGroupIds: 
+        - !Ref KalshiWorkerSecurityGroup
+      InstanceMarketOptions:
+        !If
+          - UseSpotInstances
+          - MarketType: spot
+          - !Ref AWS::NoValue
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}"
+        - Key: Environment
+          Value: !Ref Environment
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y aws-cfn-bootstrap
+          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT1000S
+
+
+  KalshiWorkerInstanceRole:
+    Type: AWS::IAM::Role
+    DeletionPolicy: Delete
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3RecordingsWriteAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                Resource: !Sub "arn:aws:s3:::${S3RecordingsBucket}/*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+
+  KalshiWorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    DeletionPolicy: Delete
+    Properties:
+      Roles:
+        - !Ref KalshiWorkerInstanceRole
+
+Outputs:
+  InstanceId:
+    Value: !Ref KalshiWorkerInstance
+  PublicIp:
+    Value: !GetAtt KalshiWorkerInstance.PublicIp
+

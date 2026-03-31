@@ -6,15 +6,26 @@ received_stream.webm
 models/
 
 *.txt
+!requirements.txt
+__pycache__/
 *.json
 *.db
 *.log
 *.xml
 
+*.wav
+*.jpg
+*.png
 transcripts/
 
 .env
 .env.demo
 .env.prod
 
-debug_frames/
+debug/
+
+cache/
+
+*.html
+
+market_tracking/

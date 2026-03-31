@@ -1,0 +1,45 @@
+#!/bin/bash
+set -ex
+mkdir -p /home/ec2-user/logs /home/ec2-user/debug
+exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
+echo "Starting setup_kalshi.sh at $(date)"
+sudo shutdown -h +${ShutdownMinutes}
+
+# Create 8GB swap file to prevent OOM
+if [ ! -f /swapfile ]; then
+    sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
+    sudo chmod 600 /swapfile
+    sudo mkswap /swapfile
+    sudo swapon /swapfile
+    echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
+fi
+
+if ! command -v ffmpeg &> /dev/null; then
+    echo "Installing FFmpeg..."
+    URL="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+    curl -L -o ffmpeg.tar.xz "$URL"
+    mkdir -p ffmpeg_tmp
+    tar -xvf ffmpeg.tar.xz -C ffmpeg_tmp --strip-components=1 > /dev/null
+    sudo mv ffmpeg_tmp/bin/ffmpeg /usr/local/bin/
+    sudo mv ffmpeg_tmp/bin/ffprobe /usr/local/bin/
+    rm -rf ffmpeg_tmp ffmpeg.tar.xz
+fi
+
+# Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
+mkdir -p /home/ec2-user/pip_tmp
+export TMPDIR=/home/ec2-user/pip_tmp
+
+# Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
+# We use --index-url (instead of --extra-index-url) for torch to avoid PyPI's GPU versions
+pip3 install --no-cache-dir open-clip-torch \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# Install the rest of the requirements from PyPI
+pip3 install --no-cache-dir -r /home/ec2-user/requirements.txt
+
+rm -rf /home/ec2-user/pip_tmp
+
+DEVICE="cpu"
+if ! grep -q "export DEVICE=$DEVICE" /home/ec2-user/.bashrc; then
+    echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
+fi

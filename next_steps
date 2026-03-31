@@ -1,0 +1,13 @@
+1. Match schedules for Baseball, NHL, and Political Press Conferences. For political ones, we will want to look for it on Fox News
+
+2. Earnings call locator
+    - Create an agent to find the phone number to dial
+    - Or the Q4 or ChorusCall platform 
+    - we already know the time from the Kalshi Event
+
+3. For any clients:
+    - Allow for a confirmation to run it automatically based on the match
+    - If yes, do it
+
+4. Upon buying, for any market
+    - Sell after the market has priced in the fact the word was said
