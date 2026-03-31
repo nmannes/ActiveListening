@@ -87,6 +87,8 @@ class ClientSession:
         self.audio_inbox = bytearray()
         self.audio_inbox_event = asyncio.Event()
         
+        self.audio_inbox_lock = threading.Lock()
+        
         self.audio_task = None
         self.frame_task = None
 

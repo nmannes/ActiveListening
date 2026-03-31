@@ -6,7 +6,7 @@ const scheduledDir = path.join(__dirname, 'scheduled');
 execSync(`mkdir -p ${scheduledDir}`);
 
 const args = process.argv.slice(2);
-const dryRun = args.includes('--dry-run');
+const dryRun = args.includes('--dry-run');e
 const youtubeOnly = args.includes('--youtube-only');
 let lookaheadHours = 20;
 const lookaheadIdx = args.indexOf('--lookahead');
