@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { frontPageMarkets } = require("./lib/discover_markets.js");
+const { fetchOpenMarkets } = require("./lib/discover_markets.js");
 const { findProgramsByZipAndKeyword } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
@@ -59,7 +59,7 @@ function isFileExpired(filePath, ttlMs) {
       "ncaa_next_3_days.json",
     ];
     const functionCalls = [
-      () => frontPageMarkets(),
+      () => fetchOpenMarkets(),
       () => findProgramsByZipAndKeyword(zip, "basketball"),
       () => scrapeEspnSchedule(new Date(), 3),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
