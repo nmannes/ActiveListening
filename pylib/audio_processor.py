@@ -291,6 +291,14 @@ class AudioProcessor:
 
     def _upload_to_s3(self):
         """Upload the recordings directory to S3."""
+        # 16000 Hz * 2 bytes/sample * 60 seconds = 1920000 bytes
+        if len(self._pcm_buffer) < 1920000:
+            logger.info(f"[{self.session.session_id}] Less than 1 minute of audio ({len(self._pcm_buffer)} bytes), skipping S3 upload & deleting local files")
+            if self._recordings_dir and self._recordings_dir.exists():
+                import shutil
+                shutil.rmtree(self._recordings_dir, ignore_errors=True)
+            return
+
         bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
         if not self._recordings_dir or not self._recordings_dir.exists():
             return
