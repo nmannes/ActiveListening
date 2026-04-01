@@ -79,6 +79,8 @@ class ClientSession:
         self.keyword_index = None
         
         self.transcript = defaultdict(list)  # {speaker_id: [token_dicts]}
+        self.transcript_lock = asyncio.Lock()
+        
         self.is_content_visible = False
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]
@@ -229,6 +231,7 @@ class TradingServer:
 
     async def start(self):
         logger.info(f"WebSocket server listening on port {self.config.port}")
+        self.stop_event = asyncio.Event()
         
         # Register signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()
@@ -241,7 +244,7 @@ class TradingServer:
         async with websockets.serve(
             self.handle_client, "0.0.0.0", self.config.port, ping_interval=None, max_size=None
         ):
-            await asyncio.Future()  # run forever
+            await self.stop_event.wait()
 
     async def shutdown(self, sig):
         """Graceful shutdown: cleanup all active sessions (saves WAVs + uploads to S3)."""
@@ -251,7 +254,7 @@ class TradingServer:
         # Give cleanup tasks time to finish (WAV close + S3 upload)
         await asyncio.sleep(2)
         logger.info("Shutdown complete.")
-        asyncio.get_running_loop().stop()
+        self.stop_event.set()
 
     async def initialize_resources(self):
         """Asynchronously load heavy models/resources."""

@@ -29,6 +29,7 @@ class MockSession:
         self.audio_inbox_lock = MagicMock()
         self.audio_inbox = bytearray()
         self.transcript = defaultdict(list)
+        self.transcript_lock = AsyncMock()
         self.server = MockServer()
         self.websocket = AsyncMock()
         self.is_content_visible = True

@@ -43,23 +43,24 @@ class TradeProcessor:
         sorted_tokens = sorted(tokens, key=lambda x: x.get("start", 0))
 
         # 1. Update per-speaker transcript
-        speaker_transcript = self.session.transcript[speaker_id]
-        new_tokens_added = []
-        for token_dict in sorted_tokens:
-            text = token_dict.get("text", "").strip()
-            if not text:
-                continue
+        async with self.session.transcript_lock:
+            speaker_transcript = self.session.transcript[speaker_id]
+            new_tokens_added = []
+            for token_dict in sorted_tokens:
+                text = token_dict.get("text", "").strip()
+                if not text:
+                    continue
 
-            # Deduplicate adjacent in this speaker's transcript
-            if speaker_transcript and speaker_transcript[-1]["text"] == text:
-                continue
-            if new_tokens_added and new_tokens_added[-1]["text"] == text:
-                continue
+                # Deduplicate adjacent in this speaker's transcript
+                if speaker_transcript and speaker_transcript[-1]["text"] == text:
+                    continue
+                if new_tokens_added and new_tokens_added[-1]["text"] == text:
+                    continue
 
-            speaker_transcript.append(token_dict)
-            new_tokens_added.append(token_dict)
-            if len(speaker_transcript) > 10000:
-                speaker_transcript.pop(0)
+                speaker_transcript.append(token_dict)
+                new_tokens_added.append(token_dict)
+                if len(speaker_transcript) > 10000:
+                    speaker_transcript.pop(0)
 
         # 2. Update per-speaker buffer and Match
         speaker_buffer = self.speaker_buffers[speaker_id]
@@ -109,7 +110,8 @@ class TradeProcessor:
 
         if new_tokens_added:
             new_text = " ".join(t["text"] for t in new_tokens_added)
-            recent = " ".join(t["text"] for t in speaker_transcript[-self.session.server.config.last_words_count :])
+            async with self.session.transcript_lock:
+                recent = " ".join(t["text"] for t in speaker_transcript[-self.session.server.config.last_words_count :])
             
             logger.info(f"[{self.session.session_id}][{speaker_id}] Transcript: {new_text} (Last {self.session.server.config.last_words_count}: {recent})")
             transcript_logger.info(f"[{self.session.session_id}][{speaker_id}] {new_text}")

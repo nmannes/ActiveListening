@@ -3,10 +3,12 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 import wave
 import websockets
 import numpy as np
 from pathlib import Path
+from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
 transcript_logger = logging.getLogger("transcript")
@@ -43,7 +45,8 @@ class AudioProcessor:
         self.last_stats_time = time.time()
 
     async def run(self):
-        self.session.transcript.clear()
+        async with self.session.transcript_lock:
+            self.session.transcript.clear()
         
         if not self.api_key:
             logger.error(f"[{self.session.session_id}] DEEPGRAM_API_KEY not found in environment!")
@@ -58,7 +61,8 @@ class AudioProcessor:
         }
 
         # Set up recording directories
-        self._recordings_dir = Path(__file__).parent.parent / "recordings" / f"{self.session.session_id}_{int(time.time())}"
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self._recordings_dir = Path(__file__).parent.parent / "recordings" / f"{self.session.session_id}_{timestamp_str}"
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
         self._audio_dir = self._recordings_dir / "audio"
         self._audio_dir.mkdir(parents=True, exist_ok=True)
@@ -230,12 +234,20 @@ class AudioProcessor:
                     self._write_speaker_audio(speaker_id, words[0]["start"], words[-1]["end"])
 
                     if self.on_tokens_callback:
-                        asyncio.create_task(self.on_tokens_callback(formatted_tokens, speaker_id=speaker_id))
+                        await self.on_tokens_callback(formatted_tokens, speaker_id=speaker_id)
 
                     # Log transcript segment
                     transcript_text = alt.get("transcript", "").strip()
                     if transcript_text:
                         logger.info(f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}")
+                        msg_text = f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}"
+                        asyncio.get_running_loop().run_in_executor(
+                            None,
+                            send_telegram,
+                            msg_text,
+                            "debug"
+                        )
+                        
                 
                 elif msg_type == "Metadata":
                     logger.info(f"[{self.session.session_id}][DG] Metadata received: {json.dumps(data)}")
