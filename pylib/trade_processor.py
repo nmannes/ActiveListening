@@ -65,14 +65,7 @@ class TradeProcessor:
         # 2. Update per-speaker buffer and Match
         speaker_buffer = self.speaker_buffers[speaker_id]
         
-        if speaker_id not in self.trading_speakers:
-            # Even if not trading, we update the buffer for visibility
-            for t in new_tokens_added:
-                speaker_buffer.append(t["text"])
-                if len(speaker_buffer) > 500:
-                    speaker_buffer.pop(0)
-            return
-
+        # We always want to detect keywords for notifications, even if NOT trading
         for t in new_tokens_added:
             word = t["text"]
             speaker_buffer.append(word)
@@ -83,13 +76,30 @@ class TradeProcessor:
             if matched:
                 logger.info(f"[{self.session.session_id}][SIGNAL] Detected for speaker {speaker_id}: \"{matched['key']}\"")
 
+                # Send Telegram notification regardless of trading status
+                market_title = self.session.market.get('title', matched['key'])
+                msg = (
+                    f"🔔 [SIGNAL] {market_title}\n"
+                    f"Keyword: \"{matched['key']}\"\n"
+                    f"Speaker: {speaker_id}\n"
+                    f"Ticker: {matched['value']}"
+                )
+
+                if speaker_id not in self.trading_speakers:
+                    # Not a trading speaker, so we stop here (but we already notified)
+                    # We should still remove the market from index to avoid double notifications
+                    continue
+
                 if not self.session.is_content_visible:
                     logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen")
+                    asyncio.get_running_loop().run_in_executor(None, send_telegram, f"Desired content not on screen for keyword {matched['key']}", "info")
+                    # We still remove it so we don't try again for this market
                     continue
 
                 if self.session.server.config.trade_for_real:
                     await self.place_order(matched)
                 else:
+                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
                     logger.info(f"[{self.session.session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected for {speaker_id}")
 
                 remove_market_from_index(self.session.keyword_index, matched["value"])

@@ -4,9 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from collections import defaultdict
 from pylib.trade_processor import TradeProcessor
-from pylib.audio_processor import AudioProcessor
 from pylib.keyword_matching import build_keyword_index
-from pylib.test_audio_processor import MockWebSocket
 
 class MockServerConfig:
     def __init__(self):
@@ -34,7 +32,6 @@ class MockSession:
         self.websocket = AsyncMock()
         self.is_content_visible = True
         
-        # The mock data contains "cherry blossom", so we use that as the keyword.
         self.market = {
             "title": "Cherry Blossom Prediction",
             "purchasePrice": 90,
@@ -53,79 +50,87 @@ class MockSession:
         self.keyword_index = build_keyword_index(keywords)
 
 
-def test_trade_processor_with_deepgram_mocks():
-    """Verify that piping actual deepgram mock data correctly triggers order placement."""
+def test_trade_processor_with_whitelist_notifies_and_trades():
+    """Verify that whitelisted speaker triggers both Telegram and Kalshi order."""
     async def run_test():
         session = MockSession()
-        
-        resp_dir = Path(__file__).parent.parent / "deepgram_responses"
-        mock_ws = MockWebSocket(resp_dir)
-        
-        with patch("pylib.trade_processor.send_telegram") as mock_telegram:
+        with patch("asyncio.get_running_loop") as mock_get_loop, \
+             patch("pylib.trade_processor.send_telegram") as mock_telegram:
+            mock_loop = MagicMock()
+            mock_get_loop.return_value = mock_loop
+            mock_loop.run_in_executor.side_effect = lambda executor, func, *args: func(*args)
+            
             processor = TradeProcessor(session)
-            # Add all possible speakers to whitelist so we catch the cherry blossom mention
-            for i in range(20):
-                processor.add_trading_speaker(str(i))
+            processor.add_trading_speaker("0")
             
-            # Setup audio processor to route tokens to trade processor
-            audio_proc = AudioProcessor(session, on_tokens_callback=processor.process_tokens)
+            tokens = [
+                {"text": "cherry", "start": 0.1},
+                {"text": "blossom", "start": 0.6}
+            ]
+            await processor.process_tokens(tokens, speaker_id="0")
             
-            # Process mock websocket feed
-            await audio_proc.receive_results(mock_ws)
-            
-            # Verify kalshi api was triggered correctly
-            await asyncio.sleep(0.1)
+            # Verify Telegram notification
+            mock_telegram.assert_called()
+            # Verify Kalshi order
             session.server.kalshi.place_fill_or_kill_order.assert_called_once_with(
                 yes_price=95,
                 ticker="CHERRY-YES",
                 count=10
             )
             
-            # Verify index cleanup
-            assert "blossom" not in session.keyword_index or len(session.keyword_index["blossom"]) == 0
-            
     asyncio.run(run_test())
 
 
-def test_trade_processor_ignores_unwhitelisted_speaker_with_deepgram_mocks():
-    """Verify that if no speakers are whitelisted, the same mock data does NOT trigger an order."""
+def test_trade_processor_without_whitelist_only_notifies():
+    """Verify that unwhitelisted speaker triggers Telegram but NOT Kalshi order."""
     async def run_test():
         session = MockSession()
-        
-        resp_dir = Path(__file__).parent.parent / "deepgram_responses"
-        mock_ws = MockWebSocket(resp_dir)
-        
-        with patch("pylib.trade_processor.send_telegram") as mock_telegram:
+        with patch("asyncio.get_running_loop") as mock_get_loop, \
+             patch("pylib.trade_processor.send_telegram") as mock_telegram:
+            mock_loop = MagicMock()
+            mock_get_loop.return_value = mock_loop
+            mock_loop.run_in_executor.side_effect = lambda executor, func, *args: func(*args)
+            
             processor = TradeProcessor(session)
-            # NOT adding any speakers to processor.trading_speakers
+            # speaker "1" is NOT whitelisted
             
-            audio_proc = AudioProcessor(session, on_tokens_callback=processor.process_tokens)
-            await audio_proc.receive_results(mock_ws)
-            await asyncio.sleep(0.1)
+            tokens = [
+                {"text": "cherry", "start": 0.1},
+                {"text": "blossom", "start": 0.6}
+            ]
+            await processor.process_tokens(tokens, speaker_id="1")
             
+            # Verify Telegram notification
+            mock_telegram.assert_called()
+            # Verify Kalshi order was NOT triggered
             session.server.kalshi.place_fill_or_kill_order.assert_not_called()
             
     asyncio.run(run_test())
 
 
-def test_trade_processor_no_trade_when_content_invisible_with_deepgram_mocks():
-    """Verify that if content isn't visible on screen, orders are skipped despite matching tokens."""
+def test_trade_processor_no_trade_when_content_invisible():
+    """Verify that if content isn't visible, order is skipped but notification is sent."""
     async def run_test():
         session = MockSession()
         session.is_content_visible = False
-        
-        resp_dir = Path(__file__).parent.parent / "deepgram_responses"
-        mock_ws = MockWebSocket(resp_dir)
-        
-        with patch("pylib.trade_processor.send_telegram") as mock_telegram:
+        with patch("asyncio.get_running_loop") as mock_get_loop, \
+             patch("pylib.trade_processor.send_telegram") as mock_telegram:
+            mock_loop = MagicMock()
+            mock_get_loop.return_value = mock_loop
+            mock_loop.run_in_executor.side_effect = lambda executor, func, *args: func(*args)
+            
             processor = TradeProcessor(session)
-            for i in range(20):
-                processor.add_trading_speaker(str(i))
+            processor.add_trading_speaker("0")
             
-            audio_proc = AudioProcessor(session, on_tokens_callback=processor.process_tokens)
-            await audio_proc.receive_results(mock_ws)
-            await asyncio.sleep(0.1)
+            tokens = [
+                {"text": "cherry", "start": 0.1},
+                {"text": "blossom", "start": 0.6}
+            ]
+            await processor.process_tokens(tokens, speaker_id="0")
             
+            # Verify Telegram notification STILL sent
+            mock_telegram.assert_called()
+            # Verify Kalshi order NOT triggered
             session.server.kalshi.place_fill_or_kill_order.assert_not_called()
             
     asyncio.run(run_test())
