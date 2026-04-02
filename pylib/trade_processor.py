@@ -88,6 +88,8 @@ class TradeProcessor:
                 if speaker_id not in self.trading_speakers:
                     # Not a trading speaker, so we stop here (but we already notified)
                     # We should still remove the market from index to avoid double notifications
+                    logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because not a trading speaker")
+                    asyncio.get_running_loop().run_in_executor(None, send_telegram, f"Not a trading speaker for keyword {matched['key']}", "info")
                     continue
 
                 if not self.session.is_content_visible:
