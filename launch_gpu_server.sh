@@ -202,4 +202,4 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-bun run lib/telegram.js --message "Kalshi worker launched!" --channel info
+bun run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

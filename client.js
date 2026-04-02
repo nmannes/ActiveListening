@@ -18,6 +18,7 @@ const WebSocket = require("ws");
 const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { waitIfNecessary } = require("./lib/event_started_yet");
+const { sendTelegram } = require("./lib/telegram");
 
 // ── CLI args ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -159,7 +160,9 @@ logger.info(`Remote: ${REMOTE_URL}`);
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require("./lib/orderbook_tracking");
 const orderbook = startOrderbookTracking(market);
-logger.info("Orderbook tracking started locally");
+const msg = `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes`;
+logger.info(msg);
+sendTelegram(msg).catch(err => logger.error(`[client] Failed to send Telegram: ${err.message}`));
 
 // ── State ────────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
