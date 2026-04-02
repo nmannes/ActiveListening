@@ -83,28 +83,22 @@ class TradeProcessor:
                     f"Keyword: \"{matched['key']}\"\n"
                     f"Speaker: {speaker_id}\n"
                     f"Ticker: {matched['value']}"
+                    f"Trading: {self.session.server.config.trade_for_real}"
                 )
 
+                asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
+
                 if speaker_id not in self.trading_speakers:
-                    # Not a trading speaker, so we stop here (but we already notified)
-                    # We should still remove the market from index to avoid double notifications
                     logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because not a trading speaker")
-                    asyncio.get_running_loop().run_in_executor(None, send_telegram, f"Not a trading speaker for keyword {matched['key']}", "info")
                     continue
 
                 if not self.session.is_content_visible:
                     logger.info(f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen")
-                    asyncio.get_running_loop().run_in_executor(None, send_telegram, f"Desired content not on screen for keyword {matched['key']}", "info")
-                    # We still remove it so we don't try again for this market
                     continue
 
                 if self.session.server.config.trade_for_real:
                     await self.place_order(matched)
-                else:
-                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
-                    logger.info(f"[{self.session.session_id}][TRADE] Not trading for real but \"{matched['key']}\" detected for {speaker_id}")
-
-                remove_market_from_index(self.session.keyword_index, matched["value"])
+                    remove_market_from_index(self.session.keyword_index, matched["value"])
 
                 # Notify client
                 try:
