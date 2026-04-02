@@ -6,7 +6,7 @@ const scheduledDir = path.join(__dirname, 'scheduled');
 execSync(`mkdir -p ${scheduledDir}`);
 
 const args = process.argv.slice(2);
-const dryRun = args.includes('--dry-run');e
+const dryRun = args.includes('--dry-run');
 const youtubeOnly = args.includes('--youtube-only');
 let lookaheadHours = 20;
 const lookaheadIdx = args.indexOf('--lookahead');
@@ -87,7 +87,7 @@ for (const m of candidates) {
     } else {
         const lastM = currentSequence[currentSequence.length - 1];
         const gapMinutes = (new Date(m.eventStartTime) - new Date(lastM.eventStartTime)) / 60000;
-        
+
         // Group if starts within 60 minutes of the previous one
         if (gapMinutes <= 60) {
             currentSequence.push(m);
@@ -104,10 +104,10 @@ for (const seq of sequences) {
     // Calculate optimal server window for the entire sequence
     const firstM = seq[0];
     const lastM = seq[seq.length - 1];
-    
+
     const seqStart = new Date(firstM.eventStartTime);
     const seqLastStart = new Date(lastM.eventStartTime);
-    
+
     // Server should launch 10m before first and shut down 75m after last starts
     const overallLaunch = new Date(seqStart.getTime() - 10 * 60 * 1000);
     const overallShutdown = new Date(seqLastStart.getTime() + 75 * 60 * 1000);
@@ -132,7 +132,7 @@ for (const seq of sequences) {
         // Check if we can reuse an existing server window (from previous runs or current sequence)
         const estimatedEndTime = new Date(startTime.getTime() + 60 * 60 * 1000);
         let reusableWindow = serverWindows.find(w => w.start <= startTime && w.end >= estimatedEndTime);
-        
+
         if (!reusableWindow && seqServerWindow) {
             if (seqServerWindow.start <= startTime && seqServerWindow.end >= estimatedEndTime) {
                 reusableWindow = seqServerWindow;
@@ -173,9 +173,9 @@ for (const seq of sequences) {
             if (!clientOnly) {
                 console.log(`          Server: Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`);
             }
-            
+
             execSync(cmd);
-            
+
             if (!clientOnly) {
                 seqServerWindow = { start: overallLaunch, end: overallShutdown };
             }
