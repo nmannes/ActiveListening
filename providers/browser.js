@@ -345,38 +345,6 @@ module.exports = {
       return;
     }
 
-    // YouTube: use yt-dlp to extract direct audio stream URL
-    if (
-      _streamUrl.includes("youtube.com") ||
-      _streamUrl.includes("youtu.be")
-    ) {
-      _logger.info(
-        `[browser] YouTube URL detected, using yt-dlp to extract audio stream.`,
-      );
-      try {
-        const directUrl = await new Promise((resolve, reject) => {
-          const ytdlp = spawn("yt-dlp", ["-f", "bestaudio", "-g", _streamUrl]);
-          let out = "";
-          let err = "";
-          ytdlp.stdout.on("data", (d) => (out += d.toString()));
-          ytdlp.stderr.on("data", (d) => (err += d.toString()));
-          ytdlp.on("close", (code) => {
-            if (code === 0 && out.trim()) {
-              resolve(out.trim());
-            } else {
-              reject(new Error(`yt-dlp exited ${code}: ${err.trim()}`));
-            }
-          });
-        });
-        _logger.info(`[browser] yt-dlp extracted URL, starting transcoder.`);
-        setupAudioTranscoder(directUrl);
-        return;
-      } catch (e) {
-        _logger.warn(
-          `[browser] yt-dlp failed (${e.message}), falling back to browser capture.`,
-        );
-      }
-    }
 
     const result = await runBrowserCapture();
     if (typeof result === "string") {

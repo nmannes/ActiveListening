@@ -129,6 +129,8 @@ if (!providerName) {
     providerName = "tv";
   } else if (STREAM_URL.includes("espn.com")) {
     providerName = "espn";
+  } else if (STREAM_URL.includes("youtube.com") || STREAM_URL.includes("youtu.be")) {
+    providerName = "youtube";
   } else {
     providerName = "browser";
   }
