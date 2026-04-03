@@ -61,35 +61,37 @@ function isFileExpired(filePath, ttlMs) {
     ];
     const functionCalls = [
       () => fetchOpenMarkets(),
-      () => findProgramsAcrossZipsAndKeywords([zip], "basketball"),
+      () => findProgramsAcrossZipsAndKeywords([zip], ["basketball", "baseball", "hockey"]),
       () => scrapeEspnSchedule(new Date(), 3),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
 
-    for (let i = 0; i < functionCalls.length; i++) {
-      const fileName = rawData[i];
-      const filePath = path.join(cacheDir, fileName);
-      const func = functionCalls[i];
+    await Promise.all(
+      functionCalls.map(async (func, i) => {
+        const fileName = rawData[i];
+        const filePath = path.join(cacheDir, fileName);
 
-      if (isFileExpired(filePath, cacheTTL)) {
-        logger.info(`Fetching fresh data for ${fileName}...`);
-        try {
-          const data = await func();
-          if (data) {
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-            logger.info(`Saved ${fileName}`);
-          } else {
-            logger.warn(
-              `Fetched data for ${fileName} was empty, skipping write.`,
-            );
+        if (isFileExpired(filePath, cacheTTL)) {
+          logger.info(`Fetching fresh data for ${fileName}...`);
+          try {
+            const data = await func();
+            if (data) {
+              fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+              logger.info(`Saved ${fileName}`);
+            } else {
+              logger.warn(
+                `Fetched data for ${fileName} was empty, skipping write.`,
+              );
+            }
+          } catch (err) {
+            logger.error(`Error fetching data for ${fileName}: ${err.message}`);
           }
-        } catch (err) {
-          logger.error(`Error fetching data for ${fileName}: ${err.message}`);
+        } else {
+          logger.info(`Using cached data from ${fileName}`);
         }
-      } else {
-        logger.info(`Using cached data from ${fileName}`);
-      }
-    }
+      }),
+    );
+
 
     const markets = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_markets.json"), "utf8"),
