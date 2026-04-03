@@ -105,6 +105,7 @@ function isFileExpired(filePath, ttlMs) {
     }
 
 
+    markets = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
     const tvSchedule = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_tv_schedule.json"), "utf8"),
     );
