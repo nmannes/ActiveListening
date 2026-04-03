@@ -35,6 +35,7 @@ from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
 
 from pylib.log_config import setup_logging
+from pylib.telegram import send_telegram
 
 
 # ── Logging ───────────────────────────────────────────────────────────
@@ -257,6 +258,11 @@ class TradingServer:
 
         # Start background resource initialization
         asyncio.create_task(self.initialize_resources())
+
+        # Notify that the server has started
+        hostname = os.uname().nodename
+        msg = f"🚀 Kalshi server started on {hostname}\nEnv: {self.config.env}\nPort: {self.config.port}"
+        asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
         async with websockets.serve(
             self.handle_client,
