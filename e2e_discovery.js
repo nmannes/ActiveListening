@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { fetchOpenMarkets } = require("./lib/discover_markets.js");
+const { fetchOpenMarkets, getTeamNames } = require("./lib/discover_markets.js");
 const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
 const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
@@ -53,58 +53,68 @@ function isFileExpired(filePath, ttlMs) {
     }
 
     const cacheTTL = 60 * 60 * 1000; // 1 hour
+    const marketsPath = path.join(cacheDir, "latest_markets.json");
+    let markets = [];
+    if (fs.existsSync(marketsPath)) {
+      try {
+        markets = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
+      } catch (e) {
+        logger.warn(`Failed to parse ${marketsPath}: ${e.message}`);
+      }
+    }
+
     const rawData = [
       "latest_markets.json",
       "latest_tv_schedule.json",
       "espn_next_3_days.json",
       "ncaa_next_3_days.json",
     ];
+
+    const teamSpecificKeywords = new Set(["basketball", "baseball", "hockey", "nba", "mlb", "nhl", "ncaa"]);
+    markets.forEach(m => {
+      const teams = getTeamNames(m.title);
+      teams.forEach(variants => {
+        variants.forEach(v => {
+          if (v.length > 3) teamSpecificKeywords.add(v.toLowerCase());
+        });
+      });
+    });
+
+    const categories_to_search = Array.from(teamSpecificKeywords);
+    logger.info(`Searching for ${categories_to_search.length} keywords in TV schedule: ${categories_to_search.join(", ")}`);
+
     const functionCalls = [
       () => fetchOpenMarkets(),
-      () => findProgramsAcrossZipsAndKeywords([zip], ["basketball", "baseball", "hockey"]),
+      () => findProgramsAcrossZipsAndKeywords([zip], categories_to_search), // DC, NY, LA, CHI
       () => scrapeEspnSchedule(new Date(), 3),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
 
-    await Promise.all(
-      functionCalls.map(async (func, i) => {
-        const fileName = rawData[i];
-        const filePath = path.join(cacheDir, fileName);
+    for (let i = 0; i < functionCalls.length; i++) {
+      const func = functionCalls[i];
+      const fileName = rawData[i];
+      const filePath = path.join(cacheDir, fileName);
 
-        if (isFileExpired(filePath, cacheTTL)) {
-          logger.info(`Fetching fresh data for ${fileName}...`);
-          try {
-            const data = await func();
-            if (data) {
-              fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-              logger.info(`Saved ${fileName}`);
-            } else {
-              logger.warn(
-                `Fetched data for ${fileName} was empty, skipping write.`,
-              );
-            }
-          } catch (err) {
-            logger.error(`Error fetching data for ${fileName}: ${err.message}`);
+      if (isFileExpired(filePath, cacheTTL)) {
+        logger.info(`Fetching fresh data for ${fileName}...`);
+        try {
+          const data = await func();
+          if (data) {
+            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+            logger.info(`Saved ${fileName}`);
+          } else {
+            logger.warn(
+              `Fetched data for ${fileName} was empty, skipping write.`,
+            );
           }
-        } else {
-          logger.info(`Using cached data from ${fileName}`);
+        } catch (err) {
+          logger.error(`Error fetching data for ${fileName}: ${err.message}`);
         }
-      }),
-    );
+      } else {
+        logger.info(`Using cached data from ${fileName}`);
+      }
+    }
 
-
-    const markets = JSON.parse(
-      fs.readFileSync(path.join(cacheDir, "latest_markets.json"), "utf8"),
-    );
-
-    // Dynamically recalculate speakers so that changes to speaker_identification.js apply immediately
-    markets.forEach(m => {
-      m.speakerEntities = getSpeakerEntities(m.title);
-    });
-
-    // Extract earnings calls and save to a separate file
-    const earningsCalls = markets.filter(m => m.title && m.title.toLowerCase().includes("earnings call"));
-    fs.writeFileSync(path.join(cacheDir, "earnings_calls.json"), JSON.stringify(earningsCalls, null, 2));
 
     const tvSchedule = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_tv_schedule.json"), "utf8"),
