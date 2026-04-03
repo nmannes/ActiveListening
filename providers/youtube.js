@@ -92,7 +92,7 @@ module.exports = {
           `[youtube] Attempting to extract audio stream with yt-dlp...`,
         );
         const directUrl = await new Promise((resolve, reject) => {
-          const ytdlp = spawn("yt-dlp", ["-f", "bestaudio", "-g", _streamUrl]);
+          const ytdlp = spawn("yt-dlp", ["-f", "bestaudio/best", "-g", _streamUrl]);
           let out = "";
           let err = "";
           ytdlp.stdout.on("data", (d) => (out += d.toString()));
