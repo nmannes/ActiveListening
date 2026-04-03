@@ -303,7 +303,12 @@ async def main():
         description="Remote transcription & trading server"
     )
     parser.add_argument("--port", type=int, default=8090, help="WebSocket listen port")
-    parser.add_argument("--env", type=str, default="prod", choices=["prod", "demo"])
+    parser.add_argument(
+        "--env",
+        type=str,
+        default=os.environ.get("KALSHI_ENV", "demo"),
+        choices=["prod", "demo"],
+    )
     parser.add_argument(
         "--device",
         type=str,
