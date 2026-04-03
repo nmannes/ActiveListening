@@ -124,12 +124,20 @@ function isFileExpired(filePath, ttlMs) {
       (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
     );
 
+    const earningsWithSource = allResults.filter((m) => {
+      const title = (m.market.title || "").toLowerCase();
+      const slug = (m.market.slug || "").toLowerCase();
+      return (title.includes("earnings") || slug.includes("earnings")) && m.market.mediaStreamURL;
+    });
+
     const matchedPath = path.join(cacheDir, "matched_markets.json");
     const unmatchedPath = path.join(cacheDir, "unmatched_markets.json");
+    const earningsWithSourcePath = path.join(cacheDir, "earnings_calls_with_source.json");
     const speakersPath = path.join(__dirname, "speakers.md");
 
     fs.writeFileSync(matchedPath, JSON.stringify(matchedMarkets, null, 2));
     fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
+    fs.writeFileSync(earningsWithSourcePath, JSON.stringify(earningsWithSource, null, 2));
 
     let markdownTable = `| Title | Speakers | HasMediaSource |\n| :--- | :--- | :--- |\n`;
     allResults.forEach(result => {
@@ -148,6 +156,9 @@ function isFileExpired(filePath, ttlMs) {
     );
     logger.info(
       `- Saved ${unmatchedMarkets.length} unmatched markets to ${unmatchedPath}`,
+    );
+    logger.info(
+      `- Saved ${earningsWithSource.length} earnings calls with sources to ${earningsWithSourcePath}`,
     );
     logger.info(`- Saved speakers markdown table to ${speakersPath}`);
   } catch (err) {
