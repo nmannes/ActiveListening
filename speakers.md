@@ -38,9 +38,10 @@
 | Announcers at Milwaukee vs Kansas City Professional Baseball Game | announcer | No |
 | Announcers at Michigan vs Arizona College Basketball Game | announcer | Yes |
 | Announcers at Detroit vs Philadelphia Professional Basketball Game | announcer | No |
-| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | No |
 | Announcers at Chicago C vs Cleveland Professional Baseball Game | announcer | No |
+| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | No |
 | Announcers at Yakhyaev vs Ribeiro | announcer | No |
 | Announcers at Jandiroba vs Ricci | announcer | No |
 | Announcers at Moicano vs Duncan | announcer | No |
+| Announcers at Toronto vs Boston Professional Basketball Game | announcer | No |
 | Announcers at St. Louis vs Detroit Professional Baseball Game | announcer | No |
