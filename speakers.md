@@ -36,7 +36,7 @@
 | Announcers at San Antonio vs Denver Professional Basketball Game | announcer | No |
 | Announcers at Detroit vs Philadelphia Professional Basketball Game | announcer | No |
 | Announcers at Milwaukee vs Kansas City Professional Baseball Game | announcer | Yes |
-| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | No |
+| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | Yes |
 | Announcers at Chicago C vs Cleveland Professional Baseball Game | announcer | No |
 | Announcers at Michigan vs Arizona College Basketball Game | announcer | Yes |
 | Announcers at Yakhyaev vs Ribeiro | announcer | No |
