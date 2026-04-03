@@ -1,6 +1,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { sendTelegram } = require('./lib/telegram');
 
 const scheduledDir = path.join(__dirname, 'scheduled');
 execSync(`mkdir -p ${scheduledDir}`);
@@ -175,6 +176,10 @@ for (const seq of sequences) {
             }
 
             execSync(cmd);
+
+            const mode = clientOnly ? (reusableWindow ? 'REUSE Server' : 'Client Only') : 'NEW Server';
+            const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}`;
+            sendTelegram(message).catch(e => console.error(`Failed to send Telegram: ${e.message}`));
 
             if (!clientOnly) {
                 seqServerWindow = { start: overallLaunch, end: overallShutdown };
