@@ -70,22 +70,11 @@ function isFileExpired(filePath, ttlMs) {
       "ncaa_next_3_days.json",
     ];
 
-    const teamSpecificKeywords = new Set(["basketball", "baseball", "hockey", "nba", "mlb", "nhl", "ncaa"]);
-    markets.forEach(m => {
-      const teams = getTeamNames(m.title);
-      teams.forEach(variants => {
-        variants.forEach(v => {
-          if (v.length > 3) teamSpecificKeywords.add(v.toLowerCase());
-        });
-      });
-    });
-
-    const categories_to_search = Array.from(teamSpecificKeywords);
-    logger.info(`Searching for ${categories_to_search.length} keywords in TV schedule: ${categories_to_search.join(", ")}`);
+    const CATEGORIES = ["basketball", "baseball"];
 
     const functionCalls = [
       () => fetchOpenMarkets(),
-      () => findProgramsAcrossZipsAndKeywords([zip], categories_to_search), // DC, NY, LA, CHI
+      () => findProgramsAcrossZipsAndKeywords([zip], CATEGORIES), // DC, NY, LA, CHI
       () => scrapeEspnSchedule(new Date(), 3),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
