@@ -43,6 +43,7 @@ logger, transcript_logger = setup_logging()
 
 # ── Main server ───────────────────────────────────────────────────────
 
+
 class Config:
     def __init__(self, args):
         self.port = getattr(args, "port", 8090)
@@ -53,7 +54,10 @@ class Config:
         self.content_profile = getattr(args, "content_profile", "basketball")
 
         # Load env file
-        env_files = [Path(__file__).parent / ".env", Path(__file__).parent / f".env.{self.env}" ]
+        env_files = [
+            Path(__file__).parent / ".env",
+            Path(__file__).parent / f".env.{self.env}",
+        ]
         for env_file in env_files:
             if env_file.exists():
                 for line in env_file.read_text().splitlines():
@@ -77,20 +81,20 @@ class ClientSession:
         self.audio_only = False
         self.voice_profile = None
         self.keyword_index = None
-        
+
         self.transcript = defaultdict(list)  # {speaker_id: [token_dicts]}
         self.transcript_lock = asyncio.Lock()
-        
+
         self.is_content_visible = False
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]
-        
+
         # Simple audio buffer — receives PCM from WebSocket binary messages
         self.audio_inbox = bytearray()
         self.audio_inbox_event = asyncio.Event()
-        
+
         self.audio_inbox_lock = threading.Lock()
-        
+
         self.audio_task = None
         self.frame_task = None
 
@@ -144,7 +148,9 @@ class ClientSession:
 
         # Build keyword index
         self.keyword_index = build_keyword_index(self.market.get("keywords", {}))
-        logger.info(f"[{self.session_id}] Keyword index: {len(self.keyword_index)} last-words")
+        logger.info(
+            f"[{self.session_id}] Keyword index: {len(self.keyword_index)} last-words"
+        )
 
         # Save debug index
         debug_dir = Path(__file__).parent / "debug"
@@ -158,16 +164,24 @@ class ClientSession:
             self.frame_task = asyncio.create_task(self.frame_processor.run())
         else:
             if not self.audio_only:
-                logger.info(f"[{self.session_id}] clipProfile is null — skipping frame classification for this session")
+                logger.info(
+                    f"[{self.session_id}] clipProfile is null — skipping frame classification for this session"
+                )
             else:
-                logger.info(f"[{self.session_id}] Audio-only mode — skipping frame classification")
+                logger.info(
+                    f"[{self.session_id}] Audio-only mode — skipping frame classification"
+                )
 
         # Start the background tasks
         self.trade_processor = DiarizedTradeProcessor(self)
-        self.audio_processor = AudioProcessor(self, on_tokens_callback=self.trade_processor.process_tokens)
+        self.audio_processor = AudioProcessor(
+            self, on_tokens_callback=self.trade_processor.process_tokens
+        )
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
-        logger.info(f"[{self.session_id}] Session ready — receiving audio over WebSocket")
+        logger.info(
+            f"[{self.session_id}] Session ready — receiving audio over WebSocket"
+        )
 
     async def handle_binary_message(self, message):
         # Video frames are tagged with 0x01 prefix + JPEG data (starts with FF D8)
@@ -195,8 +209,9 @@ class ClientSession:
             if len(self.audio_inbox) > max_bytes:
                 dropped_bytes = len(self.audio_inbox) - max_bytes
                 del self.audio_inbox[:dropped_bytes]
-                logger.warning(f"[{self.session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)")
-
+                logger.warning(
+                    f"[{self.session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)"
+                )
 
     def cleanup(self):
         if self.audio_task:
@@ -209,7 +224,7 @@ class TradingServer:
     def __init__(self, config):
         self.config = config
         self.active_sessions = []  # track for graceful shutdown
-        
+
         # Shared resources (initially None, loaded asynchronously)
         self.frame_classifier = None
         self.clip_executor = ThreadPoolExecutor(max_workers=1)
@@ -232,23 +247,31 @@ class TradingServer:
     async def start(self):
         logger.info(f"WebSocket server listening on port {self.config.port}")
         self.stop_event = asyncio.Event()
-        
+
         # Register signal handlers for graceful shutdown
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda s=sig: asyncio.create_task(self.shutdown(s)))
-        
+            loop.add_signal_handler(
+                sig, lambda s=sig: asyncio.create_task(self.shutdown(s))
+            )
+
         # Start background resource initialization
         asyncio.create_task(self.initialize_resources())
-        
+
         async with websockets.serve(
-            self.handle_client, "0.0.0.0", self.config.port, ping_interval=None, max_size=None
+            self.handle_client,
+            "0.0.0.0",
+            self.config.port,
+            ping_interval=None,
+            max_size=None,
         ):
             await self.stop_event.wait()
 
     async def shutdown(self, sig):
         """Graceful shutdown: cleanup all active sessions (saves WAVs + uploads to S3)."""
-        logger.info(f"Received {signal.Signals(sig).name}, shutting down {len(self.active_sessions)} active session(s)...")
+        logger.info(
+            f"Received {signal.Signals(sig).name}, shutting down {len(self.active_sessions)} active session(s)..."
+        )
         for session in list(self.active_sessions):
             session.cleanup()
         # Give cleanup tasks time to finish (WAV close + S3 upload)
@@ -261,14 +284,14 @@ class TradingServer:
         try:
             logger.info("Starting background resource initialization...")
             loop = asyncio.get_running_loop()
-            
+
             # Load CLIP in executor to avoid blocking the event loop
             self.frame_classifier = await loop.run_in_executor(
                 self.clip_executor,
                 lambda: FrameClassifier(
-                    device=self.config.device, 
-                    content_profile=self.config.content_profile
-                )
+                    device=self.config.device,
+                    content_profile=self.config.content_profile,
+                ),
             )
             logger.info("Background resource initialization complete.")
         except Exception as e:
@@ -295,7 +318,7 @@ async def main():
         default="basketball",
         help="CLIP content profile (default: basketball)",
     )
- 
+
     args = parser.parse_args()
 
     config = Config(args)

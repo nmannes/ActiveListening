@@ -11,6 +11,7 @@ logger = logging.getLogger("remote_server")
 
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
+
 class BaseSpeakerRecognizer(ABC):
     @abstractmethod
     async def verify_speaker(self, data, profile_name: str) -> float:
@@ -19,6 +20,7 @@ class BaseSpeakerRecognizer(ABC):
         Returns confidence score (0.0 to 1.0).
         """
         pass
+
 
 class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
     def __init__(self, listening_session, device: str = "cpu"):
@@ -93,6 +95,7 @@ class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
         ).item()
         return similarity
 
+
 class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
     def __init__(self, listening_session):
         self.listening_session = listening_session
@@ -104,19 +107,25 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # TODO: Scaffold logic for transcript word analysis
         return 0.0
 
+
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
+
     def __init__(self, listening_session, market_entities: list[str]):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
-        
+
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
-        
+
         # Instantiated recognizers for this session
-        self.audio_recognizer = AudioSpeakerRecognizer(listening_session=self.listening_session)
-        self.transcript_recognizer = TranscriptSpeakerRecognizer(listening_session=self.listening_session)
+        self.audio_recognizer = AudioSpeakerRecognizer(
+            listening_session=self.listening_session
+        )
+        self.transcript_recognizer = TranscriptSpeakerRecognizer(
+            listening_session=self.listening_session
+        )
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
@@ -134,4 +143,3 @@ class SpeakerRecognitionSession:
         # this function should attempt to assign a mapping of voice profile id
         # to the known entity in the market.
         return None
-

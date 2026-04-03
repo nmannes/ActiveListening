@@ -139,7 +139,7 @@ class FrameClassifier:
                 features /= features.norm(dim=-1, keepdim=True)
                 self.profile_features[name] = {
                     "features": features,
-                    "n_positive": len(pos)
+                    "n_positive": len(pos),
                 }
 
     def classify(self, frame_bytes: bytes, profile_name: str = None) -> dict:
@@ -149,7 +149,9 @@ class FrameClassifier:
         """
         profile_name = profile_name or self.content_profile
         if profile_name not in self.profile_features:
-            logger.warning(f"Unknown profile '{profile_name}', falling back to '{self.content_profile}'")
+            logger.warning(
+                f"Unknown profile '{profile_name}', falling back to '{self.content_profile}'"
+            )
             profile_name = self.content_profile
 
         features_data = self.profile_features[profile_name]

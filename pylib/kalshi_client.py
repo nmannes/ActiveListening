@@ -28,45 +28,43 @@ class KalshiClient:
             if environment == "prod"
             else "https://demo-api.kalshi.co/trade-api/v2"
         )
-        
+
         # Load the RSA private key
         private_key_bytes = Path(private_key_path).read_bytes()
         loaded_key = serialization.load_pem_private_key(
-            private_key_bytes,
-            password=None,
-            backend=default_backend()
+            private_key_bytes, password=None, backend=default_backend()
         )
         if not isinstance(loaded_key, RSAPrivateKey):
             raise ValueError("Private key must be an RSA key")
         self.private_key = loaded_key
-        
+
         self.session = requests.Session()
         logger.info(f"Kalshi API initialized for {self.base_url}")
 
     def _get_auth_headers(self, method: str, url: str) -> dict:
         """Create Kalshi authentication headers for a request."""
         from urllib.parse import urlparse
+
         current_time_milliseconds = int(time.time() * 1000)
         timestamp_str = str(current_time_milliseconds)
 
         # Extract path from URL for signing
         parsed = urlparse(url)
         path = parsed.path
-        
+
         # Create message to sign: timestamp + method + path
         msg_string = timestamp_str + method.upper() + path
 
         # Sign the message using RSA-PSS
-        message = msg_string.encode('utf-8')
+        message = msg_string.encode("utf-8")
         signature = self.private_key.sign(
             message,
             padding.PSS(
-                mgf=padding.MGF1(hashes.SHA256()),
-                salt_length=padding.PSS.DIGEST_LENGTH
+                mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH
             ),
-            hashes.SHA256()
+            hashes.SHA256(),
         )
-        signature_b64 = base64.b64encode(signature).decode('utf-8')
+        signature_b64 = base64.b64encode(signature).decode("utf-8")
 
         return {
             "Content-Type": "application/json",
@@ -90,15 +88,15 @@ class KalshiClient:
             "count": count,
             "time_in_force": "immediate_or_cancel",
             "client_order_id": f"auto_{int(time.time() * 1000)}",
-            "yes_price": yes_price
+            "yes_price": yes_price,
         }
 
         path = "/portfolio/orders"
         url = self.base_url + path
         headers = self._get_auth_headers("POST", url)
-        
+
         response = self.session.post(url, json=params, headers=headers)
-        
+
         try:
             response.raise_for_status()
             return response.json()

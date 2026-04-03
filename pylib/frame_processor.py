@@ -8,6 +8,7 @@ from pylib.telegram import send_telegram_photo
 
 logger = logging.getLogger("remote_server")
 
+
 class FrameProcessor:
     def __init__(self, session):
         self.session = session
@@ -18,7 +19,7 @@ class FrameProcessor:
         last_mtime = 0
         consecutive_results = 0
         last_result_state = None
-        
+
         while True:
             await asyncio.sleep(2)
             try:
@@ -29,11 +30,7 @@ class FrameProcessor:
                     continue
                 last_mtime = mtime
                 data = frame_path.read_bytes()
-                if (
-                    len(data) < 3
-                    or data[0] != 0xFF
-                    or data[1] != 0xD8
-                ):
+                if len(data) < 3 or data[0] != 0xFF or data[1] != 0xD8:
                     continue
                 if self.session.server.frame_classifier is None:
                     # Still loading in background
@@ -43,9 +40,9 @@ class FrameProcessor:
                     self.session.server.clip_executor,
                     self.session.server.frame_classifier.classify,
                     data,
-                    self.session.clip_profile
+                    self.session.clip_profile,
                 )
-                
+
                 current_result = result["is_desired_content_visible"]
                 if last_result_state == current_result:
                     consecutive_results += 1
@@ -53,8 +50,13 @@ class FrameProcessor:
                     last_result_state = current_result
                     consecutive_results = 1
 
-                if consecutive_results >= 3 and self.session.is_content_visible != current_result:
-                    logger.info(f"[{sid}][clip] State flip: content_visible changed to {current_result} after {consecutive_results} consecutive matches")
+                if (
+                    consecutive_results >= 3
+                    and self.session.is_content_visible != current_result
+                ):
+                    logger.info(
+                        f"[{sid}][clip] State flip: content_visible changed to {current_result} after {consecutive_results} consecutive matches"
+                    )
                     self.session.is_content_visible = current_result
 
                 logger.info(
@@ -75,9 +77,7 @@ class FrameProcessor:
                 prefix = f"{sid}_{ts}"
 
                 (frames_dir / f"{prefix}.jpg").write_bytes(data)
-                (frames_dir / f"{prefix}.json").write_text(
-                    json.dumps(result, indent=2)
-                )
+                (frames_dir / f"{prefix}.json").write_text(json.dumps(result, indent=2))
 
                 # Send to Telegram debug channel
                 caption = (
@@ -108,5 +108,5 @@ class FrameProcessor:
             except Exception as e:
                 # Handle connection closed error and others
                 if "ConnectionClosed" in str(type(e)):
-                   break
+                    break
                 logger.error(f"[{sid}][clip] classification error: {e}")

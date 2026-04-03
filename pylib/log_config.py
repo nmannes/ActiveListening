@@ -2,6 +2,7 @@ import logging
 import sys
 import os
 
+
 def setup_logging():
     os.makedirs("logs", exist_ok=True)
     os.makedirs("debug", exist_ok=True)
@@ -23,5 +24,5 @@ def setup_logging():
     # Avoid duplicate handlers if setup_logging is called multiple times
     if not transcript_logger.handlers:
         transcript_logger.addHandler(logging.FileHandler("logs/transcript.log"))
-    
+
     return logging.getLogger("remote_server"), transcript_logger

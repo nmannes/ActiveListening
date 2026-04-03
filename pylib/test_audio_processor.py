@@ -24,10 +24,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 # Ensure websockets.exceptions is accessible (some versions use a lazy-loading
 # scheme that breaks attribute lookups outside of actual websocket contexts).
 import websockets
+
 try:
     websockets.exceptions
 except AttributeError:
     import types
+
     mod = types.ModuleType("websockets.exceptions")
 
     class ConnectionClosed(Exception):
@@ -45,15 +47,17 @@ logger = logging.getLogger(__name__)
 
 class MockSession:
     """Minimal session stub for AudioProcessor."""
+
     def __init__(self, session_id="test-replay"):
         self.session_id = session_id
 
 
 class MockWebSocket:
     """Async iterator that yields saved JSON messages in timestamp order.
-    
+
     Skips corrupted files (e.g. concatenated JSON) at load time.
     """
+
     def __init__(self, responses_dir: Path):
         self.messages = []
         self.skipped = 0
@@ -83,6 +87,7 @@ class MockWebSocket:
 
 class CallbackCollector:
     """Collects all on_tokens_callback invocations for inspection."""
+
     def __init__(self):
         self.calls = []  # list of {tokens, speaker_id}
 
@@ -170,19 +175,27 @@ async def run_replay(responses_dir: Path, verbose: bool = False):
             if "text" not in tok:
                 errors.append(f"Callback {i}, token {j}: missing 'text' key")
             elif not isinstance(tok["text"], str):
-                errors.append(f"Callback {i}, token {j}: 'text' is not a string: {tok['text']}")
+                errors.append(
+                    f"Callback {i}, token {j}: 'text' is not a string: {tok['text']}"
+                )
             elif tok["text"] != tok["text"].lower():
-                errors.append(f"Callback {i}, token {j}: 'text' not lowercased: {tok['text']}")
+                errors.append(
+                    f"Callback {i}, token {j}: 'text' not lowercased: {tok['text']}"
+                )
 
             if "start" not in tok:
                 errors.append(f"Callback {i}, token {j}: missing 'start' key")
             elif not isinstance(tok["start"], (int, float)):
-                errors.append(f"Callback {i}, token {j}: 'start' is not numeric: {tok['start']}")
+                errors.append(
+                    f"Callback {i}, token {j}: 'start' is not numeric: {tok['start']}"
+                )
 
             if "end" not in tok:
                 errors.append(f"Callback {i}, token {j}: missing 'end' key")
             elif not isinstance(tok["end"], (int, float)):
-                errors.append(f"Callback {i}, token {j}: 'end' is not numeric: {tok['end']}")
+                errors.append(
+                    f"Callback {i}, token {j}: 'end' is not numeric: {tok['end']}"
+                )
 
         if speaker_id is None:
             errors.append(f"Callback {i}: speaker_id is None")
@@ -214,12 +227,17 @@ async def run_replay(responses_dir: Path, verbose: bool = False):
             continue
         seen_per_speaker[sid].add(key)
 
-        transcript_by_speaker[sid].append({
-            "words": [{"text": t["text"], "start": t["start"], "end": t["end"]} for t in call["tokens"]],
-            "text": text,
-            "start": start,
-            "end": call["tokens"][-1]["end"] if call["tokens"] else None,
-        })
+        transcript_by_speaker[sid].append(
+            {
+                "words": [
+                    {"text": t["text"], "start": t["start"], "end": t["end"]}
+                    for t in call["tokens"]
+                ],
+                "text": text,
+                "start": start,
+                "end": call["tokens"][-1]["end"] if call["tokens"] else None,
+            }
+        )
 
     # Sort each speaker's segments by start time
     for sid in transcript_by_speaker:
@@ -230,7 +248,9 @@ async def run_replay(responses_dir: Path, verbose: bool = False):
     print("=" * 70)
     if dupes_removed:
         print(f"  (removed {dupes_removed} duplicate segments)")
-    for sid in sorted(transcript_by_speaker.keys(), key=lambda x: int(x) if x.isdigit() else x):
+    for sid in sorted(
+        transcript_by_speaker.keys(), key=lambda x: int(x) if x.isdigit() else x
+    ):
         print(f"  Speaker {sid}: {len(transcript_by_speaker[sid])} segments")
 
     with open("transcript.json", "w") as f:
@@ -253,9 +273,16 @@ async def run_replay(responses_dir: Path, verbose: bool = False):
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description="Replay Deepgram responses through AudioProcessor")
-    parser.add_argument("--verbose", "-v", action="store_true", help="Print each transcript segment")
-    parser.add_argument("--dir", type=str, default=None, help="Path to deepgram_responses directory")
+
+    parser = argparse.ArgumentParser(
+        description="Replay Deepgram responses through AudioProcessor"
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Print each transcript segment"
+    )
+    parser.add_argument(
+        "--dir", type=str, default=None, help="Path to deepgram_responses directory"
+    )
     args = parser.parse_args()
 
     if args.dir:

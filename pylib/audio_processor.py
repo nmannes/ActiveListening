@@ -13,11 +13,12 @@ from pylib.telegram import send_telegram
 logger = logging.getLogger("remote_server")
 transcript_logger = logging.getLogger("transcript")
 
+
 class AudioProcessor:
     def __init__(self, session, on_tokens_callback=None):
         self.session = session
         self.on_tokens_callback = on_tokens_callback
-        
+
         # Deepgram specific configuration
         self.api_key = os.environ.get("DEEPGRAM_API_KEY")
         # URL parameters: Linear16, 16kHz, diarization enabled, nova-2 model
@@ -32,8 +33,8 @@ class AudioProcessor:
         )
 
         # Audio recording
-        self._pcm_buffer = bytearray()       # all PCM sent, for slicing by timestamp
-        self._speaker_wav_files = {}         # {speaker_id: wave.Wave_write}
+        self._pcm_buffer = bytearray()  # all PCM sent, for slicing by timestamp
+        self._speaker_wav_files = {}  # {speaker_id: wave.Wave_write}
         self._recordings_dir = None
         self._audio_dir = None
         self._dg_dir = None
@@ -47,28 +48,32 @@ class AudioProcessor:
     async def run(self):
         async with self.session.transcript_lock:
             self.session.transcript.clear()
-        
+
         if not self.api_key:
-            logger.error(f"[{self.session.session_id}] DEEPGRAM_API_KEY not found in environment!")
+            logger.error(
+                f"[{self.session.session_id}] DEEPGRAM_API_KEY not found in environment!"
+            )
             return
 
         logger.info(
             f"[{self.session.session_id}] Audio processing loop starting. URL: {self.dg_url}"
         )
 
-        headers = {
-            "Authorization": f"Token {self.api_key}"
-        }
+        headers = {"Authorization": f"Token {self.api_key}"}
 
         # Set up recording directories
         timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self._recordings_dir = Path(__file__).parent.parent / "recordings" / f"{self.session.session_id}_{timestamp_str}"
+        self._recordings_dir = (
+            Path(__file__).parent.parent
+            / "recordings"
+            / f"{self.session.session_id}_{timestamp_str}"
+        )
         self._recordings_dir.mkdir(parents=True, exist_ok=True)
         self._audio_dir = self._recordings_dir / "audio"
         self._audio_dir.mkdir(parents=True, exist_ok=True)
         self._dg_dir = self._recordings_dir / "deepgram_responses"
         self._dg_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Full raw audio WAV
         wav_path = self._audio_dir / "full.wav"
         self._wav_file = wave.open(str(wav_path), "wb")
@@ -76,13 +81,21 @@ class AudioProcessor:
         self._wav_file.setsampwidth(2)  # 16-bit
         self._wav_file.setframerate(16000)
         self._pcm_buffer.clear()
-        logger.info(f"[{self.session.session_id}] Recording audio to {self._recordings_dir}")
+        logger.info(
+            f"[{self.session.session_id}] Recording audio to {self._recordings_dir}"
+        )
 
         try:
-            logger.info(f"[{self.session.session_id}] Attempting Deepgram connection...")
+            logger.info(
+                f"[{self.session.session_id}] Attempting Deepgram connection..."
+            )
             # Use additional_headers for newer websockets version compat
-            async with websockets.connect(self.dg_url, additional_headers=headers) as dg_ws:
-                logger.info(f"[{self.session.session_id}] Deepgram WebSocket connected successfully")
+            async with websockets.connect(
+                self.dg_url, additional_headers=headers
+            ) as dg_ws:
+                logger.info(
+                    f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
+                )
 
                 # Spawn sender and receiver tasks
                 send_task = asyncio.create_task(self.send_audio(dg_ws))
@@ -94,22 +107,26 @@ class AudioProcessor:
                 except asyncio.CancelledError:
                     logger.info(f"[{self.session.session_id}] Deepgram tasks cancelled")
                 except Exception as e:
-                    logger.error(f"[{self.session.session_id}] Deepgram processing error: {e}")
+                    logger.error(
+                        f"[{self.session.session_id}] Deepgram processing error: {e}"
+                    )
                     raise
                 finally:
                     # Clean shutdown
                     send_task.cancel()
                     receive_task.cancel()
                     telemetry_task.cancel()
-                    
+
         except Exception as e:
-            logger.exception(f"[{self.session.session_id}] Deepgram connection/runtime error: {e}")
+            logger.exception(
+                f"[{self.session.session_id}] Deepgram connection/runtime error: {e}"
+            )
         finally:
             if self._wav_file:
                 self._wav_file.close()
             for sid, wf in self._speaker_wav_files.items():
                 wf.close()
-            
+
             # Save transcript alongside recordings
             if self._audio_dir:
                 transcript_path = self._audio_dir / "transcript.json"
@@ -117,7 +134,9 @@ class AudioProcessor:
                 with open(transcript_path, "w") as f:
                     json.dump(transcript_data, f, indent=2)
 
-            logger.info(f"[{self.session.session_id}] Audio recordings saved to {self._recordings_dir}")
+            logger.info(
+                f"[{self.session.session_id}] Audio recordings saved to {self._recordings_dir}"
+            )
 
             # Upload to S3 in background
             asyncio.get_running_loop().run_in_executor(None, self._upload_to_s3)
@@ -132,19 +151,19 @@ class AudioProcessor:
                 with self.session.audio_inbox_lock:
                     if not self.session.audio_inbox:
                         continue
-                    
+
                     pcm_data = bytes(self.session.audio_inbox)
                     self.session.audio_inbox.clear()
 
-                # Chunking: send in 32KB pieces (approx 1s of audio) 
+                # Chunking: send in 32KB pieces (approx 1s of audio)
                 # to avoid massive WebSocket frames and allow event loop to breathe
                 chunk_len = 32000
                 for i in range(0, len(pcm_data), chunk_len):
                     chunk = pcm_data[i : i + chunk_len]
-                    
+
                     self.total_bytes_sent += len(chunk)
                     self._pcm_buffer.extend(chunk)
-                    
+
                     # Record audio to WAV file
                     if self._wav_file:
                         self._wav_file.writeframes(chunk)
@@ -153,21 +172,29 @@ class AudioProcessor:
                     try:
                         await asyncio.wait_for(dg_ws.send(chunk), timeout=2.0)
                     except asyncio.TimeoutError:
-                        logger.error(f"[{self.session.session_id}][AUDIO_SENDER] Timeout sending {len(chunk)} bytes to Deepgram")
+                        logger.error(
+                            f"[{self.session.session_id}][AUDIO_SENDER] Timeout sending {len(chunk)} bytes to Deepgram"
+                        )
                         raise
                     except Exception as e:
-                        logger.error(f"[{self.session.session_id}][AUDIO_SENDER] Error sending to Deepgram: {e}")
+                        logger.error(
+                            f"[{self.session.session_id}][AUDIO_SENDER] Error sending to Deepgram: {e}"
+                        )
                         raise
 
                 # Periodically log throughput (every 10s)
                 now = time.time()
                 if now - self.last_stats_time > 10:
                     kb_sent = self.total_bytes_sent / 1024
-                    logger.info(f"[{self.session.session_id}][STATS] Sent {kb_sent:.2f} KB total")
+                    logger.info(
+                        f"[{self.session.session_id}][STATS] Sent {kb_sent:.2f} KB total"
+                    )
                     self.last_stats_time = now
 
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Deepgram WebSocket closed")
+            logger.info(
+                f"[{self.session.session_id}][AUDIO_SENDER] Deepgram WebSocket closed"
+            )
         except asyncio.CancelledError:
             logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Task cancelled")
         except Exception as e:
@@ -177,46 +204,46 @@ class AudioProcessor:
     async def receive_results(self, dg_ws):
         """Handle transcripts and metrics returned by Deepgram."""
         logger.info(f"[{self.session.session_id}] Results receiver task started")
-        
+
         # Ensure deepgram_responses directory exists
         resp_dir = self._dg_dir
         if resp_dir is None:
             resp_dir = Path(__file__).parent.parent / "deepgram_responses"
             resp_dir.mkdir(exist_ok=True)
-        
+
         try:
             async for message in dg_ws:
                 # Save raw response to file (non-blocking)
                 ts = time.time_ns()
                 filename = resp_dir / f"dg_{ts}.json"
-                
+
                 # Inline lambda or helper to write file
                 def _write():
                     with open(filename, "w") as f:
                         f.write(message)
-                
+
                 asyncio.get_running_loop().run_in_executor(None, _write)
-                
+
                 data = json.loads(message)
                 msg_type = data.get("type")
-                
+
                 if msg_type == "Results":
                     is_final = data.get("is_final", False)
                     # We process final results for highest accuracy
                     if not is_final:
                         continue
-                        
+
                     self.total_results_received += 1
                     channel = data.get("channel", {})
                     alternatives = channel.get("alternatives", [])
                     if not alternatives:
                         continue
-                        
+
                     alt = alternatives[0]
                     words = alt.get("words", [])
                     if not words:
                         continue
-                        
+
                     # Format tokens for TradeProcessor
                     formatted_tokens = [
                         {
@@ -226,38 +253,48 @@ class AudioProcessor:
                         }
                         for w in words
                     ]
-                    
+
                     # Extract speaker from first word if diarized
                     speaker_id = str(words[0].get("speaker", "0"))
-                    
+
                     # Extract per-speaker audio from PCM buffer
-                    self._write_speaker_audio(speaker_id, words[0]["start"], words[-1]["end"])
+                    self._write_speaker_audio(
+                        speaker_id, words[0]["start"], words[-1]["end"]
+                    )
 
                     if self.on_tokens_callback:
-                        await self.on_tokens_callback(formatted_tokens, speaker_id=speaker_id)
+                        await self.on_tokens_callback(
+                            formatted_tokens, speaker_id=speaker_id
+                        )
 
                     # Log transcript segment
                     transcript_text = alt.get("transcript", "").strip()
                     if transcript_text:
-                        logger.info(f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}")
+                        logger.info(
+                            f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}"
+                        )
                         msg_text = f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}"
                         asyncio.get_running_loop().run_in_executor(
-                            None,
-                            send_telegram,
-                            msg_text,
-                            "debug"
+                            None, send_telegram, msg_text, "debug"
                         )
-                        
-                
+
                 elif msg_type == "Metadata":
-                    logger.info(f"[{self.session.session_id}][DG] Metadata received: {json.dumps(data)}")
+                    logger.info(
+                        f"[{self.session.session_id}][DG] Metadata received: {json.dumps(data)}"
+                    )
                 elif msg_type == "UtteranceEnd":
-                    logger.debug(f"[{self.session.session_id}][DG] Utterance end detected")
+                    logger.debug(
+                        f"[{self.session.session_id}][DG] Utterance end detected"
+                    )
                 else:
-                    logger.debug(f"[{self.session.session_id}][DG] Unknown message type: {msg_type}")
+                    logger.debug(
+                        f"[{self.session.session_id}][DG] Unknown message type: {msg_type}"
+                    )
 
         except websockets.exceptions.ConnectionClosed:
-            logger.info(f"[{self.session.session_id}] Deepgram WebSocket closed (receiver)")
+            logger.info(
+                f"[{self.session.session_id}] Deepgram WebSocket closed (receiver)"
+            )
         except Exception as e:
             logger.error(f"[{self.session.session_id}] Error in receive_results: {e}")
 
@@ -293,9 +330,12 @@ class AudioProcessor:
         """Upload the recordings directory to S3."""
         # 16000 Hz * 2 bytes/sample * 60 seconds = 1920000 bytes
         if len(self._pcm_buffer) < 1920000:
-            logger.info(f"[{self.session.session_id}] Less than 1 minute of audio ({len(self._pcm_buffer)} bytes), skipping S3 upload & deleting local files")
+            logger.info(
+                f"[{self.session.session_id}] Less than 1 minute of audio ({len(self._pcm_buffer)} bytes), skipping S3 upload & deleting local files"
+            )
             if self._recordings_dir and self._recordings_dir.exists():
                 import shutil
+
                 shutil.rmtree(self._recordings_dir, ignore_errors=True)
             return
 
@@ -305,6 +345,7 @@ class AudioProcessor:
 
         try:
             import boto3
+
             s3 = boto3.client("s3")
             prefix = self._recordings_dir.name  # e.g. session-id_1711640123
 
@@ -314,10 +355,14 @@ class AudioProcessor:
                     for file_path in dir_path.iterdir():
                         if file_path.is_file():
                             s3_key = f"{prefix}/{sub_dir}/{file_path.name}"
-                            logger.info(f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}")
+                            logger.info(
+                                f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}"
+                            )
                             s3.upload_file(str(file_path), bucket, s3_key)
 
-            logger.info(f"[{self.session.session_id}] S3 upload complete: s3://{bucket}/{prefix}/")
+            logger.info(
+                f"[{self.session.session_id}] S3 upload complete: s3://{bucket}/{prefix}/"
+            )
         except Exception as e:
             logger.error(f"[{self.session.session_id}] S3 upload failed: {e}")
 
@@ -331,14 +376,16 @@ class AudioProcessor:
                     size_bytes = len(self.session.audio_inbox)
                     inbox_ms = int(size_bytes / (16000 * 2) * 1000)
 
-                logger.info(f"[{self.session.session_id}][TELEMETRY] Audio inbox: {size_bytes} bytes ({inbox_ms}ms)")
+                logger.info(
+                    f"[{self.session.session_id}][TELEMETRY] Audio inbox: {size_bytes} bytes ({inbox_ms}ms)"
+                )
 
                 await self.session.websocket.send(
                     json.dumps(
                         {
                             "type": "telemetry",
                             "buffer_ms": inbox_ms,
-                            "dg_stream": "active"
+                            "dg_stream": "active",
                         }
                     )
                 )
