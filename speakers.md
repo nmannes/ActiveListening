@@ -16,25 +16,26 @@
 | What will Bank of America say during their next earnings call? | none | No |
 | What will Ally Financial say during their next earnings call? | ally financial employee | No |
 | What will MrBeast say during his next Youtube Video? | youtube employee | No |
-| What will NASA say during the ARTEMIS II Press Conference? | nasa employee | No |
-| What will Trump say during the White House Easter Egg Roll? | none | No |
-| Announcers at Chicago vs New York Professional Basketball Game | announcer | No |
 | What will Dr. Oz say during Fox News: Special Report? | dr. oz | No |
+| Announcers at Texas at UCLA women's | announcer | No |
+| What will Sean Hannity say during his show? | sean hannity | No |
 | What will Jack Black say during his SNL opening monologue? | jack black | No |
+| What will NASA say during the ARTEMIS II Press Conference? | nasa employee | No |
 | What will Usha Vance say during Fox News: Saturday in America? | usha vance | No |
-| What will the contestants say during Survivor Ep 7? | contestants | No |
+| What will MrBeast say during his livestream? | none | No |
+| What will Trump say during the White House Easter Egg Roll? | none | No |
 | What will Jeff Probst say during Survivor Ep 7? | jeff probst | No |
+| What will the contestants say during Survivor Ep 7? | contestants | No |
 | What will Mamdani say during his next announcement? | zohran mamdani | No |
-| What will Keir Starmer say during the next Prime Minister's Questions? | keir starmer | No w|
+| What will Keir Starmer say during the next Prime Minister's Questions? | keir starmer | No |
+| What will Trump say during the White House Correspondents' Dinner? | none | No |
 | What will Powell say during his April press conference? | jerome powell | No |
 | What will Karoline Leavitt say in the next press briefing? | karoline leavitt | No |
 | Announcers at Ewing vs Estevam | announcer | No |
 | Announcers at New York M vs San Francisco Professional Baseball Game | announcer | No |
-| Announcers at South Carolina at UConn women's | announcer | Yes |
-| Announcers at Texas at UCLA women's | announcer | Yes |
-| Announcers at New Orleans vs Sacramento Professional Basketball Game | announcer | No |
+| Announcers at South Carolina at UConn women's | announcer | No |
 | Announcers at Milwaukee vs Kansas City Professional Baseball Game | announcer | No |
-| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | No |
+| Announcers at Atlanta vs Arizona Professional Baseball Game | announcer | Yes |
 | Announcers at Oklahoma vs Baylor College Basketball Game | announcer | Yes |
 | Announcers at West Virginia vs Creighton College Basketball Game | announcer | Yes |
 | Announcers at Illinois vs UConn College Basketball Game | announcer | Yes |
@@ -48,4 +49,7 @@
 | Announcers at Jandiroba vs Ricci | announcer | No |
 | Announcers at Moicano vs Duncan | announcer | No |
 | Announcers at Toronto vs Boston Professional Basketball Game | announcer | No |
+| Announcers at Los Angeles L vs Dallas Professional Basketball Game | announcer | No |
+| Announcers at Houston vs Golden State Professional Basketball Game | announcer | Yes |
 | Announcers at St. Louis vs Detroit Professional Baseball Game | announcer | No |
+| Announcers at Los Angeles D vs Toronto Professional Baseball Game | announcer | No |
