@@ -153,11 +153,15 @@ class AudioProcessor:
                         continue
 
                     pcm_data = bytes(self.session.audio_inbox)
+                    inbox_len = len(pcm_data)
                     self.session.audio_inbox.clear()
 
-                # Chunking: send in 32KB pieces (approx 1s of audio)
+                # Chunking: send in 16KB pieces (approx 0.5s of audio)
                 # to avoid massive WebSocket frames and allow event loop to breathe
-                chunk_len = 32000
+                chunk_len = 16000
+                if inbox_len > 0:
+                    logger.debug(f"[{self.session.session_id}][AUDIO_SENDER] Draining {inbox_len} bytes from inbox")
+                
                 for i in range(0, len(pcm_data), chunk_len):
                     chunk = pcm_data[i : i + chunk_len]
 

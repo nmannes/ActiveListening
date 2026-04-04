@@ -19,6 +19,7 @@ let _ws = null;
 let _streamUrl = null;
 let _logger = null;
 let _isShuttingDown = null;
+let _isCommercial = false;
 
 // ── Audio Stream Copier (no transcoding) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0") {
@@ -29,7 +30,12 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
     "-flags", "low_delay",
     "-probesize", "32",
     "-analyzeduration", "0",
+    // Input format for raw PCM
+    "-f", "s16le",
+    "-ar", "16000",
+    "-ac", "1",
     "-i", inputUrl,
+    // Output format (ensure consistency)
     "-f", "s16le",
     "-acodec", "pcm_s16le",
     "-ar", "16000",
@@ -41,6 +47,11 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
     stdio: ["pipe", "pipe", "pipe"],
   });
+
+  ffmpeg.stdin.on("error", (e) => {
+    _logger.trace(`[transcoder] stdin error: ${e.message}`);
+  });
+
 
   ffmpeg.stdout.on("data", (data) => {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -59,6 +70,7 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   ffmpegProc = ffmpeg;
   return ffmpeg;
 }
+
 
 // ── Browser Capture Logic ────────────────────────────────────────────
 async function runBrowserCapture() {
@@ -111,10 +123,14 @@ async function runBrowserCapture() {
   });
 
   const page = await browser.newPage();
+  await page.evaluateOnNewDocument(() => {
+    window._isCommercial = false;
+  });
+
   page.on("console", (msg) => _logger.trace(`[Browser] ${msg.text()}`));
 
- 
-    // Load ESPN cookies
+
+  // Load ESPN cookies
   const cookiesPath = path.join(__dirname, "..", "cookies", "espn_cookies.json");
   if (fs.existsSync(cookiesPath)) {
     try {
@@ -131,20 +147,26 @@ async function runBrowserCapture() {
 
   // Expose functions
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
-    if (ffmpegProc && ffmpegProc.stdin.writable && window._isCommercial !== true) {
+    if (ffmpegProc && ffmpegProc.stdin.writable && !_isCommercial) {
       const buffer = Buffer.from(base64Data, "base64");
       ffmpegProc.stdin.write(buffer);
     }
   });
 
 
+  await page.exposeFunction("logToClient", (msg) => {
+    _logger.info(`[BrowserLog] ${msg}`);
+  });
+
+
+
   try {
     _logger.info(`[espn] Navigating to ${_streamUrl}...`);
-    
+
     // Monitor network requests for audio stream
     await page.setRequestInterception(true);
     const networkRequests = [];
-    
+
     page.on('request', (request) => {
       const url = request.url();
       if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('audio')) {
@@ -160,69 +182,127 @@ async function runBrowserCapture() {
 
     // Run site handlers
     await runSiteHandlers(_streamUrl, page, _logger);
-    await new Promise(r => setTimeout(r, 10000)); // Increased wait time
-    
-    // Look for audio-only stream
-    _logger.info(`[espn] Found ${networkRequests.length} network requests`);
-    
-    // Log all m3u8 requests
+
+    // Ensure playback
+    await page.evaluate(() => {
+      setInterval(() => {
+        const video = document.querySelector('video');
+        if (video && video.paused) {
+          video.muted = false;
+          video.play().catch(e => console.log("play() rejected:", e.message));
+        }
+      }, 1000);
+    });
+
+    // Start transcoder reading from stdin
+    setupAudioTranscoder();
+    await new Promise(r => setTimeout(r, 5000)); // Small delay for player stability
+
+
+    // Inject capture script into all frames (handles cross-origin iframes)
+    const injectCaptureToFrames = async () => {
+      const frames = page.frames();
+      for (const frame of frames) {
+        try {
+          await frame.evaluate(() => {
+            if (window._captureActive) return;
+
+            async function setupCapture(videoElement) {
+              if (window._captureActive) return;
+              window.logToClient(`Setting up PCM capture for video in frame: ${window.location.href}`);
+
+              try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                window._audioCtx = audioCtx;
+                const source = audioCtx.createMediaElementSource(videoElement);
+                
+                // Larger buffer (16384 samples ~ 1s) for safety against browser jitter
+                const processor = audioCtx.createScriptProcessor(16384, 1, 1);
+                
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+                source.connect(audioCtx.destination); // Keep hearing it in the browser
+
+                processor.onaudioprocess = (e) => {
+                  if (window._isCommercial) return;
+                  
+                  const inputData = e.inputBuffer.getChannelData(0);
+                  // Convert Float32 to Int16 PCM
+                  const pcmData = new Int16Array(inputData.length);
+                  for (let i = 0; i < inputData.length; i++) {
+                    const s = Math.max(-1, Math.min(1, inputData[i]));
+                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                  }
+                  
+                  // Efficient base64 conversion
+                  const uint8 = new Uint8Array(pcmData.buffer);
+                  let binary = "";
+                  const chunkSize = 8192;
+                  for (let i = 0; i < uint8.length; i += chunkSize) {
+                    binary += String.fromCharCode.apply(null, uint8.subarray(i, i + chunkSize));
+                  }
+                  window.sendAudioChunk(btoa(binary));
+                  window._pcmCount = (window._pcmCount || 0) + 1;
+                };
+
+                // Periodic resume to handle autoplay policy
+                setInterval(() => {
+                  if (audioCtx.state !== 'running') {
+                    audioCtx.resume().then(() => window.logToClient("AudioContext resumed"));
+                  }
+                }, 3000);
+
+                // Heartbeat
+                setInterval(() => {
+                  window.logToClient(`PCM Heartbeat: ${window._pcmCount || 0} chunks sent from frame ${window.location.href}`);
+                }, 10000);
+
+
+
+                window._captureActive = true;
+                window.logToClient("PCM capture active (16kHz mono)");
+              } catch (err) {
+                window.logToClient("PCM capture failed: " + err.message);
+              }
+            }
+
+            // Watch for play events
+            document.addEventListener("play", (e) => {
+              if (e.target && e.target.tagName === "VIDEO") setupCapture(e.target);
+            }, true);
+
+            // Check existing videos
+            for (const vid of document.querySelectorAll("video")) {
+              if (!vid.paused) setupCapture(vid);
+            }
+          });
+        } catch (e) {}
+      }
+    };
+
+    // Initial injection
+    await injectCaptureToFrames();
+
+    // Periodically re-inject to handle new iframes
+    setInterval(injectCaptureToFrames, 5000);
+
+
+
+    // Look for audio-only stream (for logging purposes)
     const m3u8Requests = networkRequests.filter(req => req.url.includes('.m3u8'));
-    _logger.info(`[espn] Found ${m3u8Requests.length} m3u8 requests:`);
-    m3u8Requests.forEach(req => {
-      _logger.info(`[espn] M3U8: ${req.url}`);
-    });
-    
-    networkRequests.forEach(req => {
-      _logger.info(`[espn] Request: ${req.url} (${req.type})`);
-    });
-    
-    const audioStream = networkRequests.find(req => 
-      req.url.includes('.m3u8') && req.url.includes('audio') && req.url.includes('128K')
+    _logger.info(`[espn] Found ${m3u8Requests.length} m3u8 requests for logging`);
+
+    const audioStream = networkRequests.find(req =>
+      req.url.includes('.m3u8') && (req.url.includes('audio') || req.url.includes('128K') || req.url.includes('aac'))
     );
-    
+
     if (audioStream) {
-      _logger.info(`[espn] Found audio-only HLS stream, using direct capture`);
-      setupAudioTranscoder(audioStream.url);
-      
-      // Start ad badge detection even with HLS capture
-      // await page.evaluate(() => {
-      //   let lastAdBadgeFound = false;
-      //   window._adBadgeInterval = setInterval(() => {
-      //     // Check regular DOM
-      //     let adBadge = document.querySelector('.ad-badge-overlay--badge');
-          
-      //     // Check shadow DOMs if not found
-      //     if (!adBadge) {
-      //       const allElements = document.querySelectorAll('*');
-      //       for (const el of allElements) {
-      //         if (el.shadowRoot) {
-      //           adBadge = el.shadowRoot.querySelector('.ad-badge-overlay--badge');
-      //           if (adBadge) break;
-      //         }
-      //       }
-      //     }
-          
-      //     const adBadgeFound = !!adBadge;
-          
-      //     window.logToClient(`Ad badge found: ${adBadgeFound}`);
-      //     if (adBadgeFound && !lastAdBadgeFound) {
-      //       console.log('Ad badge detected, pausing audio');
-      //       window._isCommercial = true;
-      //       window.logToClient('Commercial detected - pausing audio transmission');
-      //     } else if (!adBadgeFound && lastAdBadgeFound) {
-      //       console.log('Ad badge no longer detected, resuming audio');
-      //       window._isCommercial = false;
-      //       window.logToClient('Commercial ended - resuming audio transmission');
-      //     }
-          
-      //     lastAdBadgeFound = adBadgeFound;
-      //   }, 5000);
-      // });
-      
-      return null;
-    } else {
-      _logger.error(`[espn] No audio-only HLS stream found`);
+      _logger.info(`[espn] Detected HLS stream candidate (logging only): ${audioStream.url}`);
     }
+
+    // Keep browser open for capture
+    return null;
+
   } catch (e) {
     _logger.error(`[espn] Browser capture error: ${e.message}`);
     throw e;
@@ -255,7 +335,7 @@ module.exports = {
       ffmpegProc = null;
     }
     if (browser) {
-      browser.close().catch(() => {});
+      browser.close().catch(() => { });
       browser = null;
     }
   },
