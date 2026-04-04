@@ -70,7 +70,7 @@ function isFileExpired(filePath, ttlMs) {
       "ncaa_next_3_days.json",
     ];
 
-    const CATEGORIES = ["basketball", "baseball"];
+    const CATEGORIES = ["basketball", "baseball", "saturday night live"];
 
     const functionCalls = [
       () => fetchOpenMarkets(),
