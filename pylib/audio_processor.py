@@ -85,6 +85,17 @@ class AudioProcessor:
             f"[{self.session.session_id}] Recording audio to {self._recordings_dir}"
         )
 
+        # Wait for initial audio data to avoid Deepgram timeout 1011
+        # 16000 Hz * 2 bytes/sample * 0.5 seconds = 16000 bytes
+        logger.info(
+            f"[{self.session.session_id}] Waiting for initial audio data (0.5s) before connecting to Deepgram..."
+        )
+        while True:
+            with self.session.audio_inbox_lock:
+                if len(self.session.audio_inbox) >= 16000:
+                    break
+            await asyncio.sleep(0.5)
+
         try:
             logger.info(
                 f"[{self.session.session_id}] Attempting Deepgram connection..."
