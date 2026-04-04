@@ -28,12 +28,10 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   const ffmpegArgs = [
     "-fflags", "nobuffer",
     "-flags", "low_delay",
-    "-probesize", "32",
-    "-analyzeduration", "0",
-    // Input format for raw PCM
-    "-f", "s16le",
-    "-ar", "16000",
-    "-ac", "1",
+    "-probesize", "5000000",
+    "-analyzeduration", "5000000",
+    // Input format for raw PCM if input is pipe:0, else let ffmpeg detect
+    ...(inputUrl === "pipe:0" ? ["-f", "s16le", "-ar", "16000", "-ac", "1"] : []),
     "-i", inputUrl,
     // Output format (ensure consistency)
     "-f", "s16le",
@@ -60,7 +58,7 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   });
 
   ffmpeg.stderr.on("data", (data) => {
-    _logger.trace(`[transcoder] ${data.toString().trim()}`);
+    _logger.info(`[transcoder] ${data.toString().trim()}`);
   });
 
   ffmpeg.on("close", (code) => {
@@ -127,7 +125,7 @@ async function runBrowserCapture() {
     window._isCommercial = false;
   });
 
-  page.on("console", (msg) => _logger.trace(`[Browser] ${msg.text()}`));
+  page.on("console", (msg) => _logger.info(`[Browser] ${msg.text()}`));
 
 
   // Load ESPN cookies
@@ -165,19 +163,41 @@ async function runBrowserCapture() {
 
     // Monitor network requests for audio stream
     await page.setRequestInterception(true);
-    const networkRequests = [];
+    const m3u8Candidates = [];
+    let bestStreamFound = false;
 
     page.on('request', (request) => {
       const url = request.url();
-      if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('audio')) {
-        networkRequests.push({
-          url: url,
-          type: request.resourceType(),
-          timestamp: Date.now()
-        });
+      if (url.includes('.m3u8') && !url.includes('subtitle') && !url.includes('caption')) {
+        _logger.debug(`[espn] Found m3u8 candidate: ${url}`);
+        m3u8Candidates.push(url);
       }
       request.continue();
     });
+
+    async function pickBestStream() {
+      const deadline = Date.now() + 8000;
+      while (m3u8Candidates.length === 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      if (m3u8Candidates.length > 0) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      const unique = [...new Set(m3u8Candidates)];
+      if (unique.length === 0) return null;
+
+      _logger.info(`[espn] ${unique.length} unique m3u8 candidates found`);
+
+      // Prefer audio-only or high quality streams
+      const audioOnly = unique.find(u => u.includes('audio') || u.includes('aac'));
+      if (audioOnly) return audioOnly;
+
+      const highQuality = unique.find(u => u.includes('128K') || u.includes('256K'));
+      if (highQuality) return highQuality;
+
+      return unique[0];
+    }
 
 
     // Run site handlers
@@ -214,9 +234,31 @@ async function runBrowserCapture() {
               try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
                 window._audioCtx = audioCtx;
-                const source = audioCtx.createMediaElementSource(videoElement);
                 
-                // Larger buffer (16384 samples ~ 1s) for safety against browser jitter
+                // Cross-origin fix: setting anonymous may trigger reload if not already set,
+                // but needed for browsers to allow raw audio access.
+                if (videoElement.src && !videoElement.crossOrigin) {
+                  videoElement.crossOrigin = "anonymous";
+                }
+
+                let source;
+                try {
+                  if (videoElement.captureStream) {
+                    const stream = videoElement.captureStream();
+                    if (stream.getAudioTracks().length > 0) {
+                      source = audioCtx.createMediaStreamSource(stream);
+                      window.logToClient("Using createMediaStreamSource capture");
+                    }
+                  }
+                } catch (e) {
+                  window.logToClient("captureStream failed: " + e.message);
+                }
+
+                if (!source) {
+                  source = audioCtx.createMediaElementSource(videoElement);
+                  window.logToClient("Using createMediaElementSource capture");
+                }
+
                 const processor = audioCtx.createScriptProcessor(16384, 1, 1);
                 
                 source.connect(processor);
@@ -263,6 +305,7 @@ async function runBrowserCapture() {
                 window.logToClient("PCM capture active (16kHz mono)");
               } catch (err) {
                 window.logToClient("PCM capture failed: " + err.message);
+                console.error("PCM capture error", err);
               }
             }
 
@@ -288,19 +331,17 @@ async function runBrowserCapture() {
 
 
 
-    // Look for audio-only stream (for logging purposes)
-    const m3u8Requests = networkRequests.filter(req => req.url.includes('.m3u8'));
-    _logger.info(`[espn] Found ${m3u8Requests.length} m3u8 requests for logging`);
-
-    const audioStream = networkRequests.find(req =>
-      req.url.includes('.m3u8') && (req.url.includes('audio') || req.url.includes('128K') || req.url.includes('aac'))
-    );
-
-    if (audioStream) {
-      _logger.info(`[espn] Detected HLS stream candidate (logging only): ${audioStream.url}`);
+    // Try to pick the best stream
+    const bestStream = await pickBestStream();
+    if (bestStream) {
+       _logger.info(`[espn] Selected direct m3u8 stream: ${bestStream}`);
+       _logger.info(`[espn] Closing browser to conserve resources...`);
+       await browser.close().catch(() => {});
+       browser = null;
+       return bestStream;
     }
 
-    // Keep browser open for capture
+    _logger.warn("[espn] No direct m3u8 stream found, falling back to browser capture.");
     return null;
 
   } catch (e) {
@@ -322,7 +363,11 @@ module.exports = {
     _logger = logger;
     _isShuttingDown = isShuttingDown;
 
-    await runBrowserCapture();
+    const result = await runBrowserCapture();
+    if (typeof result === "string") {
+      _logger.info(`[espn] Starting transcoder with extracted m3u8 stream...`);
+      setupAudioTranscoder(result);
+    }
   },
 
   updateWs(ws) {
