@@ -25,6 +25,41 @@ if (!fs.existsSync(cacheFile)) {
 const now = new Date();
 const lookaheadLimit = new Date(now.getTime() + lookaheadMs);
 
+/**
+ * Determines the broadcast duration based on market content.
+ */
+function getDuration(market, match) {
+  const { tvEvent, espnEvent, ncaaEvent } = match;
+  const title = (market.title || "").toLowerCase();
+  const slug = (market.slug || "").toLowerCase();
+
+  if (title.includes("survivor") || slug.includes("survivor")) {
+    return 90;
+  }
+  if (
+    title.includes("snl") ||
+    title.includes("saturday night live") ||
+    slug.includes("snl") ||
+    slug.includes("saturday-night-live")
+  ) {
+    return 90;
+  }
+  if (title.includes("earnings") || slug.includes("earnings")) {
+    return 60;
+  }
+  if (ncaaEvent || title.includes("ncaa") || slug.includes("ncaa")) {
+    return 150;
+  }
+  if (title.includes("nba") || slug.includes("nba")) {
+    return 150;
+  }
+  if (title.includes("mlb") || slug.includes("mlb") || title.includes("baseball")) {
+    return 180;
+  }
+
+  return 75; // Default
+}
+
 // ── 1. Load existing scheduled server windows ───────────────────────
 const serverWindows = []; // Array of { start: Date, end: Date }
 const scheduledFiles = fs
@@ -128,9 +163,20 @@ for (const seq of sequences) {
   const seqStart = new Date(firstM.eventStartTime);
   const seqLastStart = new Date(lastM.eventStartTime);
 
-  // Server should launch 10m before first and shut down 75m after last starts
+  // Server should launch 10m before first and shut down based on the longest duration required
   const overallLaunch = new Date(seqStart.getTime() - 10 * 60 * 1000);
-  const overallShutdown = new Date(seqLastStart.getTime() + 75 * 60 * 1000);
+
+  let maxEndTime = 0;
+  for (const m of seq) {
+    const mStartTime = new Date(m.eventStartTime).getTime();
+    // We need to find the original match object to get duration context
+    const originalMatch = matches.find((match) => match.market.slug === m.slug);
+    const duration = getDuration(m, originalMatch);
+    const mEndTime = mStartTime + duration * 60 * 1000;
+    if (mEndTime > maxEndTime) maxEndTime = mEndTime;
+  }
+
+  const overallShutdown = new Date(maxEndTime);
   const optimizedDuration =
     Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
 
@@ -194,7 +240,9 @@ for (const seq of sequences) {
     market.serverDuration = serverDuration;
     fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
 
-    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${serverDuration || 75}`;
+    const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
+    const marketDuration = getDuration(market, originalMatchForCmd);
+    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${serverDuration || marketDuration}`;
     if (clientOnly) {
       cmd += " --client-only";
     }
