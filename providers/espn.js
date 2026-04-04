@@ -27,25 +27,6 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   );
 
   const ffmpegArgs = [
-<<<<<<< HEAD
-    "-fflags",
-    "nobuffer",
-    "-flags",
-    "low_delay",
-    "-probesize",
-    "32",
-    "-analyzeduration",
-    "0",
-    // Input format for raw PCM
-    "-f",
-    "s16le",
-    "-ar",
-    "16000",
-    "-ac",
-    "1",
-    "-i",
-    inputUrl,
-=======
     "-fflags", "nobuffer",
     "-flags", "low_delay",
     "-probesize", "5000000",
@@ -53,7 +34,6 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
     // Input format for raw PCM if input is pipe:0, else let ffmpeg detect
     ...(inputUrl === "pipe:0" ? ["-f", "s16le", "-ar", "16000", "-ac", "1"] : []),
     "-i", inputUrl,
->>>>>>> 4aadc5a004f116833ed0e688c5fcd80d97ddcbce
     // Output format (ensure consistency)
     "-f",
     "s16le",
