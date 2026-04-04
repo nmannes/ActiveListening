@@ -18,11 +18,13 @@ puppeteer.use(StealthPlugin());
 
   // Try to load from cache
   const cacheDir = path.join(__dirname, "cache");
-  const marketsPath = path.join(cacheDir, "unmatched_markets.json"); 
+  const marketsPath = path.join(cacheDir, "unmatched_markets.json");
   // unmatched_markets.json has { market: { ... } } structure
 
   if (!fs.existsSync(marketsPath)) {
-    logger.error(`Cache file not found at ${marketsPath}. Please run e2e_discovery.js first.`);
+    logger.error(
+      `Cache file not found at ${marketsPath}. Please run e2e_discovery.js first.`,
+    );
     await browser.close();
     return;
   }
@@ -31,7 +33,7 @@ puppeteer.use(StealthPlugin());
   try {
     const data = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
     // Extract nested market objects
-    allMarkets = data.map(item => item.market).filter(m => m);
+    allMarkets = data.map((item) => item.market).filter((m) => m);
   } catch (err) {
     logger.error(`Failed to parse cache: ${err.message}`);
     await browser.close();
@@ -39,9 +41,10 @@ puppeteer.use(StealthPlugin());
   }
 
   // Filter for earnings markets
-  const earningsMarkets = allMarkets.filter(m => 
-    (m.title && m.title.toLowerCase().includes("earnings")) || 
-    (m.slug && m.slug.toLowerCase().includes("earnings"))
+  const earningsMarkets = allMarkets.filter(
+    (m) =>
+      (m.title && m.title.toLowerCase().includes("earnings")) ||
+      (m.slug && m.slug.toLowerCase().includes("earnings")),
   );
 
   logger.info(`Found ${earningsMarkets.length} earnings markets in cache.`);

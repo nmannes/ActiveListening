@@ -130,7 +130,10 @@ if (!providerName) {
     providerName = "tv";
   } else if (STREAM_URL.includes("espn.com")) {
     providerName = "espn";
-  } else if (STREAM_URL.includes("youtube.com") || STREAM_URL.includes("youtu.be")) {
+  } else if (
+    STREAM_URL.includes("youtube.com") ||
+    STREAM_URL.includes("youtu.be")
+  ) {
     providerName = "youtube";
   } else {
     providerName = "browser";
@@ -162,7 +165,9 @@ const { startOrderbookTracking } = require("./lib/orderbook_tracking");
 const orderbook = startOrderbookTracking(market);
 const msg = `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes`;
 logger.info(msg);
-sendTelegram(msg).catch(err => logger.error(`[client] Failed to send Telegram: ${err.message}`));
+sendTelegram(msg).catch((err) =>
+  logger.error(`[client] Failed to send Telegram: ${err.message}`),
+);
 
 // ── State ────────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
@@ -186,7 +191,8 @@ function connectWebSocket() {
     // Send handshake with market data
     const hello = { type: "hello", market };
     if (provider.audioOnly) hello.audioOnly = true;
-    if (market.clipProfile !== undefined) hello.clipProfile = market.clipProfile;
+    if (market.clipProfile !== undefined)
+      hello.clipProfile = market.clipProfile;
     ws.send(JSON.stringify(hello));
 
     // Update provider's ws reference
@@ -263,7 +269,7 @@ connectWebSocket();
 setTimeout(async () => {
   try {
     // Wait for the event to start if necessary
-    await waitIfNecessary(market, logger).catch(err => {
+    await waitIfNecessary(market, logger).catch((err) => {
       logger.error(`Error in waitIfNecessary: ${err.message}`);
     });
 

@@ -27,7 +27,9 @@ let _retryTimeout = null;
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
   if (_isStopped) return;
-  _logger.info(`[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl} (Retry ${retryCount})`);
+  _logger.info(
+    `[transcoder] Starting FFmpeg transcoder for URL: ${inputUrl} (Retry ${retryCount})`,
+  );
 
   const ffmpegArgs = [
     "-fflags",
@@ -313,7 +315,7 @@ async function runBrowserCapture() {
     if (bestStream) {
       m3u8Found = true;
       _logger.info(`[browser] Closing browser to conserve resources...`);
-      await browser.close().catch(() => { });
+      await browser.close().catch(() => {});
       browser = null;
       return bestStream;
     }
@@ -345,7 +347,6 @@ module.exports = {
       return;
     }
 
-
     const result = await runBrowserCapture();
     if (typeof result === "string") {
       _logger.info(
@@ -370,7 +371,7 @@ module.exports = {
       ffmpegProc = null;
     }
     if (browser) {
-      browser.close().catch(() => { });
+      browser.close().catch(() => {});
       browser = null;
     }
   },

@@ -3,8 +3,8 @@ const fs = require("fs");
 
 const dbPath = "market_tracking/kxmentionearnfdx-26mar19.db";
 if (!fs.existsSync(dbPath)) {
-    console.error(`Database not found: ${dbPath}`);
-    process.exit(1);
+  console.error(`Database not found: ${dbPath}`);
+  process.exit(1);
 }
 const db = new Database(dbPath, { readonly: true });
 
@@ -19,7 +19,7 @@ function queryOne(sql, params = []) {
 function bookAt(ticker, ts) {
   const snapshot = queryOne(
     `SELECT * FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts DESC LIMIT 1`,
-    [ticker, ts]
+    [ticker, ts],
   );
   if (!snapshot) return null;
 
@@ -28,11 +28,11 @@ function bookAt(ticker, ts) {
   try {
     for (const [p, q] of JSON.parse(snapshot.yes || "[]")) yes.set(p, q);
     for (const [p, q] of JSON.parse(snapshot.no || "[]")) no.set(p, q);
-  } catch(e) {}
+  } catch (e) {}
 
   const deltas = query(
     `SELECT * FROM deltas WHERE ticker = ? AND ts > ? AND ts <= ? ORDER BY seq ASC, ts ASC`,
-    [ticker, snapshot.ts, ts]
+    [ticker, snapshot.ts, ts],
   );
   for (const d of deltas) {
     const sideMap = d.side === "yes" ? yes : no;
@@ -45,19 +45,21 @@ function bookAt(ticker, ts) {
 }
 
 function printMaxYes(ticker, detectMs) {
-    console.log(`\n=== Timeline for ${ticker} ===`);
-    console.log(`Detection time: ${new Date(detectMs).toISOString()}`);
-    // Check from -2s to +15s in 1s intervals
-    for (let offset = -2; offset <= 15; offset++) {
-        const ms = detectMs + offset * 1000;
-        const iso = new Date(ms).toISOString();
-        const book = bookAt(ticker, iso);
-        let bestYes = 0;
-        if (book && book.yes.size > 0) {
-            bestYes = Math.max(...book.yes.keys());
-        }
-        console.log(`[${offset > 0 ? '+' : ''}${offset}s] ${iso} : Max Yes = ${bestYes}¢`);
+  console.log(`\n=== Timeline for ${ticker} ===`);
+  console.log(`Detection time: ${new Date(detectMs).toISOString()}`);
+  // Check from -2s to +15s in 1s intervals
+  for (let offset = -2; offset <= 15; offset++) {
+    const ms = detectMs + offset * 1000;
+    const iso = new Date(ms).toISOString();
+    const book = bookAt(ticker, iso);
+    let bestYes = 0;
+    if (book && book.yes.size > 0) {
+      bestYes = Math.max(...book.yes.keys());
     }
+    console.log(
+      `[${offset > 0 ? "+" : ""}${offset}s] ${iso} : Max Yes = ${bestYes}¢`,
+    );
+  }
 }
 
 // dividend detected: 1773957736304

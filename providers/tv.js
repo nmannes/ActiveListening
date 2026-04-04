@@ -29,24 +29,37 @@ function spawnFFmpeg() {
   _logger.info(`[ffmpeg] Spawning: ${_streamUrl}`);
 
   const ffmpegArgs = [
-    '-y',
+    "-y",
     // Minimize latency (but probe enough to detect AC3 stream params)
-    '-fflags', 'nobuffer+genpts+discardcorrupt',
-    '-flags', 'low_delay',
-    '-probesize', '1000000',
-    '-analyzeduration', '1000000',
-    '-reconnect', '1',
-    '-reconnect_streamed', '1',
-    '-reconnect_delay_max', '5',
-    '-i', _streamUrl,
+    "-fflags",
+    "nobuffer+genpts+discardcorrupt",
+    "-flags",
+    "low_delay",
+    "-probesize",
+    "1000000",
+    "-analyzeduration",
+    "1000000",
+    "-reconnect",
+    "1",
+    "-reconnect_streamed",
+    "1",
+    "-reconnect_delay_max",
+    "5",
+    "-i",
+    _streamUrl,
     // Output: raw PCM to stdout — send over WebSocket (reliable TCP)
-    '-map', '0:m:language:eng',
-    '-c:a', 'pcm_s16le',
-    '-ar', '16000',
-    '-ac', '1',
-    '-f', 's16le', 'pipe:1'
+    "-map",
+    "0:m:language:eng",
+    "-c:a",
+    "pcm_s16le",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-f",
+    "s16le",
+    "pipe:1",
   ];
-
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
     stdio: ["ignore", "pipe", "pipe"],
@@ -61,20 +74,27 @@ function spawnFFmpeg() {
 
       // Log every 1MB of data
       const now = Date.now();
-      if (now - lastLogTime > 10000) { // Every 10 seconds
-        _logger.debug(`[ffmpeg] Sent ${Math.round(totalBytes / 1024 / 1024)}MB total, last chunk: ${data.length} bytes`);
+      if (now - lastLogTime > 10000) {
+        // Every 10 seconds
+        _logger.debug(
+          `[ffmpeg] Sent ${Math.round(totalBytes / 1024 / 1024)}MB total, last chunk: ${data.length} bytes`,
+        );
         lastLogTime = now;
       }
 
       // Check for reasonable chunk sizes (should be multiples of frame size)
       const expectedFrameSize = 16000 * 2 * 0.75; // 0.75 seconds at 16kHz 16-bit
       if (data.length > 0 && data.length % 2 !== 0) {
-        _logger.warn(`[ffmpeg] Odd byte count: ${data.length} - possible corruption`);
+        _logger.warn(
+          `[ffmpeg] Odd byte count: ${data.length} - possible corruption`,
+        );
       }
 
       _ws.send(data);
     } else {
-      _logger.debug(`[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`);
+      _logger.debug(
+        `[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`,
+      );
     }
   });
 
@@ -87,10 +107,12 @@ function spawnFFmpeg() {
       _logger.trace(`[ffmpeg] ${line}`);
 
       // Look for audio-specific errors
-      if (line.includes("Invalid frame dimensions") ||
+      if (
+        line.includes("Invalid frame dimensions") ||
         line.includes("corrupted") ||
         line.includes("error") ||
-        line.includes("failed")) {
+        line.includes("failed")
+      ) {
         _logger.error(`[ffmpeg] Audio stream issue: ${line}`);
       }
 
@@ -172,7 +194,9 @@ function spawnFrameGrabber() {
       if (_ws && _ws.readyState === WebSocket.OPEN) {
         const header = Buffer.from([0x01]);
         _ws.send(Buffer.concat([header, frame]));
-        _logger.info(`[frames] Sent frame: ${(frame.length / 1024).toFixed(2)} KB`);
+        _logger.info(
+          `[frames] Sent frame: ${(frame.length / 1024).toFixed(2)} KB`,
+        );
       }
     }
   });
@@ -235,7 +259,7 @@ function spawnListener() {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-  listenProc.stderr.on("data", () => { });
+  listenProc.stderr.on("data", () => {});
   listenProc.on("close", (code) => {
     _logger.info(`[listen] Saved debug audio to ${outFile} (exit ${code})`);
   });
@@ -260,7 +284,9 @@ module.exports = {
     if (!args.audioOnly && market.clipProfile) {
       spawnFrameGrabber();
     } else {
-      _logger.info(`[tv] clipProfile is null or audioOnly requested — skipping local frame grabber`);
+      _logger.info(
+        `[tv] clipProfile is null or audioOnly requested — skipping local frame grabber`,
+      );
     }
     if (_listen) spawnListener();
   },

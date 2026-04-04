@@ -10,7 +10,6 @@ const { runSiteHandlers } = require("../lib/site_handlers");
 const fs = require("fs");
 const path = require("path");
 
-
 puppeteer.use(StealthPlugin());
 
 let ffmpegProc = null;
@@ -23,24 +22,39 @@ let _isCommercial = false;
 
 // ── Audio Stream Copier (no transcoding) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0") {
-  _logger.info(`[transcoder] Starting audio stream copier for URL: ${inputUrl}`);
+  _logger.info(
+    `[transcoder] Starting audio stream copier for URL: ${inputUrl}`,
+  );
 
   const ffmpegArgs = [
-    "-fflags", "nobuffer",
-    "-flags", "low_delay",
-    "-probesize", "32",
-    "-analyzeduration", "0",
+    "-fflags",
+    "nobuffer",
+    "-flags",
+    "low_delay",
+    "-probesize",
+    "32",
+    "-analyzeduration",
+    "0",
     // Input format for raw PCM
-    "-f", "s16le",
-    "-ar", "16000",
-    "-ac", "1",
-    "-i", inputUrl,
+    "-f",
+    "s16le",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-i",
+    inputUrl,
     // Output format (ensure consistency)
-    "-f", "s16le",
-    "-acodec", "pcm_s16le",
-    "-ar", "16000",
-    "-ac", "1",
-    "-flush_packets", "1",
+    "-f",
+    "s16le",
+    "-acodec",
+    "pcm_s16le",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-flush_packets",
+    "1",
     "pipe:1",
   ];
 
@@ -51,7 +65,6 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   ffmpeg.stdin.on("error", (e) => {
     _logger.trace(`[transcoder] stdin error: ${e.message}`);
   });
-
 
   ffmpeg.stdout.on("data", (data) => {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -70,7 +83,6 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   ffmpegProc = ffmpeg;
   return ffmpeg;
 }
-
 
 // ── Browser Capture Logic ────────────────────────────────────────────
 async function runBrowserCapture() {
@@ -118,7 +130,7 @@ async function runBrowserCapture() {
       "--enable-audio",
       "--enable-video",
       "--allow-running-insecure-content",
-      "--disable-webgl"
+      "--disable-webgl",
     ],
   });
 
@@ -129,9 +141,13 @@ async function runBrowserCapture() {
 
   page.on("console", (msg) => _logger.trace(`[Browser] ${msg.text()}`));
 
-
   // Load ESPN cookies
-  const cookiesPath = path.join(__dirname, "..", "cookies", "espn_cookies.json");
+  const cookiesPath = path.join(
+    __dirname,
+    "..",
+    "cookies",
+    "espn_cookies.json",
+  );
   if (fs.existsSync(cookiesPath)) {
     try {
       const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
@@ -144,7 +160,6 @@ async function runBrowserCapture() {
 
   await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
-
   // Expose functions
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
     if (ffmpegProc && ffmpegProc.stdin.writable && !_isCommercial) {
@@ -153,12 +168,9 @@ async function runBrowserCapture() {
     }
   });
 
-
   await page.exposeFunction("logToClient", (msg) => {
     _logger.info(`[BrowserLog] ${msg}`);
   });
-
-
 
   try {
     _logger.info(`[espn] Navigating to ${_streamUrl}...`);
@@ -167,18 +179,21 @@ async function runBrowserCapture() {
     await page.setRequestInterception(true);
     const networkRequests = [];
 
-    page.on('request', (request) => {
+    page.on("request", (request) => {
       const url = request.url();
-      if (url.includes('.m3u8') || url.includes('.mp4') || url.includes('audio')) {
+      if (
+        url.includes(".m3u8") ||
+        url.includes(".mp4") ||
+        url.includes("audio")
+      ) {
         networkRequests.push({
           url: url,
           type: request.resourceType(),
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
       }
       request.continue();
     });
-
 
     // Run site handlers
     await runSiteHandlers(_streamUrl, page, _logger);
@@ -186,18 +201,17 @@ async function runBrowserCapture() {
     // Ensure playback
     await page.evaluate(() => {
       setInterval(() => {
-        const video = document.querySelector('video');
+        const video = document.querySelector("video");
         if (video && video.paused) {
           video.muted = false;
-          video.play().catch(e => console.log("play() rejected:", e.message));
+          video.play().catch((e) => console.log("play() rejected:", e.message));
         }
       }, 1000);
     });
 
     // Start transcoder reading from stdin
     setupAudioTranscoder();
-    await new Promise(r => setTimeout(r, 5000)); // Small delay for player stability
-
+    await new Promise((r) => setTimeout(r, 5000)); // Small delay for player stability
 
     // Inject capture script into all frames (handles cross-origin iframes)
     const injectCaptureToFrames = async () => {
@@ -209,37 +223,44 @@ async function runBrowserCapture() {
 
             async function setupCapture(videoElement) {
               if (window._captureActive) return;
-              window.logToClient(`Setting up PCM capture for video in frame: ${window.location.href}`);
+              window.logToClient(
+                `Setting up PCM capture for video in frame: ${window.location.href}`,
+              );
 
               try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                const audioCtx = new (
+                  window.AudioContext || window.webkitAudioContext
+                )({ sampleRate: 16000 });
                 window._audioCtx = audioCtx;
                 const source = audioCtx.createMediaElementSource(videoElement);
-                
+
                 // Larger buffer (16384 samples ~ 1s) for safety against browser jitter
                 const processor = audioCtx.createScriptProcessor(16384, 1, 1);
-                
+
                 source.connect(processor);
                 processor.connect(audioCtx.destination);
                 source.connect(audioCtx.destination); // Keep hearing it in the browser
 
                 processor.onaudioprocess = (e) => {
                   if (window._isCommercial) return;
-                  
+
                   const inputData = e.inputBuffer.getChannelData(0);
                   // Convert Float32 to Int16 PCM
                   const pcmData = new Int16Array(inputData.length);
                   for (let i = 0; i < inputData.length; i++) {
                     const s = Math.max(-1, Math.min(1, inputData[i]));
-                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
                   }
-                  
+
                   // Efficient base64 conversion
                   const uint8 = new Uint8Array(pcmData.buffer);
                   let binary = "";
                   const chunkSize = 8192;
                   for (let i = 0; i < uint8.length; i += chunkSize) {
-                    binary += String.fromCharCode.apply(null, uint8.subarray(i, i + chunkSize));
+                    binary += String.fromCharCode.apply(
+                      null,
+                      uint8.subarray(i, i + chunkSize),
+                    );
                   }
                   window.sendAudioChunk(btoa(binary));
                   window._pcmCount = (window._pcmCount || 0) + 1;
@@ -247,17 +268,19 @@ async function runBrowserCapture() {
 
                 // Periodic resume to handle autoplay policy
                 setInterval(() => {
-                  if (audioCtx.state !== 'running') {
-                    audioCtx.resume().then(() => window.logToClient("AudioContext resumed"));
+                  if (audioCtx.state !== "running") {
+                    audioCtx
+                      .resume()
+                      .then(() => window.logToClient("AudioContext resumed"));
                   }
                 }, 3000);
 
                 // Heartbeat
                 setInterval(() => {
-                  window.logToClient(`PCM Heartbeat: ${window._pcmCount || 0} chunks sent from frame ${window.location.href}`);
+                  window.logToClient(
+                    `PCM Heartbeat: ${window._pcmCount || 0} chunks sent from frame ${window.location.href}`,
+                  );
                 }, 10000);
-
-
 
                 window._captureActive = true;
                 window.logToClient("PCM capture active (16kHz mono)");
@@ -267,9 +290,14 @@ async function runBrowserCapture() {
             }
 
             // Watch for play events
-            document.addEventListener("play", (e) => {
-              if (e.target && e.target.tagName === "VIDEO") setupCapture(e.target);
-            }, true);
+            document.addEventListener(
+              "play",
+              (e) => {
+                if (e.target && e.target.tagName === "VIDEO")
+                  setupCapture(e.target);
+              },
+              true,
+            );
 
             // Check existing videos
             for (const vid of document.querySelectorAll("video")) {
@@ -286,23 +314,30 @@ async function runBrowserCapture() {
     // Periodically re-inject to handle new iframes
     setInterval(injectCaptureToFrames, 5000);
 
-
-
     // Look for audio-only stream (for logging purposes)
-    const m3u8Requests = networkRequests.filter(req => req.url.includes('.m3u8'));
-    _logger.info(`[espn] Found ${m3u8Requests.length} m3u8 requests for logging`);
+    const m3u8Requests = networkRequests.filter((req) =>
+      req.url.includes(".m3u8"),
+    );
+    _logger.info(
+      `[espn] Found ${m3u8Requests.length} m3u8 requests for logging`,
+    );
 
-    const audioStream = networkRequests.find(req =>
-      req.url.includes('.m3u8') && (req.url.includes('audio') || req.url.includes('128K') || req.url.includes('aac'))
+    const audioStream = networkRequests.find(
+      (req) =>
+        req.url.includes(".m3u8") &&
+        (req.url.includes("audio") ||
+          req.url.includes("128K") ||
+          req.url.includes("aac")),
     );
 
     if (audioStream) {
-      _logger.info(`[espn] Detected HLS stream candidate (logging only): ${audioStream.url}`);
+      _logger.info(
+        `[espn] Detected HLS stream candidate (logging only): ${audioStream.url}`,
+      );
     }
 
     // Keep browser open for capture
     return null;
-
   } catch (e) {
     _logger.error(`[espn] Browser capture error: ${e.message}`);
     throw e;
@@ -335,7 +370,7 @@ module.exports = {
       ffmpegProc = null;
     }
     if (browser) {
-      browser.close().catch(() => { });
+      browser.close().catch(() => {});
       browser = null;
     }
   },

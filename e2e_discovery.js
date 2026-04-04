@@ -104,7 +104,6 @@ function isFileExpired(filePath, ttlMs) {
       }
     }
 
-
     markets = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
     const tvSchedule = JSON.parse(
       fs.readFileSync(path.join(cacheDir, "latest_tv_schedule.json"), "utf8"),
@@ -116,10 +115,17 @@ function isFileExpired(filePath, ttlMs) {
       fs.readFileSync(path.join(cacheDir, "ncaa_next_3_days.json"), "utf8"),
     );
 
-    const configuredMarkets = markets.map(m => applyWordConfigurations(m));
-    const allResults = matchDiscoveryEvents(configuredMarkets, tvSchedule, espnSchedule, ncaaSchedule);
+    const configuredMarkets = markets.map((m) => applyWordConfigurations(m));
+    const allResults = matchDiscoveryEvents(
+      configuredMarkets,
+      tvSchedule,
+      espnSchedule,
+      ncaaSchedule,
+    );
 
-    const matchedMarkets = allResults.filter((m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL);
+    const matchedMarkets = allResults.filter(
+      (m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL,
+    );
     const unmatchedMarkets = allResults.filter(
       (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
     );
@@ -127,24 +133,34 @@ function isFileExpired(filePath, ttlMs) {
     const earningsWithSource = allResults.filter((m) => {
       const title = (m.market.title || "").toLowerCase();
       const slug = (m.market.slug || "").toLowerCase();
-      return (title.includes("earnings") || slug.includes("earnings")) && m.market.mediaStreamURL;
+      return (
+        (title.includes("earnings") || slug.includes("earnings")) &&
+        m.market.mediaStreamURL
+      );
     });
 
     const matchedPath = path.join(cacheDir, "matched_markets.json");
     const unmatchedPath = path.join(cacheDir, "unmatched_markets.json");
-    const earningsWithSourcePath = path.join(cacheDir, "earnings_calls_with_source.json");
+    const earningsWithSourcePath = path.join(
+      cacheDir,
+      "earnings_calls_with_source.json",
+    );
     const speakersPath = path.join(__dirname, "speakers.md");
 
     fs.writeFileSync(matchedPath, JSON.stringify(matchedMarkets, null, 2));
     fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
-    fs.writeFileSync(earningsWithSourcePath, JSON.stringify(earningsWithSource, null, 2));
+    fs.writeFileSync(
+      earningsWithSourcePath,
+      JSON.stringify(earningsWithSource, null, 2),
+    );
 
     let markdownTable = `| Title | Speakers | HasMediaSource |\n| :--- | :--- | :--- |\n`;
-    allResults.forEach(result => {
+    allResults.forEach((result) => {
       const { market, tvEvent, espnEvent, ncaaEvent } = result;
-      const speakers = (market.speakerEntities && market.speakerEntities.length > 0)
-        ? market.speakerEntities.map(s => s.toLowerCase()).join(', ')
-        : 'none';
+      const speakers =
+        market.speakerEntities && market.speakerEntities.length > 0
+          ? market.speakerEntities.map((s) => s.toLowerCase()).join(", ")
+          : "none";
       const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent);
       markdownTable += `| ${market.title} | ${speakers} | ${hasMediaSource ? "Yes" : "No"} |\n`;
     });
