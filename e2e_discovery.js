@@ -154,17 +154,29 @@ function isFileExpired(filePath, ttlMs) {
       JSON.stringify(earningsWithSource, null, 2),
     );
 
-    let markdownTable = `| Title | Speakers | HasMediaSource |\n| :--- | :--- | :--- |\n`;
-    allResults.forEach((result) => {
+    const sortedResults = _.sortBy(allResults, (r) => r.market?.eventStartTime || "");
+    const tableHeader = "| Date | Time | Title | HasMediaSource |\n| :--- | :--- | :--- | :--- |\n";
+    const tableRows = sortedResults.map((result) => {
       const { market, tvEvent, espnEvent, ncaaEvent } = result;
-      const speakers =
-        market.speakerEntities && market.speakerEntities.length > 0
-          ? market.speakerEntities.map((s) => s.toLowerCase()).join(", ")
-          : "none";
-      const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent);
-      markdownTable += `| ${market.title} | ${speakers} | ${hasMediaSource ? "Yes" : "No"} |\n`;
+      const [date, fullTime] = (market?.eventStartTime || "T").split("T");
+      const title = (market?.title || "N/A").replace("Announcers at ", "");
+      const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent || market.mediaStreamURL);
+
+      const row = [
+        "",
+        date || "N/A",
+        fullTime?.slice(0, 5) || "N/A",
+        title,
+        hasMediaSource ? "Yes" : "No",
+        "",
+      ]
+        .join(" | ")
+        .trim();
+      logger.info(row)
+      return row;
     });
-    fs.writeFileSync(speakersPath, markdownTable);
+
+    fs.writeFileSync(speakersPath, tableHeader + tableRows.join("\n"));
 
     logger.info(`E2E Discovery complete.`);
     logger.info(
