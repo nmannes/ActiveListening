@@ -5,6 +5,7 @@
 set -e
 
 # --- Configuration (Defaults) ---
+BUN="/home/nathan/.bun/bin/bun"
 REGION="${REGION:-us-east-1}"
 KEY_NAME="${KEY_NAME:-us-east-1}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
@@ -83,6 +84,30 @@ RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
 REMOTE_DIR="/home/ec2-user"
 
 echo "Deploying to environment: $ENV"
+
+# --- 0. Check for existing instance ---
+echo "[0/4] Checking for existing $ENV instances in $REGION..."
+EXISTING_INSTANCE=$(aws ec2 describe-instances \
+    --region "$REGION" \
+    --filters "Name=tag:Environment,Values=$ENV" "Name=instance-state-name,Values=running,pending" \
+    --query 'Reservations[].Instances[0].InstanceId' \
+    --output text)
+
+if [[ "$EXISTING_INSTANCE" != "None" && -n "$EXISTING_INSTANCE" ]]; then
+    # Get the IP of the existing instance
+    EXISTING_IP=$(aws ec2 describe-instances \
+        --region "$REGION" \
+        --instance-ids "$EXISTING_INSTANCE" \
+        --query 'Reservations[].Instances[0].PublicIpAddress' \
+        --output text)
+    echo "--------------------------------------------------------"
+    echo "ALREADY RUNNING: A $ENV instance is active at $EXISTING_IP"
+    echo "Instance ID: $EXISTING_INSTANCE"
+    echo "Aborting launch to avoid duplicates."
+    echo "--------------------------------------------------------"
+    $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $EXISTING_IP ($EXISTING_INSTANCE)" --channel info
+    exit 0
+fi
 
 # --- 1. Get Local IP and Credentials ---
 echo "[1/4] Gathering deployment context..."
@@ -202,4 +227,4 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-bun run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info
+$BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

@@ -6,6 +6,7 @@
 #   bash schedule_run.sh cava.json
 #   bash schedule_run.sh cava.json --dry-run
 #   bash schedule_run.sh cava.json --now
+#   bash schedule_run.sh cava.json --force
 #
 # Timeline:
 #   T-7min:  Launch GPU instance (with shutdown scheduled 30min after start)
@@ -13,6 +14,7 @@
 
 set -e
 export TZ="America/New_York"
+BUN="/home/nathan/.bun/bin/bun"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -22,6 +24,7 @@ DRY_RUN=false
 RUN_NOW=false
 SPOT_ARG=""
 CLIENT_ONLY=false
+FORCE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -29,6 +32,7 @@ while [[ $# -gt 0 ]]; do
         --now) RUN_NOW=true; shift ;;
         --spot) SPOT_ARG="--spot"; shift ;;
         --client-only) CLIENT_ONLY=true; shift ;;
+        --force) FORCE=true; shift ;;
         --duration) 
             DURATION_MINUTES="$2"
             shift 2 ;;
@@ -51,18 +55,27 @@ if [[ ! -f "$JSON_FILE" ]]; then
 fi
 
 # --- Parse eventStartTime from JSON ---
-EVENT_START_TIME=$(jq -r '.eventStartTime' "$JSON_FILE")
-if [[ -z "$EVENT_START_TIME" || "$EVENT_START_TIME" == "null" ]]; then
-    echo "Error: No 'eventStartTime' field found in $JSON_FILE"
-    exit 1
+if [[ "$RUN_NOW" == true || "$FORCE" == true ]]; then
+    # Replicate prod delay: Launch +1m, Start +11m
+    LAUNCH_EPOCH=$(date -d "+1 minute" +%s)
+    START_EPOCH=$((LAUNCH_EPOCH + 10 * 60))
+    EVENT_START_TIME=$(date -d "@$START_EPOCH" '+%Y-%m-%dT%H:%M:%S')
+    echo "Forcing schedule to replicate prod env:"
+    echo "  - GPU Launch: $(date -d "@$LAUNCH_EPOCH" '+%H:%M:%S')"
+    echo "  - Client Run: $(date -d "@$START_EPOCH" '+%H:%M:%S') (+11m from now)"
+else
+    EVENT_START_TIME=$(jq -r '.eventStartTime' "$JSON_FILE")
+    if [[ -z "$EVENT_START_TIME" || "$EVENT_START_TIME" == "null" ]]; then
+        echo "Error: No 'eventStartTime' field found in $JSON_FILE"
+        exit 1
+    fi
+    # Convert to epoch seconds
+    START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
+    # Compute launch time = 10 minutes before start
+    LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 fi
 
-# Convert to epoch seconds
-START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
 NOW_EPOCH=$(date +%s)
-
-# Compute launch time = 10 minutes before start
-LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 
 # Shutdown delay = given duration (default 30) + 10 minutes for early launch
 DURATION_MINUTES=${DURATION_MINUTES:-30}
@@ -84,7 +97,7 @@ echo "  Event start:  $START_HUMAN"
 if [[ "$CLIENT_ONLY" == true ]]; then
     echo "  Mode:         Client Only (Skipping GPU launch)"
 else
-    echo "  GPU launch:   $LAUNCH_HUMAN (T-3min)"
+    echo "  GPU launch:   $LAUNCH_HUMAN (T-10min)"
     echo "  GPU shutdown:  ${DURATION_MINUTES} min after start (${SHUTDOWN_MINUTES}min from launch)"
 fi
 echo "========================================"
@@ -104,22 +117,6 @@ fi
 # Resolve to absolute path for the at job
 ABS_JSON_FILE="$(cd "$(dirname "$JSON_FILE")" && pwd)/$(basename "$JSON_FILE")"
 
-if [[ "$RUN_NOW" == true ]]; then
-    # --- Run everything immediately ---
-    if [[ "$CLIENT_ONLY" != true ]]; then
-        echo "[$(date '+%H:%M:%S')] Launching GPU instance now..."
-        bash "$SCRIPT_DIR/launch_gpu_server.sh" prod $SPOT_ARG --shutdown-minutes $SHUTDOWN_MINUTES  2>&1 | tee -a "$SCRIPT_DIR/schedule_run.log"
-        if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-            echo "ERROR: launch_gpu_server.sh failed. Aborting."
-            exit 1
-        fi
-    fi
-
-    echo "[$(date '+%H:%M:%S')] Starting client.js now..."
-    cd "$SCRIPT_DIR" && exec bun run client.js --fromFile "$ABS_JSON_FILE" --duration 45
-    exit 0
-fi
-
 # --- Schedule GPU launch at T-10min ---
 if [[ "$CLIENT_ONLY" != true ]]; then
     echo "$SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
@@ -127,7 +124,7 @@ if [[ "$CLIENT_ONLY" != true ]]; then
 fi
 
 # --- Schedule tvclient.js at start time ---
-echo "cd $SCRIPT_DIR && bun run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+echo "cd $SCRIPT_DIR && $BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""
