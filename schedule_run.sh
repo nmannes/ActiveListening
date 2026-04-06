@@ -56,22 +56,26 @@ fi
 
 # --- Parse eventStartTime from JSON ---
 if [[ "$RUN_NOW" == true || "$FORCE" == true ]]; then
-    EVENT_START_TIME=$(date -d "+1 minute" '+%Y-%m-%dT%H:%M:%S')
-    echo "Forcing schedule to 1 minute from now: $EVENT_START_TIME"
+    # Replicate prod delay: Launch +1m, Start +11m
+    LAUNCH_EPOCH=$(date -d "+1 minute" +%s)
+    START_EPOCH=$((LAUNCH_EPOCH + 10 * 60))
+    EVENT_START_TIME=$(date -d "@$START_EPOCH" '+%Y-%m-%dT%H:%M:%S')
+    echo "Forcing schedule to replicate prod env:"
+    echo "  - GPU Launch: $(date -d "@$LAUNCH_EPOCH" '+%H:%M:%S')"
+    echo "  - Client Run: $(date -d "@$START_EPOCH" '+%H:%M:%S') (+11m from now)"
 else
     EVENT_START_TIME=$(jq -r '.eventStartTime' "$JSON_FILE")
     if [[ -z "$EVENT_START_TIME" || "$EVENT_START_TIME" == "null" ]]; then
         echo "Error: No 'eventStartTime' field found in $JSON_FILE"
         exit 1
     fi
+    # Convert to epoch seconds
+    START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
+    # Compute launch time = 10 minutes before start
+    LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 fi
 
-# Convert to epoch seconds
-START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
 NOW_EPOCH=$(date +%s)
-
-# Compute launch time = 10 minutes before start
-LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 
 # Shutdown delay = given duration (default 30) + 10 minutes for early launch
 DURATION_MINUTES=${DURATION_MINUTES:-30}
