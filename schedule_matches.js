@@ -115,6 +115,11 @@ for (const match of matches) {
     }
   }
 
+  // Prefer NCAA network mapping if available
+  if (ncaaEvent?.network && CHANNEL_MAPPINGS[ncaaEvent.network]) {
+    streamURL = CHANNEL_MAPPINGS[ncaaEvent.network];
+  }
+
   if (
     youtubeOnly &&
     !(
@@ -213,6 +218,9 @@ for (const seq of sequences) {
   let seqServerWindow = null;
 
   for (const market of seq) {
+    const originalMatch = matches.find(
+      (match) => match.market.slug === market.slug,
+    );
     const startTime = new Date(market.eventStartTime);
     const slug = market.slug;
     const newFile = path.join(scheduledDir, `${slug}.json`);
@@ -241,6 +249,8 @@ for (const seq of sequences) {
       console.log(`[DRY-RUN] Market: ${market.title}`);
       console.log(`          Event:   ${startTime.toLocaleString()}`);
       console.log(`          Stream:  ${market.mediaStreamURL || "NONE"}`);
+      console.log(`          Source:  ${scheduledDir}/${slug}.json`);
+
       if (isAlreadyScheduled) {
         console.log(`          Status:  ALREADY SCHEDULED (Would be skipped)`);
       }
