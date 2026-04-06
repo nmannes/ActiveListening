@@ -1,14 +1,13 @@
 const fs = require("fs");
-const { fetchOpenMarkets, getTeamNames } = require("./lib/discover_markets.js");
+const { fetchOpenMarkets } = require("./lib/discover_markets.js");
 const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
-const { scrapeEspnSchedule } = require("./lib/espn_discovery.js");
+const { scrapeESPNMatchups } = require("./lib/league_schedule_scraping.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
 const { scrapeNCAASchedulesForDays } = require("./lib/ncaa_tip_off_times.js");
 const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
 const _ = require("lodash");
-const { getSpeakerEntities } = require("./lib/speaker_identification.js");
 
 /**
  * Checks if a file exists and is not expired based on TTL.
@@ -66,8 +65,8 @@ function isFileExpired(filePath, ttlMs) {
     const rawData = [
       "latest_markets.json",
       "latest_tv_schedule.json",
-      "espn_next_3_days.json",
-      "ncaa_next_3_days.json",
+      "espn_matchups.json",
+      "ncaa_schedule.json",
     ];
 
     const CATEGORIES = ["basketball", "baseball", "saturday night live"];
@@ -75,7 +74,7 @@ function isFileExpired(filePath, ttlMs) {
     const functionCalls = [
       () => fetchOpenMarkets(),
       () => findProgramsAcrossZipsAndKeywords([zip], CATEGORIES), // DC, NY, LA, CHI
-      () => scrapeEspnSchedule(new Date(), 3),
+      () => scrapeESPNMatchups(),
       () => scrapeNCAASchedulesForDays(new Date(), 7),
     ];
 
@@ -104,16 +103,11 @@ function isFileExpired(filePath, ttlMs) {
       }
     }
 
-    markets = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
-    const tvSchedule = JSON.parse(
-      fs.readFileSync(path.join(cacheDir, "latest_tv_schedule.json"), "utf8"),
+    const [freshMarkets, tvSchedule, espnSchedule, ncaaSchedule] = rawData.map(
+      (fileName) =>
+        JSON.parse(fs.readFileSync(path.join(cacheDir, fileName), "utf8")),
     );
-    const espnSchedule = JSON.parse(
-      fs.readFileSync(path.join(cacheDir, "espn_next_3_days.json"), "utf8"),
-    );
-    const ncaaSchedule = JSON.parse(
-      fs.readFileSync(path.join(cacheDir, "ncaa_next_3_days.json"), "utf8"),
-    );
+    markets = freshMarkets;
 
     const configuredMarkets = markets.map((m) => applyWordConfigurations(m));
     const allResults = matchDiscoveryEvents(

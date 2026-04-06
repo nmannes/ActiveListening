@@ -2,6 +2,7 @@ const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const { sendTelegram } = require("./lib/telegram");
+const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 
 const scheduledDir = path.join(__dirname, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
@@ -98,8 +99,21 @@ const candidates = [];
 for (const match of matches) {
   const { market, tvEvent, espnEvent, ncaaEvent } = match;
 
-  const streamURL =
-    tvEvent?.channelURL || espnEvent?.link || market?.mediaStreamURL || null;
+  let streamURL =
+    tvEvent?.channelURL ||
+    espnEvent?.gameLink ||
+    market?.mediaStreamURL ||
+    null;
+
+  // Prefer YTTV channel if available in ESPN metadata
+  if (espnEvent?.tvChannels) {
+    for (const ch of espnEvent.tvChannels) {
+      if (CHANNEL_MAPPINGS[ch.name]) {
+        streamURL = CHANNEL_MAPPINGS[ch.name];
+        break;
+      }
+    }
+  }
 
   if (
     youtubeOnly &&
@@ -203,15 +217,6 @@ for (const seq of sequences) {
     const slug = market.slug;
     const newFile = path.join(scheduledDir, `${slug}.json`);
 
-    if (fs.existsSync(newFile) && !force) {
-      console.log(`Skipping ${market.title} - already scheduled`);
-      // If this was the server-starter, we should still track its window
-      if (!market.clientOnly) {
-        // Actually, we already loaded existing windows in Step 1
-      }
-      continue;
-    }
-
     // Check if we can reuse an existing server window (from previous runs or current sequence)
     const estimatedEndTime = new Date(startTime.getTime() + 60 * 60 * 1000);
     let reusableWindow = serverWindows.find(
@@ -230,9 +235,15 @@ for (const seq of sequences) {
     let clientOnly = market.alreadyStarted || !!reusableWindow;
     let serverDuration = clientOnly ? 0 : optimizedDuration;
 
+    const isAlreadyScheduled = fs.existsSync(newFile) && !force;
+
     if (dryRun) {
       console.log(`[DRY-RUN] Market: ${market.title}`);
       console.log(`          Event:   ${startTime.toLocaleString()}`);
+      console.log(`          Stream:  ${market.mediaStreamURL || "NONE"}`);
+      if (isAlreadyScheduled) {
+        console.log(`          Status:  ALREADY SCHEDULED (Would be skipped)`);
+      }
       console.log(
         `          Mode:    ${clientOnly ? (reusableWindow ? "REUSE Server (Client Only)" : "Client Only (Started)") : "NEW Server (Full Run)"}`,
       );
@@ -247,6 +258,11 @@ for (const seq of sequences) {
         );
       }
       console.log("");
+      continue;
+    }
+
+    if (isAlreadyScheduled) {
+      console.log(`Skipping ${market.title} - already scheduled`);
       continue;
     }
 
