@@ -285,7 +285,10 @@ for (const seq of sequences) {
 
     const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
     const marketDuration = getDuration(market, originalMatchForCmd);
-    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${serverDuration || marketDuration}`;
+    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
+    if (!clientOnly) {
+      cmd += ` --server-duration ${serverDuration}`;
+    }
     if (clientOnly) {
       cmd += " --client-only";
     }

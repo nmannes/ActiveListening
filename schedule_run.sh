@@ -36,6 +36,9 @@ while [[ $# -gt 0 ]]; do
         --duration) 
             DURATION_MINUTES="$2"
             shift 2 ;;
+        --server-duration)
+            SERVER_DURATION_MINUTES="$2"
+            shift 2 ;;
         *) 
             if [[ -z "$JSON_FILE" ]]; then 
                 JSON_FILE="$1"
@@ -45,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$JSON_FILE" ]]; then
-    echo "Usage: $0 <market-file.json> [--dry-run|--now|--spot|--client-only] [--duration minutes]"
+    echo "Usage: $0 <market-file.json> [--dry-run|--now|--spot|--client-only] [--duration minutes] [--server-duration minutes]"
     exit 1
 fi
 
@@ -81,6 +84,10 @@ NOW_EPOCH=$(date +%s)
 DURATION_MINUTES=${DURATION_MINUTES:-30}
 SHUTDOWN_MINUTES=$((DURATION_MINUTES + 10))
 
+# Server shutdown delay = given server duration (defaults to DURATION_MINUTES) + 10 minutes
+SERVER_DURATION_MINUTES=${SERVER_DURATION_MINUTES:-$DURATION_MINUTES}
+SERVER_SHUTDOWN_MINUTES=$((SERVER_DURATION_MINUTES + 10))
+
 # Format times for `at` (HH:MM YYYY-MM-DD)
 LAUNCH_AT=$(date -d "@$LAUNCH_EPOCH" '+%H:%M %Y-%m-%d')
 START_AT=$(date -d "@$START_EPOCH" '+%H:%M %Y-%m-%d')
@@ -98,8 +105,9 @@ if [[ "$CLIENT_ONLY" == true ]]; then
     echo "  Mode:         Client Only (Skipping GPU launch)"
 else
     echo "  GPU launch:   $LAUNCH_HUMAN (T-10min)"
-    echo "  GPU shutdown:  ${DURATION_MINUTES} min after start (${SHUTDOWN_MINUTES}min from launch)"
+    echo "  GPU shutdown:  ${SERVER_DURATION_MINUTES} min after start (${SERVER_SHUTDOWN_MINUTES}min from launch)"
 fi
+echo "  Client dur:   ${DURATION_MINUTES} min after start (${SHUTDOWN_MINUTES}min from launch)"
 echo "========================================"
 
 if [[ "$DRY_RUN" == true ]]; then
@@ -119,7 +127,7 @@ ABS_JSON_FILE="$(cd "$(dirname "$JSON_FILE")" && pwd)/$(basename "$JSON_FILE")"
 
 # --- Schedule GPU launch at T-10min ---
 if [[ "$CLIENT_ONLY" != true ]]; then
-    echo "$SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+    echo "$SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
         | at "$LAUNCH_AT"
 fi
 
