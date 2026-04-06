@@ -3,7 +3,7 @@
 | N/A | N/A | What will Delta say during their next earnings call? | No |
 | N/A | N/A | What will Progressive say during their next earnings call? | No |
 | N/A | N/A | What will Goldman Sachs say during their next earnings call? | No |
-| N/A | N/A | College Basketball National Championship | No |
+| N/A | N/A | College Basketball National Championship | Yes |
 | N/A | N/A | What will Karoline Leavitt say in the next press briefing? | No |
 | N/A | N/A | New York M vs San Francisco Professional Baseball Game | No |
 | N/A | N/A | Chicago C vs Cleveland Professional Baseball Game | No |
