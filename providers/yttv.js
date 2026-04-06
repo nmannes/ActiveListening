@@ -87,10 +87,10 @@ async function runYTTVCapture() {
   _logger.info(`[yttv] Launching Puppeteer for YouTube TV...`);
 
   const executablePath = "/usr/bin/google-chrome";
-  
+
   browser = await puppeteer.launch({
     executablePath,
-    headless: false, // Often required for YTTV to avoid detection/DRM issues
+    headless: true, // Often required for YTTV to avoid detection/DRM issues
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
@@ -102,7 +102,7 @@ async function runYTTVCapture() {
   });
 
   const page = await browser.newPage();
-  
+
   // Expose audio chunk handler
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
     if (ffmpegProc && ffmpegProc.stdin.writable) {
@@ -252,7 +252,7 @@ module.exports = {
     }
     if (browser) {
       _logger.info(`[yttv] Stopping browser...`);
-      browser.close().catch(() => {});
+      browser.close().catch(() => { });
       browser = null;
     }
   },
