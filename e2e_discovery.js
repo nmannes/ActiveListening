@@ -118,10 +118,12 @@ function isFileExpired(filePath, ttlMs) {
     );
 
     const matchedMarkets = allResults.filter(
-      (m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL,
+      (m) =>
+        m.tvEvent || m.espnEvent || m.ncaaEvent || m.market.mediaStreamURL,
     );
     const unmatchedMarkets = allResults.filter(
-      (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
+      (m) =>
+        !m.tvEvent && !m.espnEvent && !m.ncaaEvent && !m.market.mediaStreamURL,
     );
 
     const earningsWithSource = allResults.filter((m) => {

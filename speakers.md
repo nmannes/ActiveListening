@@ -21,6 +21,7 @@
 | 2026-04-08 | 20:00 | What will the contestants say during Survivor Ep 7? | No |
 | 2026-04-08 | 20:00 | What will Jeff Probst say during Survivor Ep 7? | No |
 | 2026-04-09 | 07:50 | What will Constellation Brands say during their next earnings call? | No |
+| 2026-04-12 | 14:00 | What will Bernie say during his NYC Rally? | No |
 | 2026-04-14 | 08:30 | What will JPMorgan say during their next earnings call? | No |
 | 2026-04-14 | 08:30 | What will Johnson & Johnson say during their next earnings call? | No |
 | 2026-04-14 | 10:00 | What will Wells Fargo say during their next earnings call? | No |

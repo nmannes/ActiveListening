@@ -131,7 +131,8 @@ for (const match of matches) {
 
   let scheduleStartTime =
     ncaaEvent?.time ||
-    espnEvent?.startTimestamp ||
+    tvEvent?.startTimestamp ||
+    espnEvent?.startTime ||
     market?.eventStartTime ||
     null;
 
