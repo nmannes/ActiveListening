@@ -131,10 +131,11 @@ if (!providerName) {
   } else if (STREAM_URL.includes("espn.com")) {
     providerName = "espn";
   } else if (
-    STREAM_URL.includes("youtube.com") ||
-    STREAM_URL.includes("youtu.be")
+    (STREAM_URL.includes("youtube.com") || STREAM_URL.includes("youtu.be")) && !STREAM_URL.includes("tv.youtube.com")
   ) {
     providerName = "youtube";
+  } else if (STREAM_URL.includes("tv.youtube.com")) {
+    providerName = "yttv";
   } else {
     providerName = "browser";
   }
