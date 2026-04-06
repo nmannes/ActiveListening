@@ -5,6 +5,7 @@
 set -e
 
 # --- Configuration (Defaults) ---
+BUN="/home/nathan/.bun/bin/bun"
 REGION="${REGION:-us-east-1}"
 KEY_NAME="${KEY_NAME:-us-east-1}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
@@ -202,4 +203,4 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-bun run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info
+$BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

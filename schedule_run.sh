@@ -13,6 +13,7 @@
 
 set -e
 export TZ="America/New_York"
+BUN="/home/nathan/.bun/bin/bun"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -116,7 +117,7 @@ if [[ "$RUN_NOW" == true ]]; then
     fi
 
     echo "[$(date '+%H:%M:%S')] Starting client.js now..."
-    cd "$SCRIPT_DIR" && exec bun run client.js --fromFile "$ABS_JSON_FILE" --duration 45
+    cd "$SCRIPT_DIR" && exec $BUN run client.js --fromFile "$ABS_JSON_FILE" --duration 45
     exit 0
 fi
 
@@ -127,7 +128,7 @@ if [[ "$CLIENT_ONLY" != true ]]; then
 fi
 
 # --- Schedule tvclient.js at start time ---
-echo "cd $SCRIPT_DIR && bun run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+echo "cd $SCRIPT_DIR && $BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""
