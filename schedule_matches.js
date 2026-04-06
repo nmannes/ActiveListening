@@ -8,6 +8,7 @@ execSync(`mkdir -p ${scheduledDir}`);
 
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
+const force = args.includes("--force");
 const youtubeOnly = args.includes("--youtube-only");
 let lookaheadHours = 20;
 const lookaheadIdx = args.indexOf("--lookahead");
@@ -44,7 +45,7 @@ function getDuration(market, match) {
   ) {
     return 90;
   }
-  if (title.includes("earnings") || slug.includes("earnings")) {
+  if (title.includes("earnings") || slug.includes("earnings") || title.includes('his show') || title.includes('her show')) {
     return 60;
   }
   if (ncaaEvent || title.includes("ncaa") || slug.includes("ncaa")) {
@@ -61,12 +62,18 @@ function getDuration(market, match) {
 }
 
 // ── 1. Load existing scheduled server windows ───────────────────────
+const matches = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+const matchSlugs = new Set(matches.map((m) => m.market.slug));
+
 const serverWindows = []; // Array of { start: Date, end: Date }
 const scheduledFiles = fs
   .readdirSync(scheduledDir)
   .filter((f) => f.endsWith(".json"));
 
 for (const f of scheduledFiles) {
+  const slug = f.replace(".json", "");
+  if (force && matchSlugs.has(slug)) continue;
+
   try {
     const data = JSON.parse(
       fs.readFileSync(path.join(scheduledDir, f), "utf8"),
@@ -86,7 +93,6 @@ for (const f of scheduledFiles) {
 }
 
 // ── 2. Collect and sort candidate markets ────────────────────────────
-const matches = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
 const candidates = [];
 
 for (const match of matches) {
@@ -113,9 +119,19 @@ for (const match of matches) {
   if (streamURL && scheduleStartTime) {
     let startTime = new Date(scheduleStartTime);
     let alreadyStarted = false;
+
+    // Skip if started more than 60 minutes ago
+    const stalenessThresholdMs = 60 * 60 * 1000;
+    if (startTime < new Date(now.getTime() - stalenessThresholdMs)) {
+      console.log(
+        `Skipping ${market.title} - started too long ago (${startTime.toLocaleString()})`,
+      );
+      continue;
+    }
+
     if (startTime <= now) {
       alreadyStarted = true;
-      startTime = new Date(Date.now() + 5 * 1000); // 5s buffer
+      startTime = new Date(now.getTime() + 5 * 1000); // 5s buffer
     }
 
     if (startTime <= lookaheadLimit) {
@@ -187,7 +203,7 @@ for (const seq of sequences) {
     const slug = market.slug;
     const newFile = path.join(scheduledDir, `${slug}.json`);
 
-    if (fs.existsSync(newFile)) {
+    if (fs.existsSync(newFile) && !force) {
       console.log(`Skipping ${market.title} - already scheduled`);
       // If this was the server-starter, we should still track its window
       if (!market.clientOnly) {
