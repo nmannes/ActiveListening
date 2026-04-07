@@ -150,11 +150,11 @@ function isFileExpired(filePath, ttlMs) {
       JSON.stringify(earningsWithSource, null, 2),
     );
 
-    const sortedResults = _.sortBy(allResults, (r) => r.market?.eventStartTime || "");
+    const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
     const tableHeader = "| Date | Time | Title | HasMediaSource |\n| :--- | :--- | :--- | :--- |\n";
     const tableRows = sortedResults.map((result) => {
       const { market, tvEvent, espnEvent, ncaaEvent } = result;
-      const [date, fullTime] = (market?.eventStartTime || "T").split("T");
+      const [date, fullTime] = (result.startTime || market?.eventStartTime || "T").split("T");
       const title = (market?.title || "N/A").replace("Announcers at ", "");
       const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent || market.mediaStreamURL);
 

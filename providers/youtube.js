@@ -94,7 +94,7 @@ module.exports = {
           `[youtube] Attempting to extract audio stream with yt-dlp...`,
         );
         const directUrl = await new Promise((resolve, reject) => {
-          const ytdlp = spawn("yt-dlp", [
+          const ytdlp = spawn("/home/linuxbrew/.linuxbrew/bin/yt-dlp", [
             "-f",
             "bestaudio/best",
             "-g",
