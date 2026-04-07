@@ -7,6 +7,7 @@ async function run() {
   try {
     browser = await puppeteer.launch({
       executablePath: "/usr/bin/google-chrome",
+      headless: !process.argv.includes("--browser"),
     });
     const page = await browser.newPage();
     await page.goto(
