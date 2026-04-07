@@ -12,6 +12,7 @@
  *   node client.js --fromFile market.json   (auto-detects provider from stream URL)
  */
 
+const path = require("path");
 const { execSync } = require("child_process");
 const fs = require("fs");
 const WebSocket = require("ws");
@@ -155,6 +156,25 @@ try {
 const sessionId = market.slug || args.id || new Date().getUTCSeconds();
 logger = baseLogger.child({ sessionId });
 
+// ── Lockfile ────────────────────────────────────────────────────────
+const LOCK_DIR = path.join(__dirname, "locks");
+if (!fs.existsSync(LOCK_DIR)) {
+  fs.mkdirSync(LOCK_DIR, { recursive: true });
+}
+
+const lockPath = path.join(LOCK_DIR, `${sessionId}.lock`);
+
+if (fs.existsSync(lockPath)) {
+  const pid = fs.readFileSync(lockPath, "utf8");
+  logger.error(
+    `[client] Lockfile exists for session "${sessionId}" (PID: ${pid}). Another instance might be running. Exiting.`,
+  );
+  process.exit(1);
+}
+
+fs.writeFileSync(lockPath, process.pid.toString());
+logger.info(`[client] Lockfile created: ${lockPath}`);
+
 logger.info(`Session ID: ${sessionId}`);
 logger.info(`Provider: ${provider.name}`);
 logger.info(`Market: ${market.title || market.slug}`);
@@ -260,6 +280,12 @@ function shutdown(reason) {
   provider.stop();
   if (ws) ws.close();
   if (orderbook && orderbook.stop) orderbook.stop();
+
+  if (typeof lockPath !== "undefined" && lockPath && fs.existsSync(lockPath)) {
+    fs.unlinkSync(lockPath);
+    logger.info(`[client] Lockfile removed: ${lockPath}`);
+  }
+
   process.exit(0);
 }
 
