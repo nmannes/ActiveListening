@@ -210,7 +210,7 @@ class ClientSession:
             if len(self.audio_inbox) > max_bytes:
                 dropped_bytes = len(self.audio_inbox) - max_bytes
                 del self.audio_inbox[:dropped_bytes]
-                logger.warning(
+                logger.debug(
                     f"[{self.session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)"
                 )
 
