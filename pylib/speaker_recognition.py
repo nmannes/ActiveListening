@@ -130,36 +130,32 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             speaker_top_terms[sid] = [feature_names[j] for j in top_indices if row[j] > 0]
 
         prompt_data = []
-        for sid, text in ranked:
+        for i, (sid, text) in enumerate(ranked):
             word_count = len(text.split())
             top_terms = ", ".join(speaker_top_terms.get(sid, []))
-            prompt_data.append(f"Speaker ID {sid} ({word_count} words, distinctive terms: [{top_terms}])\"") # Cap text per speaker for prompt limits
+            # Increase context for top 3 speakers to help identify long-form hosts
+            context_limit = 5000 if i < 3 else 2000
+            prompt_data.append(f"ID {sid} ({word_count} words, distinctive terms: [{top_terms}]): \"{text[:context_limit]}\"")
 
         transcript_block = "\n\n".join(prompt_data)
 
         prompt = f"""
-        You are an expert at identifying speakers from transcripts. 
+        You are identifying the real host or primary guests in a broadcast transcript.
         I have a transcript from a broadcast session with speaker IDs 0, 1, 2, etc.
-        Some of these speakers may be "{target_speaker_name}". 
-        Others might be news anchors, politicians, reporters, or advertisements.
+        Your goal is to identify ALL Speaker IDs that are actually "{target_speaker_name}".
 
-        IMPORTANT: The speaker IDs come from automatic speech diarization, which is imperfect.
-        The same real person may be split across multiple speaker IDs, and occasionally a segment 
-        may be attributed to the wrong speaker. Focus on the content and style of each speaker's 
-        text to make your classification, not the ID numbers themselves. Also, take into account 
-        the number of words each speaker says. If they say more words, more likely to be them.
+        CRITICAL DISTINCTION:
+        1. **The Host ({target_speaker_name})**: Usually has a very high word count, speaks in long monologues, introduces segments ("Coming up next...", "Tonight on the show..."), and analyzes news or specific topics (like "{', '.join(speaker_top_terms.get(ranked[0][0], [])[:5])}").
+        2. **Mention-only Advertisements**: Often use the host's name ("Hey {target_speaker_name}!", "Thanks {target_speaker_name}...", "Starting at just $79...") but speak for much less time and focus on products (jewelry, insurance, medicine, etc.). Do NOT label these as "{target_speaker_name}". Label them as "advertisement".
+        3. **Guests/Other**: May be interviewed by the host. Label as "unknown" unless they are also "{target_speaker_name}".
 
-        Identify ALL Speaker IDs that seem to be "{target_speaker_name}".
-        There may be multiple speakers who match (e.g. multiple announcers, multiple contestants, 
-        or the same person split across IDs by the diarizer).
-        Also, label any Speaker IDs that are clearly advertisements (e.g. they use persuasive sales language, mention prices, or promote products).
+        Diarization Note: The same person might be split across multiple Speaker IDs. Use the content, style, and vocabulary to link them.
 
         TRANSCRIPT SEGMENTS:
         {transcript_block}
 
         Respond ONLY with a JSON object mapping Speaker IDs to labels. 
         Possible labels: "{target_speaker_name}", "advertisement", "unknown".
-        Example: {{"0": "{target_speaker_name}", "1": "unknown", "2": "advertisement", "3": "{target_speaker_name}"}}
         """
 
         body_dict = {
@@ -176,11 +172,6 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         body = json.dumps(body_dict, indent=2)
 
         try:
-            # For debugging: print the request body
-            print("\n--- BEDROCK REQUEST BODY ---")
-            pprint(body_dict)
-            print("----------------------------\n")
-            
             # Use original loop executor for sync boto3 call
             response = await asyncio.get_running_loop().run_in_executor(
                 None,
@@ -206,7 +197,16 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             end_idx = result_text.rfind("}")
             if start_idx != -1 and end_idx != -1:
                 json_str = result_text[start_idx:end_idx+1]
-                return json.loads(json_str)
+                try:
+                    llm_result = json.loads(json_str)
+                    # Clean up keys in case the model added prefixes
+                    cleaned_result = {}
+                    for k, v in llm_result.items():
+                        clean_k = k.replace("Speaker ID ", "").replace("Speaker ID", "").replace("ID ", "").replace("ID", "").strip()
+                        cleaned_result[clean_k] = v
+                    return cleaned_result
+                except json.JSONDecodeError:
+                    logger.error(f"Failed to parse Bedrock JSON: {json_str}")
             
             return {}
 
