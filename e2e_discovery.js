@@ -69,13 +69,13 @@ function isFileExpired(filePath, ttlMs) {
       "ncaa_schedule.json",
     ];
 
-    const CATEGORIES = ["basketball", "baseball", "saturday night live"];
+    const CATEGORIES = ["basketball", "baseball", "saturday night live", "survivor"];
 
     const functionCalls = [
       () => fetchOpenMarkets(),
       () => findProgramsAcrossZipsAndKeywords([zip], CATEGORIES), // DC, NY, LA, CHI
       () => scrapeESPNMatchups(),
-      () => scrapeNCAASchedulesForDays(new Date(), 7),
+      () => { return [] },
     ];
 
     for (let i = 0; i < functionCalls.length; i++) {

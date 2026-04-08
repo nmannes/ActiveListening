@@ -2,15 +2,14 @@
 | :--- | :--- | :--- | :--- |
 | N/A | N/A | What will Progressive say during their next earnings call? | No |
 | N/A | N/A | What will Goldman Sachs say during their next earnings call? | No |
+| N/A | N/A | What will NASA say during the Artemis II press conference? | No |
 | N/A | N/A | What will Trump say during his bilateral with the NATO Secretary General? | No |
-| N/A | N/A | What will Ro Khanna say during his NAN Fireside Chat? | No |
-| 2026-04-08 | 17:00 | What will NASA say during the Artemis II press conference? | No |
 | 2026-04-08 | 19:00 | Atlanta vs Cleveland Professional Basketball Game | Yes |
 | 2026-04-08 | 19:20 | What will Mark Carney say with the Artemis II crew? | No |
 | 2026-04-08 | 19:30 | What will Kevin McCarthy say during his Harvard discussion? | No |
 | 2026-04-08 | 19:40 | Detroit vs Minnesota Professional Baseball Game | Yes |
-| 2026-04-08 | 20:00 | What will Jeff Probst say during Survivor Ep 7? | No |
-| 2026-04-08 | 20:00 | What will the contestants say during Survivor Ep 7? | No |
+| 2026-04-08 | 20:00 | What will Jeff Probst say during Survivor Ep 7? | Yes |
+| 2026-04-08 | 20:00 | What will the contestants say during Survivor Ep 7? | Yes |
 | 2026-04-08 | 21:30 | Portland vs San Antonio Professional Basketball Game | Yes |
 | 2026-04-09 | 07:50 | What will Constellation Brands say during their next earnings call? | No |
 | 2026-04-09 | 10:00 | What will Hakeem Jeffries say during his NAN remarks? | No |
