@@ -1,11 +1,19 @@
 import os
+import asyncio
 import torch
 import numpy as np
 import logging
+import json
 from pathlib import Path
 import nemo.collections.asr.models as nemo_asr
 from omegaconf import OmegaConf
 from abc import ABC, abstractmethod
+
+# Handle boto3 optionally
+try:
+    import boto3
+except ImportError:
+    boto3 = None
 
 logger = logging.getLogger("remote_server")
 
@@ -97,15 +105,104 @@ class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
 
 
 class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
-    def __init__(self, listening_session):
+    def __init__(self, listening_session, region_name="us-east-1", model_id="anthropic.claude-3-sonnet-20240229-v1:0"):
         self.listening_session = listening_session
+        self.region_name = region_name
+        self.model_id = model_id
+        self._bedrock_client = None
+
+    @property
+    def bedrock_client(self):
+        if self._bedrock_client is None:
+            if boto3 is None:
+                logger.error("boto3 not installed. Cannot use Bedrock.")
+                return None
+            try:
+                self._bedrock_client = boto3.client("bedrock-runtime", region_name=self.region_name)
+            except Exception as e:
+                logger.error(f"Failed to initialize Bedrock client: {e}")
+        return self._bedrock_client
 
     async def verify_speaker(self, transcript_text: str, profile_name: str) -> float:
         """
         Verify if the transcript matches a profile using word analysis / NLP.
         """
-        # TODO: Scaffold logic for transcript word analysis
+        # This is a simple per-segment check, but infer_identity_with_bedrock is preferred for batch.
         return 0.0
+
+    async def infer_identity_with_bedrock(self, speaker_transcripts: dict[str, str], target_speaker_name: str) -> dict[str, str]:
+        """
+        Calls Amazon Bedrock to identify which speaker_id is the target_speaker_name.
+        Returns a mapping of {speaker_id: label}.
+        """
+        client = self.bedrock_client
+        if not client:
+            return {}
+
+        prompt_data = []
+        for sid, text in speaker_transcripts.items():
+            prompt_data.append(f"Speaker ID {sid}: \"{text[:2000]}\"") # Cap text per speaker for prompt limits
+
+        transcript_block = "\n\n".join(prompt_data)
+
+        # Construct the prompt for Claude 3
+        prompt = f"""
+        You are an expert at identifying speakers from transcripts. 
+        I have a transcript from a broadcast session with speaker IDs 0, 1, 2, etc.
+        One of these speakers is {target_speaker_name}. 
+        Others might be news anchors, politicians, reporters, or advertisements.
+
+        Identify which Speaker ID belongs to {target_speaker_name}.
+        Also, label any Speaker IDs that are clearly advertisements (e.g. they use persuasive sales language, mention prices, or promote products).
+
+        TRANSCRIPT SEGMENTS:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
+        Possible labels: "{target_speaker_name}", "advertisement", "unknown".
+        Example: {{"0": "{target_speaker_name}", "1": "unknown", "2": "advertisement"}}
+        """
+
+        body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 1000,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        })
+
+        try:
+            response = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: client.invoke_model(
+                    body=body,
+                    modelId=self.model_id,
+                    accept="application/json",
+                    contentType="application/json"
+                )
+            )
+
+            response_body = json.loads(response.get("body").read())
+            content = response_body.get("content", [])
+            if not content:
+                return {}
+            
+            result_text = content[0].get("text", "").strip()
+            # Find the JSON block in the text (in case Claude adds preamble)
+            start_idx = result_text.find("{")
+            end_idx = result_text.rfind("}")
+            if start_idx != -1 and end_idx != -1:
+                json_str = result_text[start_idx:end_idx+1]
+                return json.loads(json_str)
+            
+            return {}
+
+        except Exception as e:
+            logger.error(f"Bedrock invocation failed: {e}")
+            return {}
 
 
 class SpeakerRecognitionSession:
@@ -138,8 +235,49 @@ class SpeakerRecognitionSession:
         if label == "advertisement":
             return "advertisement"
 
-        # TODO: Implement mapping logic here
-        # Speaker identification will be done on a loop. Given the speaker entities,
-        # this function should attempt to assign a mapping of voice profile id
-        # to the known entity in the market.
+        # Check if the label matches one of the market entities
+        for entity in self.market_entities:
+            if label == entity:
+                return entity
+
         return None
+
+    async def run_identity_inference(self):
+        """
+        Aggregates session transcripts and runs LLM-based identity inference.
+        """
+        # Access transcript from session
+        if not hasattr(self.listening_session, "transcript"):
+            logger.warning("Session has no transcript to infer identities from.")
+            return
+
+        async with self.listening_session.transcript_lock:
+            speaker_texts = {}
+            for sid, tokens in self.listening_session.transcript.items():
+                text = " ".join([t["text"] for t in tokens])
+                speaker_texts[sid] = text
+
+        if not speaker_texts:
+            logger.info("Transcript is empty, skipping identity inference.")
+            return
+
+        # Use the first market entity as the target speaker by default
+        target_name = self.market_entities[0] if self.market_entities else "Unknown"
+        logger.info(f"Running Bedrock identity inference for target: {target_name}")
+
+        mapping = await self.transcript_recognizer.infer_identity_with_bedrock(
+            speaker_texts, target_name
+        )
+
+        if mapping:
+            logger.info(f"Identity mapping inferred: {mapping}")
+            for sid, label in mapping.items():
+                self.set_profile_label(sid, label)
+                
+                # If the label matches a market entity, add to trading whitelist
+                if label in self.market_entities:
+                    if hasattr(self.listening_session, "trade_processor"):
+                        self.listening_session.trade_processor.add_trading_speaker(sid)
+                        logger.info(f"Added speaker {sid} ({label}) to trading whitelist.")
+        else:
+            logger.warning("Identity inference returned no mapping.")

@@ -64,8 +64,6 @@ class TradeProcessor:
 
                 speaker_transcript.append(token_dict)
                 new_tokens_added.append(token_dict)
-                if len(speaker_transcript) > 10000:
-                    speaker_transcript.pop(0)
 
         # 2. Update per-speaker buffer and Match
         speaker_buffer = self.speaker_buffers[speaker_id]
@@ -74,8 +72,6 @@ class TradeProcessor:
         for t in new_tokens_added:
             word = t["text"]
             speaker_buffer.append(word)
-            if len(speaker_buffer) > 500:
-                speaker_buffer.pop(0)
 
             matched = find_keyword_match(
                 self.session.keyword_index, speaker_buffer, word
