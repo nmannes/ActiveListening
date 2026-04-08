@@ -241,6 +241,7 @@ function connectWebSocket() {
         delete msg.type;
         logger.info(`[remote] ${JSON.stringify(msg)}`);
       } else {
+        delete msg.image;
         logger.debug(`[OTHER] ${JSON.stringify(msg)}`);
       }
     } catch (e) {

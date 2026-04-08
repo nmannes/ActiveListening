@@ -57,7 +57,8 @@ for ((i=0; i<${#args[@]}; i++)); do
         --spot) USE_SPOT=true ;;
         --no-rollback) NO_ROLLBACK=true ;;
         --destroy-all) ENV="--destroy-all" ;;
-        --shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
+        --duration|--shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
+        --*) ;; # Ignore unknown flags
         *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
     esac
 done
