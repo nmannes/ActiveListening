@@ -1,12 +1,9 @@
 import os
 import asyncio
-import torch
-import numpy as np
 import logging
 import json
+from pprint import pprint
 from pathlib import Path
-import nemo.collections.asr.models as nemo_asr
-from omegaconf import OmegaConf
 from abc import ABC, abstractmethod
 
 # Handle boto3 optionally
@@ -31,81 +28,56 @@ class BaseSpeakerRecognizer(ABC):
 
 
 class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
+    """Audio-based speaker recognition using NeMo TitaNet. Currently disabled."""
     def __init__(self, listening_session, device: str = "cpu"):
+        # import torch
+        # import numpy as np
+        # import nemo.collections.asr.models as nemo_asr
+
         self.listening_session = listening_session
         self.device = device
-        logger.info(f"Loading NeMo SpeakerVerificationModel on {device}...")
-
-        # Using TitaNet-L for high accuracy speaker verification
-        self.model = nemo_asr.EncDecSpeakerLabelModel.from_pretrained(
-            model_name="titanet_large"
-        ).to(device)
-        self.model.eval()
-
         self.reference_embeddings = {}
         self.audio_samples_dir = Path(__file__).parent.parent / "audio-samples"
         logger.info(
-            f"SpeakerRecognizer initialized. Reference dir: {self.audio_samples_dir}"
+            f"SpeakerRecognizer initialized (audio disabled). Reference dir: {self.audio_samples_dir}"
         )
 
-    def _get_embedding(self, audio_data: np.ndarray) -> torch.Tensor:
-        """Extract speaker embedding from audio samples (16kHz, float32)."""
-        audio_tensor = torch.from_numpy(audio_data).to(self.device).unsqueeze(0)
-        audio_len = torch.tensor([audio_tensor.shape[1]]).to(self.device)
+        # # Using TitaNet-L for high accuracy speaker verification
+        # self.model = nemo_asr.EncDecSpeakerLabelModel.from_pretrained(
+        #     model_name="titanet_large"
+        # ).to(device)
+        # self.model.eval()
 
-        with torch.no_grad():
-            _, embedding = self.model.forward(
-                input_signal=audio_tensor, input_signal_length=audio_len
-            )
-        return embedding
+    # def _get_embedding(self, audio_data):
+    #     import torch
+    #     import numpy as np
+    #     audio_tensor = torch.from_numpy(audio_data).to(self.device).unsqueeze(0)
+    #     audio_len = torch.tensor([audio_tensor.shape[1]]).to(self.device)
+    #     with torch.no_grad():
+    #         _, embedding = self.model.forward(
+    #             input_signal=audio_tensor, input_signal_length=audio_len
+    #         )
+    #     return embedding
 
-    def load_reference(self, profile_name: str):
-        """Load and cache embedding for a reference speaker from audio-samples/."""
-        if profile_name in self.reference_embeddings:
-            return
-
-        wav_path = self.audio_samples_dir / f"{profile_name}.wav"
-        if not wav_path.exists():
-            logger.error(
-                f"Reference wav not found for profile '{profile_name}' at {wav_path}"
-            )
-            return
-
-        logger.info(f"Loading reference embedding for '{profile_name}'...")
-        # NeMo expectations: 16kHz, single channel
-        import librosa
-
-        audio, _ = librosa.load(str(wav_path), sr=16000)
-        self.reference_embeddings[profile_name] = self._get_embedding(audio)
+    # def load_reference(self, profile_name: str):
+    #     if profile_name in self.reference_embeddings:
+    #         return
+    #     wav_path = self.audio_samples_dir / f"{profile_name}.wav"
+    #     if not wav_path.exists():
+    #         logger.error(f"Reference wav not found for profile '{profile_name}' at {wav_path}")
+    #         return
+    #     logger.info(f"Loading reference embedding for '{profile_name}'...")
+    #     import librosa
+    #     audio, _ = librosa.load(str(wav_path), sr=16000)
+    #     self.reference_embeddings[profile_name] = self._get_embedding(audio)
 
     async def verify_speaker(self, pcm_data: bytes, profile_name: str) -> float:
-        """
-        Verify if the speaker in pcm_data matches the reference profile.
-        Returns cosine similarity (0.0 to 1.0).
-        """
-        if profile_name not in self.reference_embeddings:
-            self.load_reference(profile_name)
-
-        if profile_name not in self.reference_embeddings:
-            return 0.0
-
-        # Convert PCM bytes to float32
-        samples = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32) / 32768.0
-
-        # Extract embedding for the current chunk
-        current_embedding = self._get_embedding(samples)
-
-        # Calculate cosine similarity
-        ref_embedding = self.reference_embeddings[profile_name]
-
-        similarity = torch.nn.functional.cosine_similarity(
-            current_embedding, ref_embedding
-        ).item()
-        return similarity
+        # Audio verification disabled — use transcript-based inference instead
+        return 0.0
 
 
 class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
-    def __init__(self, listening_session, region_name="us-east-1", model_id="anthropic.claude-3-sonnet-20240229-v1:0"):
+    def __init__(self, listening_session, region_name="us-east-1", model_id="us.amazon.nova-lite-v1:0"):
         self.listening_session = listening_session
         self.region_name = region_name
         self.model_id = model_id
@@ -138,21 +110,48 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         client = self.bedrock_client
         if not client:
             return {}
+ 
+        # Only include the top 10 non-ad speakers by word count to reduce noise
+        ranked = sorted(speaker_transcripts.items(), key=lambda x: len(x[1].split()), reverse=True)[:10]
+
+        # Compute TF-IDF to find distinctive terms per speaker
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        sids = [sid for sid, _ in ranked]
+        texts = [text for _, text in ranked]
+        vectorizer = TfidfVectorizer(stop_words="english", max_features=5000, token_pattern=r'(?u)\b[a-zA-Z]{3,}\b')
+        tfidf_matrix = vectorizer.fit_transform(texts)
+        feature_names = vectorizer.get_feature_names_out()
+
+        speaker_top_terms = {}
+        for i, sid in enumerate(sids):
+            row = tfidf_matrix[i].toarray().flatten()
+            top_indices = row.argsort()[-15:][::-1]
+            speaker_top_terms[sid] = [feature_names[j] for j in top_indices if row[j] > 0]
 
         prompt_data = []
-        for sid, text in speaker_transcripts.items():
-            prompt_data.append(f"Speaker ID {sid}: \"{text[:2000]}\"") # Cap text per speaker for prompt limits
+        for sid, text in ranked:
+            word_count = len(text.split())
+            top_terms = ", ".join(speaker_top_terms.get(sid, []))
+            prompt_data.append(f"Speaker ID {sid} ({word_count} words, distinctive terms: [{top_terms}])\"") # Cap text per speaker for prompt limits
 
         transcript_block = "\n\n".join(prompt_data)
 
-        # Construct the prompt for Claude 3
         prompt = f"""
         You are an expert at identifying speakers from transcripts. 
         I have a transcript from a broadcast session with speaker IDs 0, 1, 2, etc.
-        One of these speakers is {target_speaker_name}. 
+        Some of these speakers may be "{target_speaker_name}". 
         Others might be news anchors, politicians, reporters, or advertisements.
 
-        Identify which Speaker ID belongs to {target_speaker_name}.
+        IMPORTANT: The speaker IDs come from automatic speech diarization, which is imperfect.
+        The same real person may be split across multiple speaker IDs, and occasionally a segment 
+        may be attributed to the wrong speaker. Focus on the content and style of each speaker's 
+        text to make your classification, not the ID numbers themselves. Also, take into account 
+        the number of words each speaker says. If they say more words, more likely to be them.
+
+        Identify ALL Speaker IDs that seem to be "{target_speaker_name}".
+        There may be multiple speakers who match (e.g. multiple announcers, multiple contestants, 
+        or the same person split across IDs by the diarizer).
         Also, label any Speaker IDs that are clearly advertisements (e.g. they use persuasive sales language, mention prices, or promote products).
 
         TRANSCRIPT SEGMENTS:
@@ -160,21 +159,29 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 
         Respond ONLY with a JSON object mapping Speaker IDs to labels. 
         Possible labels: "{target_speaker_name}", "advertisement", "unknown".
-        Example: {{"0": "{target_speaker_name}", "1": "unknown", "2": "advertisement"}}
+        Example: {{"0": "{target_speaker_name}", "1": "unknown", "2": "advertisement", "3": "{target_speaker_name}"}}
         """
 
-        body = json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1000,
+        body_dict = {
+            "inferenceConfig": {
+                "max_new_tokens": 1000
+            },
             "messages": [
                 {
                     "role": "user",
-                    "content": prompt
+                    "content": [{"text": prompt}]
                 }
             ]
-        })
+        }
+        body = json.dumps(body_dict, indent=2)
 
         try:
+            # For debugging: print the request body
+            print("\n--- BEDROCK REQUEST BODY ---")
+            pprint(body_dict)
+            print("----------------------------\n")
+            
+            # Use original loop executor for sync boto3 call
             response = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: client.invoke_model(
@@ -185,13 +192,16 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
                 )
             )
 
+            if not response or "body" not in response:
+                return {}
+
             response_body = json.loads(response.get("body").read())
-            content = response_body.get("content", [])
+            content = response_body.get("output", {}).get("message", {}).get("content", [])
             if not content:
                 return {}
             
             result_text = content[0].get("text", "").strip()
-            # Find the JSON block in the text (in case Claude adds preamble)
+            # Find the JSON block in the text (in case the model adds preamble)
             start_idx = result_text.find("{")
             end_idx = result_text.rfind("}")
             if start_idx != -1 and end_idx != -1:
