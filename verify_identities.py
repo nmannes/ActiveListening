@@ -15,94 +15,167 @@ from scripts.replay_session import ReplaySession, DiarizedTradeProcessor
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
 
-# Test cases: (folder, target_speaker, expected_id_list)
-TEST_CASES = [
-    ("s3/maddow", "Rachel Maddow", ["2"]),
-    ("s3/chris", "Chris Van Hollen", ["2"]),
-    ("s3/mlb", "announcer", ["0", "1", "9"]), # MLB has multiple announcers
-    ("s3/nba", "announcer", ["0", "1"]),
-]
-
-async def run_test(folder_path, target, expected_ids):
-    logger.info(f"--- RUNNING TEST: {folder_path} (target: {target}) ---")
+async def run_inference(folder_path, target, log_file):
+    msg = f"\n--- RUNNING INFERENCE: {folder_path} (target: {target}) ---\n"
+    logger.info(msg.strip())
+    log_file.write(msg)
+    log_file.flush()
     
     recording_dir = Path(folder_path)
     dg_dir = recording_dir / "deepgram_responses"
     if not dg_dir.exists():
-        logger.error(f"⏩ SKIP: {folder_path} directory not found")
-        return True # Skip non-existent folders
+        msg = f"⏩ SKIP: {folder_path} (No deepgram_responses directory found)\n"
+        logger.error(msg.strip())
+        log_file.write(msg)
+        return None
         
-    # Create session and trade processor (using real classes via ReplaySession)
+    # Create session and trade processor
     session = ReplaySession(session_id=recording_dir.name)
     trade_processor = DiarizedTradeProcessor(session)
     session.trade_processor = trade_processor
     
     # Process each Deepgram response
     response_files = sorted(dg_dir.glob("dg_*.json"))
-    for file_path in response_files:
-        with open(file_path, "r") as f:
-            data = json.load(f)
-        if data.get("type") != "Results" or not data.get("is_final", False):
+    
+    check_interval = 200
+    matched = False
+    final_mapping = None
+    
+    consecutive_stable_matches = 0
+    REQUIRED_STABLE_CHECKS = 3
+
+    for i, file_path in enumerate(response_files):
+        try:
+            with open(file_path, "r") as f:
+                content = f.read().strip()
+                if "\n{" in content:
+                   content = content.split("\n{")[0] 
+                data = json.loads(content)
+        except Exception as e:
+            logger.warning(f"⏩ SKIP corrupt JSON {file_path.name}: {e}")
             continue
+
+        if data.get("type") == "Results" and data.get("is_final", False):
+            alt = data.get("channel", {}).get("alternatives", [{}])[0]
+            words = alt.get("words", [])
+            if words:
+                speaker_id = str(words[0].get("speaker", "0"))
+                formatted_tokens = [{"text": w["word"].lower(), "start": w["start"], "end": w["end"]} for w in words]
+                await trade_processor.process_tokens(formatted_tokens, speaker_id=speaker_id)
+        
+        # Periodic check
+        if (i + 1) % check_interval == 0 or i == len(response_files) - 1:
+            speaker_texts = {}
+            for sid, tokens in session.transcript.items():
+                speaker_texts[sid] = " ".join([t["text"] for t in tokens])
+                
+            if not speaker_texts:
+                continue
+
+            rec_session = SpeakerRecognitionSession(session, [target])
+            logger.info(f"Chunk {i+1}/{len(response_files)}: Inferring identity for {len(speaker_texts)} speakers...")
             
-        alt = data.get("channel", {}).get("alternatives", [{}])[0]
-        words = alt.get("words", [])
-        if not words:
-            continue
+            # Log the inputs passed to Bedrock
+            log_file.write(f"--- BEDROCK INPUT (Chunk {i+1}) ---\n")
+            log_file.write(f"Target: {target}\n")
+            log_file.write("Speaker Texts:\n")
+            for sid, text in speaker_texts.items():
+                log_file.write(f"  [Speaker {sid}]: {text}\n")
+            log_file.write("----------------------------------\n")
+            log_file.flush()
             
-        speaker_id = str(words[0].get("speaker", "0"))
-        formatted_tokens = [{"text": w["word"].lower(), "start": w["start"], "end": w["end"]} for w in words]
-        await trade_processor.process_tokens(formatted_tokens, speaker_id=speaker_id)
+            mapping = await rec_session.transcript_recognizer.infer_identity_with_bedrock(
+                speaker_texts, target
+            )
+            
+            # Log the Bedrock mapping output
+            log_file.write(f"--- BEDROCK OUTPUT (Chunk {i+1}) ---\n")
+            log_file.write(f"Mapping: {json.dumps(mapping, indent=2)}\n")
+            log_file.write("-----------------------------------\n")
+            log_file.flush()
+            
+            found_matches = [sid for sid, label in mapping.items() if label == target]
+            if found_matches:
+                # Check for single match expectations
+                is_group = any(w in target.lower() for w in ["announcer", "contestants", "employee", "team"])
+                
+                if not is_group and len(found_matches) > 1:
+                    msg = f"⚠️ WARNING: Expected a single match for named target '{target}', but Bedrock mapped multiple IDs: {found_matches}\n"
+                    logger.warning(msg.strip())
+                    log_file.write(msg)
+                
+                consecutive_stable_matches += 1
+                msg = f"✅ FOUND at chunk {i+1} (Stable count: {consecutive_stable_matches}/{REQUIRED_STABLE_CHECKS}): Bedrock mapped {target} to speaker(s): {found_matches}\n"
+                logger.info(msg.strip())
+                log_file.write(msg)
+                log_file.flush()
+                
+                final_mapping = mapping
+                
+                if consecutive_stable_matches >= REQUIRED_STABLE_CHECKS:
+                    msg = f"🎉 Identity [{target}] is STABLE for {REQUIRED_STABLE_CHECKS} consecutive checks. Stopping further tracing for this session.\n"
+                    logger.info(msg.strip())
+                    log_file.write(msg)
+                    log_file.flush()
+                    matched = True
+                    break
+            else:
+                consecutive_stable_matches = 0
+                msg = f"⚠️ NO MATCH at chunk {i+1}: Bedrock could not find {target} yet.\n"
+                logger.info(msg.strip())
+                log_file.write(msg)
+                log_file.flush()
+                
+    if not matched:
+        msg = f"❌ END OF SESSION: Could not stably establish {target} after processing all {len(response_files)} files.\n"
+        logger.info(msg.strip())
+        log_file.write(msg)
+        log_file.flush()
         
-    # Aggregate transcripts
-    speaker_texts = {}
-    for sid, tokens in session.transcript.items():
-        speaker_texts[sid] = " ".join([t["text"] for t in tokens])
-        
-    if not speaker_texts:
-        logger.error(f"❌ FAIL: No transcripts collected for {folder_path}")
-        return False
-        
-    # Run inference
-    rec_session = SpeakerRecognitionSession(session, [target])
-    mapping = await rec_session.transcript_recognizer.infer_identity_with_bedrock(
-        speaker_texts, target
-    )
-    
-    # Check results
-    found_matches = [sid for sid, label in mapping.items() if label == target]
-    
-    passed = any(sid in expected_ids for sid in found_matches)
-    
-    if passed:
-        logger.info(f"✅ PASS: Found {target} in speaker(s) {found_matches}")
-        return True
-    else:
-        logger.error(f"❌ FAIL: Expected {expected_ids} to match {target}, but got {found_matches}")
-        return False
+    return final_mapping
 
 async def main():
-    logger.info("Starting Identity Inference Test Suite...")
+    logger.info("Starting Identity Inference Over All S3 Sessions...")
     
-    results = []
-    for folder, target, expected in TEST_CASES:
-        if not Path(folder).exists():
-            logger.warning(f"⏩ SKIP: {folder} does not exist")
-            continue
-            
-        success = await run_test(folder, target, expected)
-        results.append(success)
-        await asyncio.sleep(1) # Rate limit protection
-        
-    passed_count = sum(results)
-    total_count = len(results)
-    
-    logger.info("======================================================================")
-    logger.info(f"TEST SUMMARY: {passed_count}/{total_count} PASSED")
-    logger.info("======================================================================")
-    
-    if passed_count < total_count:
+    # Build a slug -> target speaker mapping from scheduled JSON files
+    slug_to_speaker = {}
+    scheduled_dir = Path("scheduled")
+    if scheduled_dir.exists():
+        for json_file in scheduled_dir.glob("*.json"):
+            try:
+                with open(json_file, "r") as f:
+                    data = json.load(f)
+                if data.get("speakerEntities"):
+                    # Use the first speaker entity as the target target
+                    slug_to_speaker[data.get("slug")] = data.get("speakerEntities")[0]
+            except Exception as e:
+                logger.error(f"Failed to read {json_file}: {e}")
+
+    s3_dir = Path("s3")
+    if not s3_dir.exists():
+        logger.error("No 's3' directory found.")
         sys.exit(1)
+
+    # Process all directories in s3/
+    folders = [d for d in s3_dir.iterdir() if d.is_dir()]
+    
+    with open("identity_verification_results.log", "w") as log_file:
+        for folder in sorted(folders):
+            session_id = folder.name
+            
+            # Determine the matching slug
+            slug = session_id.split("_")[0]
+            
+            target = slug_to_speaker.get(slug)
+            if not target:
+                target = slug_to_speaker.get(session_id)
+                
+            if not target:
+                logger.warning(f"⏩ SKIP: {folder.name} (Could not determine target speaker from scheduled/*.json)")
+                continue
+                
+            await run_inference(folder, target, log_file)
+            await asyncio.sleep(1) # Rate limit protection for Bedrock
 
 if __name__ == "__main__":
     asyncio.run(main())

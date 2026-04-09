@@ -320,6 +320,7 @@ for (const seq of sequences) {
 
       if (!clientOnly) {
         seqServerWindow = { start: overallLaunch, end: overallShutdown };
+        serverWindows.push(seqServerWindow);
       }
       console.log("");
     } catch (e) {
