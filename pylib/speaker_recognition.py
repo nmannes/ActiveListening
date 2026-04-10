@@ -215,13 +215,14 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         """
         elif event_type == "sports_broadcast":
             prompt = f"""
-        You are identifying participants in a sports broadcast.
+        You are identifying the main announcers in a sports broadcast
+        Usually there a play by play guy, a color commentator guy
         I have a transcript from a session with speaker IDs 0, 1, 2, etc.
         Your goal is to identify which Speaker ID is the target: "{target_speaker_name}".
 
         CRITICAL DISTINCTION:
-        1. **The Target ({target_speaker_name})**: The person(s) we are trying to identify (often a play-by-play announcer or color commentator). Look for their distinctive phrases or style. Label as "{target_speaker_name}".
-        2. **Other Commentators**: Other broadcasters in the booth or sideline reporters. Label as "other commentator".
+        1. **The Target(s) ({target_speaker_name})**: The person(s) we are trying to identify. Label as "{target_speaker_name}".
+        2. **Non-main Commentators**: Other broadcasters that may speak up during breaks or in the booth. Label as "non-main commentator".
         3. **Players/Coaches/Referees**: People on the court or field. Label as "participant".
         4. **Advertisements**: Commercial breaks. Label them as "advertisement".
         5. **Unknown**: Others.
