@@ -10,6 +10,10 @@ sys.path.insert(0, os.getcwd())
 
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from scripts.replay_session import ReplaySession, DiarizedTradeProcessor
+import pylib.trade_processor
+
+# Disable Telegram notifications for offline testing
+pylib.trade_processor.send_telegram = lambda *args, **kwargs: None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -39,6 +43,7 @@ async def run_inference(folder_path, target, market_data, log_file):
     
     check_interval = 200
     final_mapping = None
+    known_advertisements = set()
 
     for i, file_path in enumerate(response_files):
         try:
@@ -81,6 +86,9 @@ async def run_inference(folder_path, target, market_data, log_file):
             if cur_sid is not None:
                 transcript_history.append((cur_sid, " ".join(cur_texts)))
 
+            # Exclude known advertisements
+            transcript_history = [(sid, text) for sid, text in transcript_history if sid not in known_advertisements]
+
             if not transcript_history:
                 continue
 
@@ -107,6 +115,12 @@ async def run_inference(folder_path, target, market_data, log_file):
             log_file.write(f"Mapping: {json.dumps(mapping, indent=2)}\n")
             log_file.write("-----------------------------------\n")
             log_file.flush()
+            
+            # Update known advertisements
+            for sid, label in mapping.items():
+                if isinstance(label, list): continue # Just in case
+                if label.lower() == "advertisement":
+                    known_advertisements.add(sid)
             
             found_matches = [sid for sid, label in mapping.items() if label == target]
             if found_matches:

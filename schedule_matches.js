@@ -155,6 +155,10 @@ for (const match of matches) {
     }
 
     if (startTime <= lookaheadLimit) {
+      if (Object.keys(market.keywords || {}).length === 0) {
+        console.log(`Skipping ${market.title} - no keywords (likely duration market)`);
+        continue;
+      }
       market.mediaStreamURL = streamURL;
       market.eventStartTime = startTime;
       market.alreadyStarted = alreadyStarted;
