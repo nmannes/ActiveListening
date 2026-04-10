@@ -65,16 +65,30 @@ function stopVirtualSink() {
   }
 }
 
-// ── FFmpeg Transcoder (PulseAudio Monitor -> Raw PCM) ────────────────
+// ── Audio Transcoder (PipeWire pw-record -> FFmpeg -> Raw PCM) ────────
 function setupAudioTranscoder(retryCount = 0) {
   if (_isStopped) return;
   _logger.info(
-    `[amazon-transcoder] Starting FFmpeg capture from Pulse device: ${MONITOR_NAME} (Retry ${retryCount})`,
+    `[amazon-transcoder] Starting pw-record/ffmpeg capture from: ${MONITOR_NAME} (Retry ${retryCount})`,
   );
 
+  // Use pw-record to capture from our virtual monitor node
+  const pwRecord = spawn("pw-record", [
+    `--target=${MONITOR_NAME}`,
+    "--format=s16",
+    "--rate=48000",
+    "--channels=2",
+    "-"
+  ], {
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  // Pipe pw-record output into FFmpeg to downsample to 16kHz Mono
   const ffmpegArgs = [
-    "-f", "pulse",
-    "-i", MONITOR_NAME,
+    "-f", "s16le",
+    "-ar", "48000",
+    "-ac", "2",
+    "-i", "pipe:0",
     "-f", "s16le",
     "-acodec", "pcm_s16le",
     "-ar", "16000",
@@ -83,8 +97,10 @@ function setupAudioTranscoder(retryCount = 0) {
   ];
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
+
+  pwRecord.stdout.pipe(ffmpeg.stdin);
 
   ffmpeg.stdout.on("data", (data) => {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
@@ -104,11 +120,16 @@ function setupAudioTranscoder(retryCount = 0) {
     }
   });
 
+  pwRecord.stderr.on("data", (data) => {
+    _logger.trace(`[pw-record] ${data.toString()}`);
+  });
+
   ffmpeg.on("close", (code) => {
     _logger.info(`[amazon-transcoder] FFmpeg exited with code ${code}`);
+    pwRecord.kill();
     if (!_isStopped && code !== 0 && code !== 255) {
       const delay = Math.min(10000, 1000 * Math.pow(2, retryCount));
-      _logger.info(`[amazon-transcoder] Retrying FFmpeg in ${delay}ms...`);
+      _logger.info(`[amazon-transcoder] Retrying in ${delay}ms...`);
       _retryTimeout = setTimeout(() => {
         setupAudioTranscoder(retryCount + 1);
       }, delay);
