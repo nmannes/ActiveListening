@@ -102,7 +102,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # This is a simple per-segment check, but infer_identity_with_bedrock is preferred for batch.
         return 0.0
 
-    async def infer_identity_with_bedrock(self, speaker_transcripts: dict[str, str], target_speaker_name: str) -> dict[str, str]:
+    async def infer_identity_with_bedrock(self, transcript_history: list[tuple[str, str]], target_speaker_name: str) -> dict[str, str]:
         """
         Calls Amazon Bedrock to identify which speaker_id is the target_speaker_name.
         Returns a mapping of {speaker_id: label}.
@@ -110,6 +110,15 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         client = self.bedrock_client
         if not client:
             return {}
+
+        # Re-aggregate to compute TF-IDF and word counts
+        speaker_transcripts_dict = {}
+        for sid, text in transcript_history:
+            if sid not in speaker_transcripts_dict:
+                speaker_transcripts_dict[sid] = []
+            speaker_transcripts_dict[sid].append(text)
+
+        speaker_transcripts = {sid: " ".join(texts) for sid, texts in speaker_transcripts_dict.items()}
  
         # Only include the top 10 non-ad speakers by word count to reduce noise
         ranked = sorted(speaker_transcripts.items(), key=lambda x: len(x[1].split()), reverse=True)[:10]
@@ -129,29 +138,120 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             top_indices = row.argsort()[-15:][::-1]
             speaker_top_terms[sid] = [feature_names[j] for j in top_indices if row[j] > 0]
 
-        prompt_data = []
+        summary_data = []
         for i, (sid, text) in enumerate(ranked):
             word_count = len(text.split())
             top_terms = ", ".join(speaker_top_terms.get(sid, []))
-            # Increase context for top 3 speakers to help identify long-form hosts
-            context_limit = 5000 if i < 3 else 2000
-            prompt_data.append(f"ID {sid} ({word_count} words, distinctive terms: [{top_terms}]): \"{text[:context_limit]}\"")
+            summary_data.append(f"ID {sid} ({word_count} words, distinctive terms: [{top_terms}])")
 
-        transcript_block = "\n\n".join(prompt_data)
+        summary_block = "\n".join(summary_data)
+        
+        top_sids = set(sid for sid, _ in ranked)
+        
+        transcript_lines = []
+        for sid, text in transcript_history:
+            if sid not in top_sids:
+                continue
+            transcript_lines.append(f"[Speaker {sid}]: {text}")
+            
+        transcript_block = "\n".join(transcript_lines)
+        if len(transcript_block) > 60000:
+            transcript_block = transcript_block[:60000] + "\n...[TRUNCATED]"
 
-        prompt = f"""
+        market = getattr(self.listening_session, "market", {}) or {}
+        clip_profile = market.get("clipProfile", "")
+        title = market.get("title", "").lower()
+        
+        event_type = "standard"
+        if clip_profile == "survivor" or "survivor" in title:
+            event_type = "survivor"
+        elif "press conference" in title or "interview" in title or "briefing" in title:
+            event_type = "interview"
+        elif clip_profile in ("basketball", "baseball") or "nba" in title or "mlb" in title or "ncaab" in title:
+            event_type = "sports_broadcast"
+
+        if event_type == "survivor":
+            prompt = f"""
+        You are identifying participants in an episode of Survivor.
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker ID is "Jeff Probst", which are "contestants", and which are advertisements.
+        The target entity for this session is conceptually: "{target_speaker_name}".
+
+        CRITICAL DISTINCTION:
+        1. **Jeff Probst**: The host. Asks questions, narrates challenges, often says "Come on in!", "Survivors ready?", "Dig deep!". Identify him accurately. Label him as "Jeff Probst".
+        2. **Contestants**: The players in the game who are competing, discussing strategy, or voting. Label them as "contestants".
+        3. **Advertisements**: Commercial breaks. Label them as "advertisement".
+        4. **Unknown**: Others.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
+        Possible labels must exactly match one of: "Jeff Probst", "contestants", "advertisement", "unknown".
+        """
+        elif event_type == "interview":
+            prompt = f"""
+        You are identifying the key participants in a press conference or interview broadcast transcript.
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker ID is the "interviewer" and which is the "interviewee" (who is likely "{target_speaker_name}").
+
+        CRITICAL DISTINCTION:
+        1. **The Interviewee ({target_speaker_name})**: The main subject of the interview who answers questions or gives statements. Label as "{target_speaker_name}".
+        2. **The Interviewer**: The person (or people) asking questions, steering the conversation, or introducing the segment. Label as "interviewer".
+        3. **Mention-only Advertisements**: Often use names to sell products. Label them as "advertisement".
+        4. **Unknown**: Others outside these categories.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
+        Possible labels must exactly match one of: "{target_speaker_name}", "interviewer", "advertisement", "unknown".
+        """
+        elif event_type == "sports_broadcast":
+            prompt = f"""
+        You are identifying participants in a sports broadcast.
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker ID is the target: "{target_speaker_name}".
+
+        CRITICAL DISTINCTION:
+        1. **The Target ({target_speaker_name})**: The person(s) we are trying to identify (often a play-by-play announcer or color commentator). Look for their distinctive phrases or style. Label as "{target_speaker_name}".
+        2. **Other Commentators**: Other broadcasters in the booth or sideline reporters. Label as "other commentator".
+        3. **Players/Coaches/Referees**: People on the court or field. Label as "participant".
+        4. **Advertisements**: Commercial breaks. Label them as "advertisement".
+        5. **Unknown**: Others.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
+        Possible labels must exactly match one of: "{target_speaker_name}", "other commentator", "participant", "advertisement", "unknown".
+        """
+        else:
+            prompt = f"""
         You are identifying the real host or primary guests in a broadcast transcript.
         I have a transcript from a broadcast session with speaker IDs 0, 1, 2, etc.
         Your goal is to identify ALL Speaker IDs that are actually "{target_speaker_name}".
 
         CRITICAL DISTINCTION:
-        1. **The Host ({target_speaker_name})**: Usually has a very high word count, speaks in long monologues, introduces segments ("Coming up next...", "Tonight on the show..."), and analyzes news or specific topics (like "{', '.join(speaker_top_terms.get(ranked[0][0], [])[:5])}").
+        1. **The Host ({target_speaker_name})**: Usually has a very high word count, speaks in long monologues, introduces segments ("Coming up next...", "Tonight on the show..."), and analyzes news or specific topics (like "{', '.join(speaker_top_terms.get(ranked[0][0], [])[:5]) if ranked else ''}").
         2. **Mention-only Advertisements**: Often use the host's name ("Hey {target_speaker_name}!", "Thanks {target_speaker_name}...", "Starting at just $79...") but speak for much less time and focus on products (jewelry, insurance, medicine, etc.). Do NOT label these as "{target_speaker_name}". Label them as "advertisement".
         3. **Guests/Other**: May be interviewed by the host. Label as "unknown" unless they are also "{target_speaker_name}".
 
         Diarization Note: The same person might be split across multiple Speaker IDs. Use the content, style, and vocabulary to link them.
 
-        TRANSCRIPT SEGMENTS:
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
         {transcript_block}
 
         Respond ONLY with a JSON object mapping Speaker IDs to labels. 
@@ -262,12 +362,27 @@ class SpeakerRecognitionSession:
             return
 
         async with self.listening_session.transcript_lock:
-            speaker_texts = {}
+            all_tokens = []
             for sid, tokens in self.listening_session.transcript.items():
-                text = " ".join([t["text"] for t in tokens])
-                speaker_texts[sid] = text
+                for t in tokens:
+                    all_tokens.append((t.get("start", 0), sid, t["text"]))
+            all_tokens.sort(key=lambda x: x[0])
+            
+            transcript_history = []
+            cur_sid = None
+            cur_texts = []
+            for start, sid, text in all_tokens:
+                if sid != cur_sid:
+                    if cur_sid is not None:
+                        transcript_history.append((cur_sid, " ".join(cur_texts)))
+                    cur_sid = sid
+                    cur_texts = [text]
+                else:
+                    cur_texts.append(text)
+            if cur_sid is not None:
+                transcript_history.append((cur_sid, " ".join(cur_texts)))
 
-        if not speaker_texts:
+        if not transcript_history:
             logger.info("Transcript is empty, skipping identity inference.")
             return
 
@@ -276,7 +391,7 @@ class SpeakerRecognitionSession:
         logger.info(f"Running Bedrock identity inference for target: {target_name}")
 
         mapping = await self.transcript_recognizer.infer_identity_with_bedrock(
-            speaker_texts, target_name
+            transcript_history, target_name
         )
 
         if mapping:
