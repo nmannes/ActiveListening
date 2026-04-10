@@ -8,6 +8,7 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { runSiteHandlers } = require("../lib/site_handlers");
+const { HEADLESS } = require("../lib/args");
 const { spawn } = require("child_process");
 const WebSocket = require("ws");
 const fs = require("fs");
@@ -90,7 +91,7 @@ async function runYTTVCapture() {
 
   browser = await puppeteer.launch({
     executablePath,
-    headless: true, // Often required for YTTV to avoid detection/DRM issues
+    headless: HEADLESS, // Often required for YTTV to avoid detection/DRM issues
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",

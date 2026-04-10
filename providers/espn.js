@@ -7,6 +7,7 @@ const WebSocket = require("ws");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { runSiteHandlers } = require("../lib/site_handlers");
+const { HEADLESS } = require("../lib/args");
 const fs = require("fs");
 const path = require("path");
 
@@ -95,7 +96,7 @@ async function runBrowserCapture() {
   browser = await puppeteer.launch({
     executablePath: browserPath,
     defaultViewport: null,
-    headless: true,
+    headless: HEADLESS,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",
