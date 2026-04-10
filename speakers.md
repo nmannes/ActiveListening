@@ -15,16 +15,16 @@
 | 2026-04-11 | 11:00 | What will Andy Beshear say during his NAN Fireside Chat? | No |
 | 2026-04-11 | 13:05 | Arizona vs Philadelphia Professional Baseball Game | Yes |
 | 2026-04-11 | 14:00 | What will Mark Carney say during his Liberal Convention Keynote Remarks? | No |
-| 2026-04-11 | 19:15 | Boston vs St. Louis Professional Baseball Game | No |
 | 2026-04-11 | 19:15 | San Francisco vs Baltimore Professional Baseball Game | Yes |
+| 2026-04-11 | 19:15 | Boston vs St. Louis Professional Baseball Game | No |
 | 2026-04-11 | 20:00 | Tyson Fury vs Arslanbek Makhmudov | No |
 | 2026-04-11 | 21:00 | Cub Swanson vs Nate Landwehr UFC Fight | No |
 | 2026-04-11 | 21:20 | Dominick Reyes vs Johnny Walker UFC Fight | No |
 | 2026-04-11 | 21:40 | Curtis Blaydes vs Josh Hokit UFC Fight | No |
 | 2026-04-11 | 22:00 | Azamat Murzakanov vs Paulo Henrique Costa UFC Fight | No |
 | 2026-04-11 | 22:20 | Jiri Prochazka vs Carlos Ulberg UFC Fight | No |
-| 2026-04-11 | 23:00 | What will be said during SNL Weekend Update? | Yes |
-| 2026-04-11 | 23:00 | What will Colman Domingo say during his SNL opening monologue? | Yes |
+| 2026-04-11 | 23:00 | What will be said during SNL Weekend Update? | No |
+| 2026-04-11 | 23:00 | What will Colman Domingo say during his SNL opening monologue? | No |
 | 2026-04-12 | 10:00 | What will Trump say during his Fox News interview? | Yes |
 | 2026-04-12 | 14:00 | What will Mamdani say during Bernie's NYC rally? | No |
 | 2026-04-12 | 14:00 | What will Bernie say during his NYC Rally? | No |
@@ -37,8 +37,8 @@
 | 2026-04-15 | 07:45 | What will Keir Starmer say during the next Prime Minister's Questions? | No |
 | 2026-04-15 | 08:30 | What will Bank of America say during their next earnings call? | No |
 | 2026-04-15 | 09:30 | What will Morgan Stanley say during their next earnings call? | No |
-| 2026-04-15 | 20:00 | What will the contestants say during Survivor Ep 8? | Yes |
-| 2026-04-15 | 20:00 | What will Jeff Probst say during Survivor Ep 8? | Yes |
+| 2026-04-15 | 20:00 | What will the contestants say during Survivor Ep 8? | No |
+| 2026-04-15 | 20:00 | What will Jeff Probst say during Survivor Ep 8? | No |
 | 2026-04-16 | 08:15 | What will PepsiCo say during their next earnings call? | No |
 | 2026-04-16 | 16:45 | What will Netflix say during their next earnings call? | No |
 | 2026-04-17 | 08:00 | What will Truist Financial say during their next earnings call? | No |
