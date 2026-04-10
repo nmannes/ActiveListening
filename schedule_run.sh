@@ -25,6 +25,7 @@ RUN_NOW=false
 SPOT_ARG=""
 CLIENT_ONLY=false
 FORCE=false
+USE_BROWSER=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -33,6 +34,7 @@ while [[ $# -gt 0 ]]; do
         --spot) SPOT_ARG="--spot"; shift ;;
         --client-only) CLIENT_ONLY=true; shift ;;
         --force) FORCE=true; shift ;;
+        --browser) USE_BROWSER=true; shift ;;
         --duration) 
             DURATION_MINUTES="$2"
             shift 2 ;;
@@ -114,9 +116,16 @@ if [[ "$DRY_RUN" == true ]]; then
     echo ""
     echo "  at jobs that would be scheduled:"
     if [[ "$CLIENT_ONLY" != true ]]; then
-        echo "    1) GPU launch   at $LAUNCH_AT"
+        echo "    1) GPU launch: $SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES at $LAUNCH_AT"
     fi
-    echo "    *) tvclient.js  at $START_AT"
+    
+    CMD_PREFIX=""
+    BROWSER_ARG=""
+    if [[ "$USE_BROWSER" == true ]]; then
+        CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
+        BROWSER_ARG="--browser"
+    fi
+    echo "    *) client.js:  cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG at $START_AT"
     echo ""
     echo "  (dry run — nothing scheduled)"
     exit 0
@@ -132,7 +141,14 @@ if [[ "$CLIENT_ONLY" != true ]]; then
 fi
 
 # --- Schedule tvclient.js at start time ---
-echo "cd $SCRIPT_DIR && $BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES >> $SCRIPT_DIR/schedule_run.log 2>&1" \
+CMD_PREFIX=""
+BROWSER_ARG=""
+if [[ "$USE_BROWSER" == true ]]; then
+    CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
+    BROWSER_ARG="--browser"
+fi
+
+echo "cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""

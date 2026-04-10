@@ -72,15 +72,6 @@ async function setupVirtualSink() {
   _actualMonitorName = MONITOR_NAME;
 
   await new Promise(r => setTimeout(r, 2000));
-
-  try {
-    const outNodes = execSync("pw-link -o").toString();
-    const inNodes = execSync("pw-link -i").toString();
-    _logger.info(`[amazon] Initialized ports:\nOUT:\n${outNodes}\nIN:\n${inNodes}`);
-  } catch (e) {
-    _logger.error(`[amazon] Failed to list PipeWire nodes: ${e.message}`);
-  }
-
   return _actualMonitorName;
 }
 
@@ -111,24 +102,16 @@ function setupAudioTranscoder(retryCount = 0) {
   });
 
   // Pipe pw-record output into FFmpeg to downsample to 16kHz Mono
-  const debugAudioPath = path.join(__dirname, "..", "debug", "amazon-audio.wav");
   const ffmpegArgs = [
     "-f", "s16le",
     "-ar", "48000",
     "-ac", "2",
     "-i", "pipe:0",
-    // Output 1: Raw PCM for WebSocket
     "-f", "s16le",
     "-acodec", "pcm_s16le",
     "-ar", "16000",
     "-ac", "1",
-    "pipe:1",
-    // Output 2: WAV file for debugging
-    "-f", "wav",
-    "-acodec", "pcm_s16le",
-    "-ar", "16000",
-    "-ac", "1",
-    "-y", debugAudioPath
+    "pipe:1"
   ];
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
@@ -294,27 +277,6 @@ async function runAmazonCapture() {
   };
   routeAudio();
 
-  // Screenshot debugging loop
-  const screenshotDir = path.join(__dirname, "..", "debug", "amazon-screenshots");
-  if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
-
-  _screenshotInterval = setInterval(async () => {
-    if (_isStopped || !page) return;
-    try {
-      const fileName = `amazon-${new Date().getTime()}.jpg`;
-      const filePath = path.join(screenshotDir, fileName);
-      await page.screenshot({ path: filePath, type: 'jpeg', quality: 50 });
-      _logger.debug(`[amazon] Saved screenshot: ${fileName}`);
-
-      const files = fs.readdirSync(screenshotDir).sort();
-      if (files.length > 20) {
-        fs.unlinkSync(path.join(screenshotDir, files[0]));
-      }
-    } catch (e) {
-      _logger.debug(`[amazon] Screenshot failed: ${e.message}`);
-    }
-  }, 5000);
-
   return page;
 }
 
@@ -345,10 +307,6 @@ module.exports = {
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
       _retryTimeout = null;
-    }
-    if (_screenshotInterval) {
-      clearInterval(_screenshotInterval);
-      _screenshotInterval = null;
     }
     if (ffmpegProc) {
       _logger.info(`[amazon] Killing FFmpeg transcoder...`);

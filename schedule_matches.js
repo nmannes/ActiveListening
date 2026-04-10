@@ -276,6 +276,14 @@ for (const seq of sequences) {
           `          Using:   Existing server window (${reusableWindow.start.toLocaleTimeString()} - ${reusableWindow.end.toLocaleTimeString()})`,
         );
       }
+
+      const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
+      const marketDuration = getDuration(market, originalMatchForCmd);
+      let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
+      if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
+      if (clientOnly) cmd += " --client-only";
+      if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) cmd += " --browser";
+      console.log(`          Command: ${cmd}`);
       console.log("");
       continue;
     }
@@ -299,6 +307,9 @@ for (const seq of sequences) {
     }
     if (clientOnly) {
       cmd += " --client-only";
+    }
+    if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) {
+      cmd += " --browser";
     }
 
     try {
