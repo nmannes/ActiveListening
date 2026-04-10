@@ -317,7 +317,7 @@ for (const seq of sequences) {
           ? "REUSE Server"
           : "Client Only"
         : "NEW Server";
-      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}`;
+      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Stream: ${market.mediaStreamURL || "NONE"}`;
       sendTelegram(message).catch((e) =>
         console.error(`Failed to send Telegram: ${e.message}`),
       );

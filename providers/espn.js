@@ -8,6 +8,8 @@ const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 const { runSiteHandlers } = require("../lib/site_handlers");
 const { HEADLESS } = require("../lib/args");
+
+const { loginToESPN } = require("../lib/espn_login");
 const fs = require("fs");
 const path = require("path");
 
