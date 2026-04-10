@@ -167,34 +167,34 @@ async def main():
     for folder in sorted(folders):
         session_id = folder.name
             
-            # Determine the matching slug
-            slug = session_id.split("_")[0]
+        # Determine the matching slug
+        slug = session_id.split("_")[0]
+        
+        market_data = slug_to_market.get(slug)
+        if not market_data:
+            market_data = slug_to_market.get(session_id)
+        
+        target = None
+        if market_data and market_data.get("speakerEntities"):
+            target = market_data.get("speakerEntities")[0]
+        
+        # Basic fallback if speakerEntities is empty
+        if not target and market_data:
+            title = market_data.get("title", "").lower()
+            if "trump" in title: target = "Trump"
+            elif "nasa" in title: target = "NASA"
+            elif "cz" in title: target = "CZ"
+            elif "leavitt" in title: target = "Karoline Leavitt"
             
-            market_data = slug_to_market.get(slug)
-            if not market_data:
-                market_data = slug_to_market.get(session_id)
+        if not target:
+            logger.warning(f"⏩ SKIP: {folder.name} (Could not determine target speaker from scheduled/*.json)")
+            continue
             
-            target = None
-            if market_data and market_data.get("speakerEntities"):
-                target = market_data.get("speakerEntities")[0]
-            
-            # Basic fallback if speakerEntities is empty
-            if not target and market_data:
-                title = market_data.get("title", "").lower()
-                if "trump" in title: target = "Trump"
-                elif "nasa" in title: target = "NASA"
-                elif "cz" in title: target = "CZ"
-                elif "leavitt" in title: target = "Karoline Leavitt"
-                
-            if not target:
-                logger.warning(f"⏩ SKIP: {folder.name} (Could not determine target speaker from scheduled/*.json)")
-                continue
-                
-            log_file_path = log_dir / f"{session_id}.log"
-            with open(log_file_path, "w") as log_file:
-                await run_inference(folder, target, market_data, log_file)
-            
-            await asyncio.sleep(1) # Rate limit protection for Bedrock
+        log_file_path = log_dir / f"{session_id}.log"
+        with open(log_file_path, "w") as log_file:
+            await run_inference(folder, target, market_data, log_file)
+        
+        await asyncio.sleep(1) # Rate limit protection for Bedrock
 
 if __name__ == "__main__":
     asyncio.run(main())
