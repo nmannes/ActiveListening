@@ -137,6 +137,8 @@ if (!providerName) {
     providerName = "youtube";
   } else if (STREAM_URL.includes("tv.youtube.com")) {
     providerName = "yttv";
+  } else if (STREAM_URL.includes("amazon.com")) {
+    providerName = "amazon";
   } else {
     providerName = "browser";
   }
