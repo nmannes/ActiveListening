@@ -59,6 +59,10 @@ function getDuration(market, match) {
     return 180;
   }
 
+  if (title.includes("nan fireside chat") || slug.includes("nan-fireside") || slug.includes("fireside-chat")) {
+    return 30;
+  }
+
   return 75; // Default
 }
 
