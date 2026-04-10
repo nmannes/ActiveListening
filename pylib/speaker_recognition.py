@@ -169,6 +169,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             event_type = "interview"
         elif clip_profile in ("basketball", "baseball") or "nba" in title or "mlb" in title or "ncaab" in title:
             event_type = "sports_broadcast"
+        elif "earnings" in title:
+            event_type = "earnings_call"
 
         if event_type == "survivor":
             prompt = f"""
@@ -235,6 +237,26 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 
         Respond ONLY with a JSON object mapping Speaker IDs to labels. 
         Possible labels must exactly match one of: "{target_speaker_name}", "other commentator", "participant", "advertisement", "unknown".
+        """
+        elif event_type == "earnings_call":
+            prompt = f"""
+        You are identifying key participants in a corporate earnings call.
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker ID represents the target executive: "{target_speaker_name}".
+
+        CRITICAL DISTINCTION:
+        1. **Company Representatives ({target_speaker_name})**: Anyone representing the hosting company. This includes the main executives (CEO, CFO) giving prepared remarks or answering questions, the operator who introduces the call and announcements, and any other company representatives on the call. Label ALL of them as "{target_speaker_name}".
+        2. **Analysts**: The people from outside the company asking questions in the Q&A portion. Label as "analyst".
+        3. **Unknown**: Others outside these categories.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
+        Possible labels must exactly match one of: "{target_speaker_name}", "analyst", "unknown".
         """
         else:
             prompt = f"""
