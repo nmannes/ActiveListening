@@ -2,7 +2,7 @@
  * providers/amazon.js — Amazon Prime Video stream provider
  *
  * Specializes in Amazon login and Prime Video navigation,
- * capturing audio via MediaRecorder and transcoding to PCM.
+ * capturing audio via PipeWire/PulseAudio sink.
  */
 
 const puppeteer = require("puppeteer-extra");
@@ -35,26 +35,53 @@ let _retryTimeout = null;
 const SINK_NAME = "amazon_capture";
 const MONITOR_NAME = "amazon_capture_monitor";
 
+let _actualSinkName = SINK_NAME;
+let _actualMonitorName = MONITOR_NAME;
+
 // ── Virtual Audio Sink (PipeWire/PulseAudio) ────────────────────────
 async function setupVirtualSink() {
-  _logger.info(`[amazon] Setting up virtual audio sink: ${SINK_NAME}`);
+  _logger.info(`[amazon] Setting up virtual audio sink logic...`);
 
-  // In PipeWire, we create a loopback device where:
-  // - Playback side is a Sink (what Chrome outputs to)
-  // - Capture side is a Source (what FFmpeg records from)
-  const args = [
-    `--playback-props=node.name=${SINK_NAME} media.class=Audio/Sink node.description='Amazon Capture Sink'`,
-    `--capture-props=node.name=${MONITOR_NAME} media.class=Audio/Source node.description='Amazon Capture Monitor'`,
+  const { execSync } = require("child_process");
+
+  // 1. Check if auto_null exists (preferred stereo sink on headless)
+  try {
+    const nodes = execSync("pw-link -i").toString();
+    if (nodes.includes("auto_null:playback_")) {
+      _logger.info(`[amazon] Detected existing auto_null sink. Using it for stereo stability.`);
+      _actualSinkName = "auto_null";
+      _actualMonitorName = "auto_null"; // pw-record understands "auto_null" as target
+      return _actualMonitorName;
+    }
+  } catch (e) { }
+
+  // 2. Fallback: Create dedicated loopback
+  _logger.info(`[amazon] No auto_null found. Creating virtual audio sink: ${SINK_NAME}`);
+  const proc = spawn("pw-loopback", [
+    `--playback-props=node.name=${SINK_NAME} media.class=Audio/Sink node.description='Amazon Capture Sink' node.passive=true`,
+    `--capture-props=node.name=${MONITOR_NAME} media.class=Audio/Source node.description='Amazon Capture Monitor' node.passive=true`,
     "-c", "2",
     "--latency=50ms"
-  ];
+  ]);
 
-  const proc = spawn("pw-loopback", args, { stdio: "ignore" });
+  proc.stdout.on("data", (d) => _logger.debug(`[pw-loopback] ${d.toString().trim()}`));
+  proc.stderr.on("data", (d) => _logger.error(`[pw-loopback] ${d.toString().trim()}`));
+
   _sinkProc = proc;
+  _actualSinkName = SINK_NAME;
+  _actualMonitorName = MONITOR_NAME;
 
-  // Give it a moment to initialize and appear in the system
   await new Promise(r => setTimeout(r, 2000));
-  return MONITOR_NAME;
+
+  try {
+    const outNodes = execSync("pw-link -o").toString();
+    const inNodes = execSync("pw-link -i").toString();
+    _logger.info(`[amazon] Initialized ports:\nOUT:\n${outNodes}\nIN:\n${inNodes}`);
+  } catch (e) {
+    _logger.error(`[amazon] Failed to list PipeWire nodes: ${e.message}`);
+  }
+
+  return _actualMonitorName;
 }
 
 function stopVirtualSink() {
@@ -69,12 +96,12 @@ function stopVirtualSink() {
 function setupAudioTranscoder(retryCount = 0) {
   if (_isStopped) return;
   _logger.info(
-    `[amazon-transcoder] Starting pw-record/ffmpeg capture from: ${MONITOR_NAME} (Retry ${retryCount})`,
+    `[amazon-transcoder] Starting pw-record/ffmpeg capture from: ${_actualMonitorName} (Retry ${retryCount})`,
   );
 
   // Use pw-record to capture from our virtual monitor node
   const pwRecord = spawn("pw-record", [
-    `--target=${MONITOR_NAME}`,
+    `--target=${_actualMonitorName}`,
     "--format=s16",
     "--rate=48000",
     "--channels=2",
@@ -84,16 +111,24 @@ function setupAudioTranscoder(retryCount = 0) {
   });
 
   // Pipe pw-record output into FFmpeg to downsample to 16kHz Mono
+  const debugAudioPath = path.join(__dirname, "..", "debug", "amazon-audio.wav");
   const ffmpegArgs = [
     "-f", "s16le",
     "-ar", "48000",
     "-ac", "2",
     "-i", "pipe:0",
+    // Output 1: Raw PCM for WebSocket
     "-f", "s16le",
     "-acodec", "pcm_s16le",
     "-ar", "16000",
     "-ac", "1",
     "pipe:1",
+    // Output 2: WAV file for debugging
+    "-f", "wav",
+    "-acodec", "pcm_s16le",
+    "-ar", "16000",
+    "-ac", "1",
+    "-y", debugAudioPath
   ];
 
   const ffmpeg = spawn("ffmpeg", ffmpegArgs, {
@@ -105,9 +140,6 @@ function setupAudioTranscoder(retryCount = 0) {
   ffmpeg.stdout.on("data", (data) => {
     if (_ws && _ws.readyState === WebSocket.OPEN) {
       _ws.send(data);
-      if (Math.random() < 0.05) {
-        _logger.info(`[amazon-transcoder] Sent ${data.length} bytes to server`);
-      }
     }
   });
 
@@ -143,7 +175,7 @@ function setupAudioTranscoder(retryCount = 0) {
 async function runAmazonCapture() {
   await setupVirtualSink();
 
-  _logger.info(`[amazon] Launching Puppeteer with PULSE_SINK=${SINK_NAME}...`);
+  _logger.info(`[amazon] Launching Puppeteer with PULSE_SINK=${_actualSinkName}...`);
 
   const executablePath = "/usr/bin/google-chrome";
 
@@ -165,12 +197,12 @@ async function runAmazonCapture() {
     ],
     env: {
       ...process.env,
-      PULSE_SINK: SINK_NAME
+      PULSE_SINK: _actualSinkName
     }
   });
 
   const page = await browser.newPage();
-  page.on("console", (msg) => _logger.info(`[Browser] ${msg.text()}`));
+  page.on("console", (msg) => _logger.debug(`[Browser] ${msg.text()}`));
 
   _logger.info(`[amazon] Running manual login...`);
   await loginToAmazon(page);
@@ -189,50 +221,70 @@ async function runAmazonCapture() {
     if (_isStopped) return;
     try {
       const { execSync } = require("child_process");
-      // Find all Chrome output ports
-      const outPorts = execSync("pw-link -o").toString().split("\n")
-        .filter(p => (p.toLowerCase().includes("chrome") || p.toLowerCase().includes("google")) && p.includes("output_"));
-      
-      // Find all Amazon sink input ports (the playback side of our sink)
-      const inPorts = execSync("pw-link -i").toString().split("\n")
-        .filter(p => p.toLowerCase().includes(SINK_NAME) && p.includes("playback_"));
+      const allOutPorts = execSync("pw-link -o").toString().split("\n").map(p => p.trim()).filter(p => p.length > 0);
+      const allInPorts = execSync("pw-link -i").toString().split("\n").map(p => p.trim()).filter(p => p.length > 0);
 
-      // Find all FFmpeg input ports (Lavf)
-      const ffmpegInPorts = execSync("pw-link -i").toString().split("\n")
-        .filter(p => p.toLowerCase().includes("lavf") && p.includes("input_"));
+      const outPorts = allOutPorts.filter(p => (p.toLowerCase().includes("chrome") || p.toLowerCase().includes("google") || p.toLowerCase().includes("amazon")));
+
+      const sinkInPorts = allInPorts.filter(p => p.toLowerCase().includes(_actualSinkName));
+      const ffmpegInPorts = allInPorts.filter(p => p.toLowerCase().includes("lavf") && p.includes("input_"));
+
+      if (outPorts.length > 0) {
+        _logger.info(`[amazon] Active output ports found: ${outPorts.join(", ")}`);
+      } else if (Math.random() < 0.1) {
+        _logger.debug(`[amazon] No Chrome/Amazon ports found. Available: ${allOutPorts.join(", ")}`);
+      }
 
       // Check if video is muted
       try {
-        const muted = await page.evaluate(() => {
+        const videoStatus = await page.evaluate(() => {
           const v = document.querySelector("video");
-          return v ? v.muted : "no-video";
+          if (!v) return "no-video";
+          return {
+            muted: v.muted,
+            paused: v.paused,
+            volume: v.volume,
+            played: v.played.length > 0
+          };
         });
-        if (muted === true) {
-          _logger.info(`[amazon] Video is muted, attempting to unmute...`);
-          await page.evaluate(() => {
-            const v = document.querySelector("video");
-            if (v) v.muted = false;
-          });
+
+        if (videoStatus && videoStatus !== "no-video") {
+          if (videoStatus.muted) {
+            _logger.info(`[amazon] Video is muted, unmuting...`);
+            await page.evaluate(() => {
+              const v = document.querySelector("video");
+              if (v) v.muted = false;
+            });
+          }
+          if (videoStatus.paused && videoStatus.played) {
+            _logger.info(`[amazon] Video is paused but has played before, resuming...`);
+            await page.evaluate(() => {
+              const v = document.querySelector("video");
+              if (v) v.play().catch(() => { });
+            });
+          }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       for (const outPort of outPorts) {
-        const isLeft = outPort.includes("_FL") || outPort.includes("_0");
-        
-        // Target 1: Virtual Sink
-        const matchingSinkIn = inPorts.find(p => (isLeft && (p.includes("_FL") || p.includes("_0"))) || (!isLeft && (p.includes("_FR") || p.includes("_1"))));
+        const isLeft = outPort.includes("_FL") || outPort.includes("_0") || outPort.includes("_L");
+
+        // Target 1: Virtual Sink (Specifically target _actualSinkName)
+        const matchingSinkIn = sinkInPorts.find(p => (isLeft && (p.includes("_FL") || p.includes("_0") || p.includes("_L"))) || (!isLeft && (p.includes("_FR") || p.includes("_1") || p.includes("_R"))));
         if (matchingSinkIn) {
           try {
+            _logger.debug(`[amazon] Linking ${outPort} -> ${matchingSinkIn}`);
             execSync(`pw-link "${outPort}" "${matchingSinkIn}"`, { stdio: "ignore" });
-          } catch(e) {}
+          } catch (e) { }
         }
 
         // Target 2: FFmpeg (Direct)
-        const matchingFfmpegIn = ffmpegInPorts.find(p => (isLeft && (p.includes("_FL") || p.includes("_0"))) || (!isLeft && (p.includes("_FR") || p.includes("_1"))));
+        const matchingFfmpegIn = ffmpegInPorts.find(p => (isLeft && (p.includes("_FL") || p.includes("_0") || p.includes("_L"))) || (!isLeft && (p.includes("_FR") || p.includes("_1") || p.includes("_R"))));
         if (matchingFfmpegIn) {
           try {
+            _logger.debug(`[amazon] Direct linking to FFmpeg: ${outPort} -> ${matchingFfmpegIn}`);
             execSync(`pw-link "${outPort}" "${matchingFfmpegIn}"`, { stdio: "ignore" });
-          } catch(e) {}
+          } catch (e) { }
         }
       }
     } catch (e) {
@@ -241,6 +293,27 @@ async function runAmazonCapture() {
     setTimeout(routeAudio, 3000);
   };
   routeAudio();
+
+  // Screenshot debugging loop
+  const screenshotDir = path.join(__dirname, "..", "debug", "amazon-screenshots");
+  if (!fs.existsSync(screenshotDir)) fs.mkdirSync(screenshotDir, { recursive: true });
+
+  _screenshotInterval = setInterval(async () => {
+    if (_isStopped || !page) return;
+    try {
+      const fileName = `amazon-${new Date().getTime()}.jpg`;
+      const filePath = path.join(screenshotDir, fileName);
+      await page.screenshot({ path: filePath, type: 'jpeg', quality: 50 });
+      _logger.debug(`[amazon] Saved screenshot: ${fileName}`);
+
+      const files = fs.readdirSync(screenshotDir).sort();
+      if (files.length > 20) {
+        fs.unlinkSync(path.join(screenshotDir, files[0]));
+      }
+    } catch (e) {
+      _logger.debug(`[amazon] Screenshot failed: ${e.message}`);
+    }
+  }, 5000);
 
   return page;
 }
@@ -272,6 +345,10 @@ module.exports = {
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
       _retryTimeout = null;
+    }
+    if (_screenshotInterval) {
+      clearInterval(_screenshotInterval);
+      _screenshotInterval = null;
     }
     if (ffmpegProc) {
       _logger.info(`[amazon] Killing FFmpeg transcoder...`);

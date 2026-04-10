@@ -5,6 +5,7 @@ import json
 from pprint import pprint
 from pathlib import Path
 from abc import ABC, abstractmethod
+from typing import Optional, Union, List, Dict, Tuple
 
 # Handle boto3 optionally
 try:
@@ -102,7 +103,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # This is a simple per-segment check, but infer_identity_with_bedrock is preferred for batch.
         return 0.0
 
-    async def infer_identity_with_bedrock(self, transcript_history: list[tuple[str, str]], target_speaker_name: str) -> dict[str, str]:
+    async def infer_identity_with_bedrock(self, transcript_history: List[Tuple[str, str]], target_speaker_name: str) -> Dict[str, str]:
         """
         Calls Amazon Bedrock to identify which speaker_id is the target_speaker_name.
         Returns a mapping of {speaker_id: label}.
@@ -341,7 +342,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
 
-    def __init__(self, listening_session, market_entities: list[str]):
+    def __init__(self, listening_session, market_entities: List[str]):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -363,7 +364,7 @@ class SpeakerRecognitionSession:
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
 
-    def map_voice_profile_to_entity(self, voice_profile_id: str) -> str | None:
+    def map_voice_profile_to_entity(self, voice_profile_id: str) -> Optional[str]:
         """
         Maps a given voice profile ID to a known entity in the market for this session.
         """
