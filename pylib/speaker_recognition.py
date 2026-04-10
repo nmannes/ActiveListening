@@ -327,6 +327,9 @@ class SpeakerRecognitionSession:
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
 
+        self.identification_history = []
+        self.is_stable = False
+
         # Instantiated recognizers for this session
         self.audio_recognizer = AudioSpeakerRecognizer(
             listening_session=self.listening_session
@@ -357,6 +360,10 @@ class SpeakerRecognitionSession:
         """
         Aggregates session transcripts and runs LLM-based identity inference.
         """
+        if self.is_stable:
+            logger.info("Speaker identities have stabilized. Skipping further inference.")
+            return
+
         # Access transcript from session
         if not hasattr(self.listening_session, "transcript"):
             logger.warning("Session has no transcript to infer identities from.")
@@ -383,6 +390,12 @@ class SpeakerRecognitionSession:
             if cur_sid is not None:
                 transcript_history.append((cur_sid, " ".join(cur_texts)))
 
+        # Exclude speakers previously labeled as advertisements
+        transcript_history = [
+            (sid, text) for sid, text in transcript_history
+            if self.profile_labels.get(sid) != "advertisement"
+        ]
+
         if not transcript_history:
             logger.info("Transcript is empty, skipping identity inference.")
             return
@@ -395,6 +408,8 @@ class SpeakerRecognitionSession:
             transcript_history, target_name
         )
 
+        self.identification_history.append(mapping)
+
         if mapping:
             logger.info(f"Identity mapping inferred: {mapping}")
             for sid, label in mapping.items():
@@ -405,5 +420,14 @@ class SpeakerRecognitionSession:
                     if hasattr(self.listening_session, "trade_processor"):
                         self.listening_session.trade_processor.add_trading_speaker(sid)
                         logger.info(f"Added speaker {sid} ({label}) to trading whitelist.")
+            
+            # Check if mapping is stable across the last 3 rounds
+            if len(self.identification_history) >= 3:
+                last_3 = self.identification_history[-3:]
+                if last_3[0] == last_3[1] == last_3[2] and last_3[0]:
+                    if any(label in self.market_entities for label in last_3[0].values()):
+                        self.is_stable = True
+                        logger.info("Speaker mapping has been stable for 3 rounds with positive identifications. Disabling further inference.")
+
         else:
             logger.warning("Identity inference returned no mapping.")

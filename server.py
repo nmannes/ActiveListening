@@ -33,6 +33,7 @@ from pylib.clip import FrameClassifier
 from pylib.audio_processor import AudioProcessor
 from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
+from pylib.speaker_recognition import SpeakerRecognitionSession
 
 from pylib.log_config import setup_logging
 from pylib.telegram import send_telegram
@@ -89,6 +90,10 @@ class ClientSession:
         self.is_content_visible = False
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]
+
+        self.speaker_task = None
+        self.speaker_recognition_session = None
+        self.last_inference_word_count = 0
 
         # Simple audio buffer — receives PCM from WebSocket binary messages
         self.audio_inbox = bytearray()
@@ -180,6 +185,12 @@ class ClientSession:
         )
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
+        if self.market.get("speakerEntities"):
+            self.speaker_recognition_session = SpeakerRecognitionSession(self, self.market.get("speakerEntities"))
+            self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
+        else:
+            logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
+
         logger.info(
             f"[{self.session_id}] Session ready — receiving audio over WebSocket"
         )
@@ -214,11 +225,33 @@ class ClientSession:
                     f"[{self.session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)"
                 )
 
+    async def speaker_recognition_loop(self):
+        interval = 30  # seconds
+        try:
+            while True:
+                await asyncio.sleep(interval)
+                
+                total_words = 0
+                async with self.transcript_lock:
+                    for tokens in self.transcript.values():
+                        total_words += len(tokens)
+                
+                if total_words >= self.last_inference_word_count + 50:
+                    logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
+                    await self.speaker_recognition_session.run_identity_inference()
+                    self.last_inference_word_count = total_words
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"[{self.session_id}] Error in speaker recognition loop: {e}")
+
     def cleanup(self):
         if self.audio_task:
             self.audio_task.cancel()
         if self.frame_task:
             self.frame_task.cancel()
+        if self.speaker_task:
+            self.speaker_task.cancel()
 
 
 class TradingServer:
