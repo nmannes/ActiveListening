@@ -4,7 +4,7 @@ import logging
 import time
 import websockets
 from collections import defaultdict
-from pylib.keyword_matching import find_keyword_match, remove_market_from_index
+from pylib.keyword_matching import find_keyword_match, remove_market_from_index, remove_from_index
 from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
@@ -80,14 +80,14 @@ class TradeProcessor:
                 logger.info(
                     f"[{self.session.session_id}][SIGNAL] Detected for speaker {speaker_id}: \"{matched['key']}\""
                 )
-
+                
                 # Send Telegram notification regardless of trading status
                 market_title = self.session.market.get("title", matched["key"])
                 msg = (
                     f"🔔 [SIGNAL] {market_title}\n"
                     f"Keyword: \"{matched['key']}\"\n"
                     f"Speaker: {speaker_id}\n"
-                    f"Ticker: {matched['value']}"
+                    f"Ticker: {matched['value']}\n"
                     f"Trading: {self.session.server.config.trade_for_real}"
                 )
 
