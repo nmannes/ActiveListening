@@ -132,22 +132,7 @@ async function runBrowserCapture() {
 
   page.on("console", (msg) => _logger.info(`[Browser] ${msg.text()}`));
 
-  // Load ESPN cookies
-  const cookiesPath = path.join(
-    __dirname,
-    "..",
-    "cookies",
-    "espn_cookies.json",
-  );
-  if (fs.existsSync(cookiesPath)) {
-    try {
-      const cookies = JSON.parse(fs.readFileSync(cookiesPath, "utf8"));
-      await page.setCookie(...cookies);
-      _logger.info(`[espn] Loaded cookies from ${cookiesPath}`);
-    } catch (e) {
-      _logger.warn(`[espn] Failed to load cookies: ${e.message}`);
-    }
-  }
+  await loginToESPN(page);
 
   await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
