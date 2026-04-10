@@ -273,7 +273,7 @@ function connectWebSocket() {
 }
 
 // ── Shutdown ─────────────────────────────────────────────────────────
-function shutdown(reason) {
+function shutdown(reason, exitCode = 0) {
   if (isShuttingDown) return;
   logger.info(`${reason}, shutting down...`);
   isShuttingDown = true;
@@ -287,7 +287,7 @@ function shutdown(reason) {
     logger.info(`[client] Lockfile removed: ${lockPath}`);
   }
 
-  process.exit(0);
+  process.exit(exitCode);
 }
 
 // ── Startup ──────────────────────────────────────────────────────────
@@ -322,7 +322,7 @@ setTimeout(async () => {
       return;
     }
     logger.error(`[${provider.name}] Critical error: ${err.message}`);
-    process.exit(1);
+    shutdown(`Critical error: ${err.message}`, 1);
   }
 }, 500);
 
