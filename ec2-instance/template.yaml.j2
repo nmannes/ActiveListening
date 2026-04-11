@@ -201,7 +201,7 @@ Resources:
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
     CreationPolicy:
       ResourceSignal:
-        Timeout: PT1000S
+        Timeout: PT30M
 
 
   KalshiWorkerInstanceRole:
@@ -231,6 +231,10 @@ Resources:
               - Effect: Allow
                 Action:
                   - cloudformation:DeleteStack
+                Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:SignalResource
                 Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${AWS::StackName}/*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
