@@ -3,7 +3,24 @@ set -ex
 mkdir -p /home/ec2-user/logs /home/ec2-user/debug
 exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
-sudo shutdown -h +${ShutdownMinutes}
+
+# Instead of just shutting down, we schedule the deletion of the entire stack.
+# This ensures the IAM role and other resources are cleaned up.
+STACK_NAME="${AWS::StackName}"
+REGION="${AWS::Region}"
+
+if [ -n "$STACK_NAME" ]; then
+    echo "Scheduling stack deletion ($STACK_NAME) in ${ShutdownMinutes} minutes..."
+    # Run in background to not block setup
+    (
+        sleep $(( ${ShutdownMinutes} * 60 ))
+        echo "Deleting stack $STACK_NAME..."
+        aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
+    ) &
+else
+    echo "Warning: AWS_STACK_NAME not found, falling back to shutdown."
+    sudo shutdown -h +${ShutdownMinutes}
+fi
 
 # Create 8GB swap file to prevent OOM
 if [ ! -f /swapfile ]; then

@@ -8,8 +8,8 @@
 | N/A | N/A | What will Karoline Leavitt say in the next press briefing? | No |
 | N/A | N/A | Los Angeles A vs Cincinnati Professional Baseball Game | No |
 | 2026-04-11 | 18:00 | Tyson Fury vs Arslanbek Makhmudov | No |
-| 2026-04-11 | 19:15 | San Francisco vs Baltimore Professional Baseball Game | Yes |
 | 2026-04-11 | 19:15 | Boston vs St. Louis Professional Baseball Game | No |
+| 2026-04-11 | 19:15 | San Francisco vs Baltimore Professional Baseball Game | Yes |
 | 2026-04-11 | 21:00 | Cub Swanson vs Nate Landwehr UFC Fight | No |
 | 2026-04-11 | 21:20 | Dominick Reyes vs Johnny Walker UFC Fight | No |
 | 2026-04-11 | 21:40 | Curtis Blaydes vs Josh Hokit UFC Fight | No |
