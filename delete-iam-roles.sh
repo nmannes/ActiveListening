@@ -40,8 +40,8 @@ for stack in $STACKS; do
         --query "Reservations[].Instances[0].State.Name" \
         --output text 2>/dev/null || echo "not-found")
     
-    if [ "$STATE" == "terminated" ] || [ "$STATE" == "not-found" ] ; then
-        echo "  Instance $INSTANCE_ID is $STATE. Deleting stack $stack..."
+    if [ "$STATE" == "terminated" ] || [ "$STATE" == "not-found" ] || [ -z "$STATE" ] ; then
+        echo "  Instance $INSTANCE_ID is ${STATE:-not-visible}. Deleting stack $stack..."
         aws cloudformation delete-stack --stack-name "$stack" --region "$REGION"
     else
         echo "  Instance $INSTANCE_ID is $STATE. Keeping stack."
