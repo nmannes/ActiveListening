@@ -43,6 +43,14 @@ from pylib.telegram import send_telegram
 
 logger, transcript_logger = setup_logging()
 
+# ── Constants ────────────────────────────────────────────────────────
+
+SPEAKER_RECOGNITION_INTERVAL_SECS = 30
+SPEAKER_RECOGNITION_WORD_STEP = 500
+SPEAKER_RECOGNITION_MAX_WORDS = 10000
+AUDIO_INBOX_CAP_SECS = 30
+
+
 # ── Main server ───────────────────────────────────────────────────────
 
 
@@ -217,7 +225,7 @@ class ClientSession:
             with self.audio_inbox_lock:
                 self.audio_inbox.extend(message)
             # Capping - keep 30 seconds max
-            max_bytes = 16000 * 2 * 30
+            max_bytes = 16000 * 2 * AUDIO_INBOX_CAP_SECS
             if len(self.audio_inbox) > max_bytes:
                 dropped_bytes = len(self.audio_inbox) - max_bytes
                 del self.audio_inbox[:dropped_bytes]
@@ -226,17 +234,19 @@ class ClientSession:
                 )
 
     async def speaker_recognition_loop(self):
-        interval = 30  # seconds
         try:
             while True:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(SPEAKER_RECOGNITION_INTERVAL_SECS)
                 
                 total_words = 0
                 async with self.transcript_lock:
                     for tokens in self.transcript.values():
                         total_words += len(tokens)
                 
-                if total_words >= self.last_inference_word_count + 50:
+                if (
+                    total_words >= self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP 
+                    and total_words < SPEAKER_RECOGNITION_MAX_WORDS
+                ):
                     logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
                     await self.speaker_recognition_session.run_identity_inference()
                     self.last_inference_word_count = total_words
