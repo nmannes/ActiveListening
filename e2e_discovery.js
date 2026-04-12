@@ -34,80 +34,57 @@ function isFileExpired(filePath, ttlMs) {
       fs.mkdirSync(marketCacheDir, { recursive: true });
     }
 
-    let zip = "20001"; // Default ZIP
-    try {
-      logger.info("Detecting location via ipinfo.io...");
-      const ipInfo = await fetch("https://ipinfo.io", { timeout: 5000 });
-      if (ipInfo.ok) {
-        const ipInfoJson = await ipInfo.json();
-        if (ipInfoJson.postal) {
-          zip = ipInfoJson.postal;
-          logger.info(`Detected ZIP: ${zip}`);
-        }
-      }
-    } catch (err) {
-      logger.warn(
-        `Failed to detect location, using default ZIP ${zip}: ${err.message}`,
-      );
-    }
-
-    const cacheTTL = 60 * 60 * 1000; // 1 hour
-    const marketsPath = path.join(cacheDir, "latest_markets.json");
-    let markets = [];
-    if (fs.existsSync(marketsPath)) {
+    const zipPromise = (async () => {
+      let detectedZip = "20001";
       try {
-        markets = JSON.parse(fs.readFileSync(marketsPath, "utf8"));
-      } catch (e) {
-        logger.warn(`Failed to parse ${marketsPath}: ${e.message}`);
+        logger.info("Detecting location via ipinfo.io...");
+        const response = await fetch("https://ipinfo.io", { signal: AbortSignal.timeout(5000) });
+        if (response.ok) {
+          const ipInfoJson = await response.json();
+          if (ipInfoJson.postal) {
+            detectedZip = ipInfoJson.postal;
+            logger.info(`Detected ZIP: ${detectedZip}`);
+          }
+        }
+      } catch (err) {
+        logger.warn(`Failed to detect location, using default ZIP ${detectedZip}: ${err.message}`);
       }
-    }
-
-    const rawData = [
-      "latest_markets.json",
-      "latest_tv_schedule.json",
-      "espn_matchups.json",
-      "ncaa_schedule.json",
-    ];
+      return detectedZip;
+    })();
 
     const CATEGORIES = ["basketball", "baseball", "saturday night live", "survivor"];
+    
+    // Fetch data in parallel
+    logger.info("Starting parallel data fetching...");
+    const [zip, marketsResults, espnResults] = await Promise.all([
+      zipPromise,
+      fetchOpenMarkets(),
+      scrapeESPNMatchups(),
+    ]);
 
-    const functionCalls = [
-      () => fetchOpenMarkets(),
-      () => findProgramsAcrossZipsAndKeywords([zip], CATEGORIES), // DC, NY, LA, CHI
-      () => scrapeESPNMatchups(),
-      () => { return [] },
+    // Now that we have the zip, we can fetch TV schedules (TitanTV needs the ZIP)
+    logger.info(`Fetching TV schedule for ZIP ${zip}...`);
+    const tvSchedule = await findProgramsAcrossZipsAndKeywords([zip], CATEGORIES);
+
+    const freshMarkets = marketsResults || [];
+    const espnSchedule = espnResults || [];
+    const ncaaSchedule = []; // Placeholder for now
+
+    // Write to cache
+    const cacheWrites = [
+      { name: "latest_markets.json", data: freshMarkets },
+      { name: "latest_tv_schedule.json", data: tvSchedule },
+      { name: "espn_matchups.json", data: espnSchedule },
+      { name: "ncaa_schedule.json", data: ncaaSchedule },
     ];
 
-    for (let i = 0; i < functionCalls.length; i++) {
-      const func = functionCalls[i];
-      const fileName = rawData[i];
-      const filePath = path.join(cacheDir, fileName);
-
-      if (isFileExpired(filePath, cacheTTL)) {
-        logger.info(`Fetching fresh data for ${fileName}...`);
-        try {
-          const data = await func();
-          if (data) {
-            fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-            logger.info(`Saved ${fileName}`);
-          } else {
-            logger.warn(
-              `Fetched data for ${fileName} was empty, skipping write.`,
-            );
-          }
-        } catch (err) {
-          logger.error(`Error fetching data for ${fileName}: ${err.message}`);
-        }
-      } else {
-        logger.info(`Using cached data from ${fileName}`);
-      }
+    for (const item of cacheWrites) {
+      const filePath = path.join(cacheDir, item.name);
+      fs.writeFileSync(filePath, JSON.stringify(item.data, null, 2));
+      logger.info(`Saved ${item.name}`);
     }
 
-    const [freshMarkets, tvSchedule, espnSchedule, ncaaSchedule] = rawData.map(
-      (fileName) =>
-        JSON.parse(fs.readFileSync(path.join(cacheDir, fileName), "utf8")),
-    );
-    markets = freshMarkets;
+    const markets = freshMarkets;
 
     const configuredMarkets = markets.map((m) => applyWordConfigurations(m));
     const allResults = matchDiscoveryEvents(

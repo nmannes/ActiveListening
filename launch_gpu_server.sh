@@ -86,13 +86,37 @@ REMOTE_DIR="/home/ec2-user"
 
 echo "Deploying to environment: $ENV"
 
-# --- 0. Check for existing instance ---
+# --- 0. Check for existing instance (Locked) ---
+mkdir -p "$LOCAL_DIR/locks"
+LOCKFILE="$LOCAL_DIR/locks/launch_${ENV}.lock"
+
+while true; do
+    if (set -o noclobber; echo "$$" > "$LOCKFILE") 2>/dev/null; then
+        # Successfully acquired lock
+        trap 'rm -f "$LOCKFILE"; exit $?' INT TERM EXIT
+        break
+    else
+        # Lock exists, check if it is stale
+        OTHER_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+        if [ -z "$OTHER_PID" ] || ! kill -0 "$OTHER_PID" 2>/dev/null; then
+            echo "Stale or empty lock found (PID $OTHER_PID), clearing..."
+            rm -f "$LOCKFILE"
+            continue
+        fi
+        echo "--------------------------------------------------------"
+        echo "ALREADY IN PROGRESS: A $ENV launch is active (PID $OTHER_PID)"
+        echo "Aborting this launch to avoid duplicates."
+        echo "--------------------------------------------------------"
+        exit 0
+    fi
+done
+
 echo "[0/4] Checking for existing $ENV instances in $REGION..."
 EXISTING_INSTANCE=$(aws ec2 describe-instances \
     --region "$REGION" \
     --filters "Name=tag:Environment,Values=$ENV" "Name=instance-state-name,Values=running,pending" \
     --query 'Reservations[].Instances[0].InstanceId' \
-    --output text)
+    --output text | awk '{print $1}')
 
 if [[ "$EXISTING_INSTANCE" != "None" && -n "$EXISTING_INSTANCE" ]]; then
     # Get the IP of the existing instance

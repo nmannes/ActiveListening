@@ -7,11 +7,50 @@ const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const scheduledDir = path.join(__dirname, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
 
+// ── 0. Lockfile to prevent concurrent runs ──────────────────────────
+const locksDir = path.join(__dirname, "locks");
+if (!fs.existsSync(locksDir)) fs.mkdirSync(locksDir);
+const lockFile = path.join(locksDir, "scheduler.lock");
+
+try {
+  fs.writeFileSync(lockFile, process.pid.toString(), { flag: "wx" });
+} catch (e) {
+  try {
+    const pid = parseInt(fs.readFileSync(lockFile, "utf8"));
+    if (pid) {
+      process.kill(pid, 0);
+      console.log(`Scheduler already running (PID: ${pid}). Exiting.`);
+      process.exit(0);
+    }
+  } catch (err) {
+    // Stale lock
+    fs.unlinkSync(lockFile);
+    fs.writeFileSync(lockFile, process.pid.toString(), { flag: "wx" });
+  }
+}
+
+const cleanup = () => {
+  try {
+    if (fs.existsSync(lockFile)) {
+      const pid = parseInt(fs.readFileSync(lockFile, "utf8"));
+      if (pid === process.pid) fs.unlinkSync(lockFile);
+    }
+  } catch (e) {}
+};
+process.on("exit", cleanup);
+process.on("SIGINT", () => { cleanup(); process.exit(0); });
+process.on("SIGTERM", () => { cleanup(); process.exit(0); });
+process.on("uncaughtException", (err) => {
+  console.error(err);
+  cleanup();
+  process.exit(1);
+});
+
 const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run");
 const force = args.includes("--force");
 const youtubeOnly = args.includes("--youtube-only");
-let lookaheadHours = 20;
+let lookaheadHours = 168; // 1 week lookahead
 const lookaheadIdx = args.indexOf("--lookahead");
 if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
   lookaheadHours = parseFloat(args[lookaheadIdx + 1]);
@@ -67,7 +106,19 @@ function getDuration(market, match) {
 }
 
 // ── 1. Load existing scheduled server windows ───────────────────────
-const matches = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+const matchedMatches = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+const manualMatchesPath = path.join("cache", "manual_matches.json");
+let manualMatches = [];
+if (fs.existsSync(manualMatchesPath)) {
+  try {
+    manualMatches = JSON.parse(fs.readFileSync(manualMatchesPath, "utf8"));
+  } catch (e) {
+    console.error(`Error reading ${manualMatchesPath}: ${e.message}`);
+  }
+}
+
+// Merge and deduplicate (manual takes priority)
+const matches = [...manualMatches, ...matchedMatches.filter(m => !manualMatches.find(man => man.market.slug === m.market.slug))];
 const matchSlugs = new Set(matches.map((m) => m.market.slug));
 
 const serverWindows = []; // Array of { start: Date, end: Date }
@@ -319,6 +370,10 @@ for (const seq of sequences) {
       console.log(
         `          Mode:   ${clientOnly ? (reusableWindow ? "REUSE Server" : "Client Only") : "NEW Server"}`,
       );
+      if (market.mediaStreamURL) {
+        const displayStream = market.mediaStreamURL.includes("localhost") ? "localhost" : market.mediaStreamURL;
+        console.log(`          Stream: ${displayStream}`);
+      }
       if (!clientOnly) {
         console.log(
           `          Server: Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
