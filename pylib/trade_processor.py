@@ -107,7 +107,7 @@ class TradeProcessor:
                     )
                     continue
 
-                if self.session.server.config.trade_for_real:
+                if self.session.server.config.trade_for_real and not self.session.market.get("tradingDisabled", False):
                     await self.place_order(matched)
                     remove_market_from_index(
                         self.session.keyword_index, matched["value"]
