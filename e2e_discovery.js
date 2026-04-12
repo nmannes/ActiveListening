@@ -89,84 +89,30 @@ function isFileExpired(filePath, ttlMs) {
       logger.info(`Saved ${item.name}`);
     }
 
-    const markets = freshMarkets;
-
-    const configuredMarkets = markets.map((m) => applyWordConfigurations(m));
-    const allResults = matchDiscoveryEvents(
-      configuredMarkets,
-      tvSchedule,
-      espnSchedule,
-      ncaaSchedule,
-    );
-
-    const matchedMarkets = allResults.filter(
-      (m) =>
-        m.tvEvent || m.espnEvent || m.ncaaEvent || m.market.mediaStreamURL,
-    );
-    const unmatchedMarkets = allResults.filter(
-      (m) =>
-        !m.tvEvent && !m.espnEvent && !m.ncaaEvent && !m.market.mediaStreamURL,
-    );
-
-    const earningsWithSource = allResults.filter((m) => {
-      const title = (m.market.title || "").toLowerCase();
-      const slug = (m.market.slug || "").toLowerCase();
+    const earningsWithSource = freshMarkets.filter((m) => {
+      const title = (m.title || "").toLowerCase();
+      const slug = (m.slug || "").toLowerCase();
       return (
         (title.includes("earnings") || slug.includes("earnings")) &&
-        m.market.mediaStreamURL
+        m.mediaStreamURL
       );
     });
 
-    const matchedPath = path.join(cacheDir, "matched_markets.json");
-    const unmatchedPath = path.join(cacheDir, "unmatched_markets.json");
     const earningsWithSourcePath = path.join(
       cacheDir,
       "earnings_calls_with_source.json",
     );
-    const speakersPath = path.join(__dirname, "speakers.md");
-
-    fs.writeFileSync(matchedPath, JSON.stringify(matchedMarkets, null, 2));
-    fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
+    
     fs.writeFileSync(
       earningsWithSourcePath,
       JSON.stringify(earningsWithSource, null, 2),
     );
 
-    const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
-    const tableHeader = "| Date | Time | Title | HasMediaSource |\n| :--- | :--- | :--- | :--- |\n";
-    const tableRows = sortedResults.map((result) => {
-      const { market, tvEvent, espnEvent, ncaaEvent } = result;
-      const [date, fullTime] = (result.startTime || market?.eventStartTime || "T").split("T");
-      const title = (market?.title || "N/A").replace("Announcers at ", "");
-      const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent || market.mediaStreamURL);
-
-      const row = [
-        "",
-        date || "N/A",
-        fullTime?.slice(0, 5) || "N/A",
-        title,
-        hasMediaSource ? "Yes" : "No",
-        "",
-      ]
-        .join(" | ")
-        .trim();
-      logger.info(row)
-      return row;
-    });
-
-    fs.writeFileSync(speakersPath, tableHeader + tableRows.join("\n"));
-
     logger.info(`E2E Discovery complete.`);
-    logger.info(
-      `- Saved ${matchedMarkets.length} matched markets to ${matchedPath}`,
-    );
-    logger.info(
-      `- Saved ${unmatchedMarkets.length} unmatched markets to ${unmatchedPath}`,
-    );
+    logger.info(`- Saved market and schedule data to cache.`);
     logger.info(
       `- Saved ${earningsWithSource.length} earnings calls with sources to ${earningsWithSourcePath}`,
     );
-    logger.info(`- Saved speakers markdown table to ${speakersPath}`);
   } catch (err) {
     logger.error(`Fatal execution error: ${err.message}`);
   }

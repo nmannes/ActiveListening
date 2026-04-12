@@ -26,7 +26,7 @@ app.get("/api/markets", (req, res) => {
         const matched = JSON.parse(fs.readFileSync(MATCHED_PATH, "utf8"));
         const unmatched = JSON.parse(fs.readFileSync(UNMATCHED_PATH, "utf8"));
         const manual = JSON.parse(fs.readFileSync(MANUAL_MATCHES_PATH, "utf8"));
-        
+
         const scheduledSlugs = new Set(
             fs.readdirSync(path.join(__dirname, "scheduled"))
                 .filter(f => f.endsWith(".json"))
@@ -40,7 +40,7 @@ app.get("/api/markets", (req, res) => {
                 }
                 return { url: m.market.mediaStreamURL, name: "Custom URL" };
             }
-            
+
             let url = m.tvEvent?.channelURL || m.espnEvent?.gameLink || null;
             let name = m.tvEvent?.station || (m.espnEvent?.gameLink ? "ESPN.com" : null);
 
@@ -70,10 +70,10 @@ app.get("/api/markets", (req, res) => {
             };
         };
 
-        res.json({ 
-            matched: matched.map(enrich), 
-            unmatched: unmatched.map(enrich), 
-            manual: manual.map(enrich) 
+        res.json({
+            matched: matched.map(enrich),
+            unmatched: unmatched.map(enrich),
+            manual: manual.map(enrich)
         });
     } catch (e) {
         console.error(`Error in /api/markets: ${e.message}`);
@@ -89,7 +89,7 @@ app.post("/api/manual-match", (req, res) => {
         }
 
         let manual = JSON.parse(fs.readFileSync(MANUAL_MATCHES_PATH, "utf8"));
-        
+
         // Update if exists, otherwise append
         const index = manual.findIndex(m => m.market.slug === market.slug);
         const updatedMarket = {

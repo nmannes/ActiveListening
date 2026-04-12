@@ -3,6 +3,9 @@ const fs = require("fs");
 const path = require("path");
 const { sendTelegram } = require("./lib/telegram");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
+const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
+const { applyWordConfigurations } = require("./lib/word_configurations");
+const _ = require("lodash");
 
 const scheduledDir = path.join(__dirname, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
@@ -57,11 +60,64 @@ if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
 }
 const lookaheadMs = lookaheadHours * 60 * 60 * 1000;
 
-const cacheFile = path.join("cache", "matched_markets.json");
-if (!fs.existsSync(cacheFile)) {
-  console.error(`Cache file ${cacheFile} not found`);
+const matchedPath = path.join(__dirname, "cache", "matched_markets.json");
+const unmatchedPath = path.join(__dirname, "cache", "unmatched_markets.json");
+
+// ── 0.1 Perform Matching ─────────────────────────────────────────────
+const marketsFile = path.join(__dirname, "cache", "latest_markets.json");
+const tvScheduleFile = path.join(__dirname, "cache", "latest_tv_schedule.json");
+const espnMatchupsFile = path.join(__dirname, "cache", "espn_matchups.json");
+const ncaaScheduleFile = path.join(__dirname, "cache", "ncaa_schedule.json");
+
+if (!fs.existsSync(marketsFile)) {
+  console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
   process.exit(1);
 }
+
+const rawMarkets = JSON.parse(fs.readFileSync(marketsFile, "utf8"));
+const tvSchedule = fs.existsSync(tvScheduleFile) ? JSON.parse(fs.readFileSync(tvScheduleFile, "utf8")) : [];
+const espnSchedule = fs.existsSync(espnMatchupsFile) ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8")) : [];
+const ncaaSchedule = fs.existsSync(ncaaScheduleFile) ? JSON.parse(fs.readFileSync(ncaaScheduleFile, "utf8")) : [];
+
+const configuredMarkets = rawMarkets.map((m) => applyWordConfigurations(m));
+const allResults = matchDiscoveryEvents(
+  configuredMarkets,
+  tvSchedule,
+  espnSchedule,
+  ncaaSchedule,
+);
+
+const matchedMatches = allResults.filter(
+  (m) => m.tvEvent || m.espnEvent || m.ncaaEvent || m.market.mediaStreamURL,
+);
+const unmatchedMarkets = allResults.filter(
+  (m) => !m.tvEvent && !m.espnEvent && !m.ncaaEvent && !m.market.mediaStreamURL,
+);
+
+fs.writeFileSync(matchedPath, JSON.stringify(matchedMatches, null, 2));
+fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
+
+// Save speakers markdown table for visibility
+const speakersPath = path.join(__dirname, "speakers.md");
+const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
+const tableHeader = "| Date | Time | Title | HasMediaSource |\n| :--- | :--- | :--- | :--- |\n";
+const tableRows = sortedResults.map((result) => {
+  const { market, tvEvent, espnEvent, ncaaEvent } = result;
+  const startTimeVal = result.startTime || market?.eventStartTime || "T";
+  const [date, fullTime] = startTimeVal.split("T");
+  const title = (market?.title || "N/A").replace("Announcers at ", "");
+  const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent || market.mediaStreamURL);
+
+  return [
+    "",
+    date || "N/A",
+    fullTime?.slice(0, 5) || "N/A",
+    title,
+    hasMediaSource ? "Yes" : "No",
+    "",
+  ].join(" | ").trim();
+});
+fs.writeFileSync(speakersPath, tableHeader + tableRows.join("\n"));
 
 const now = new Date();
 const lookaheadLimit = new Date(now.getTime() + lookaheadMs);
@@ -106,7 +162,7 @@ function getDuration(market, match) {
 }
 
 // ── 1. Load existing scheduled server windows ───────────────────────
-const matchedMatches = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+// matchedMatches is already populated from the matching logic above
 const manualMatchesPath = path.join("cache", "manual_matches.json");
 let manualMatches = [];
 if (fs.existsSync(manualMatchesPath)) {
