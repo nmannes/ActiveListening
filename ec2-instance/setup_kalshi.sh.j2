@@ -9,27 +9,8 @@ echo "Starting setup_kalshi.sh at $(date)"
 STACK_NAME="${AWS::StackName}"
 REGION="${AWS::Region}"
 
-if [ -n "$STACK_NAME" ]; then
-    echo "Scheduling stack deletion ($STACK_NAME) in ${ShutdownMinutes} minutes..."
-    # Run in background to not block setup
-    (
-        sleep $(( ${ShutdownMinutes} * 60 ))
-        echo "Deleting stack $STACK_NAME..."
-        aws cloudformation delete-stack --stack-name "$STACK_NAME" --region "$REGION"
-    ) &
-else
-    echo "Warning: AWS_STACK_NAME not found, falling back to shutdown."
-    sudo shutdown -h +${ShutdownMinutes}
-fi
-
-# Create 8GB swap file to prevent OOM
-if [ ! -f /swapfile ]; then
-    sudo dd if=/dev/zero of=/swapfile bs=1M count=8192
-    sudo chmod 600 /swapfile
-    sudo mkswap /swapfile
-    sudo swapon /swapfile
-    echo "/swapfile swap swap defaults 0 0" | sudo tee -a /etc/fstab
-fi
+echo "Warning: AWS_STACK_NAME not found, falling back to shutdown."
+sudo shutdown -h +${ShutdownMinutes}
 
 if ! command -v ffmpeg &> /dev/null; then
     echo "Installing FFmpeg..."

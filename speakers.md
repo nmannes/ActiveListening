@@ -2,15 +2,14 @@
 | :--- | :--- | :--- | :--- |
 | N/A | N/A | What will Progressive say during their next earnings call? | No |
 | N/A | N/A | What will Goldman Sachs say during their next earnings call? | No |
+| N/A | N/A | Boston vs St. Louis Professional Baseball Game | No |
 | N/A | N/A | What will Mark Carney say during his Liberal Convention Keynote Remarks? | Yes |
+| N/A | N/A | What will John Fetterman say during his Fox News interview? | Yes |
 | N/A | N/A | What will Kathy Hochul say during her announcement? | No |
 | N/A | N/A | What will Karoline Leavitt say in the next press briefing? | No |
 | N/A | N/A | Los Angeles A vs Cincinnati Professional Baseball Game | Yes |
 | N/A | N/A | Arizona vs Philadelphia Professional Baseball Game | Yes |
 | 2026-04-11 | 17:00 | Tyson Fury vs Arslanbek Makhmudov | No |
-| 2026-04-11 | 19:15 | Boston vs St. Louis Professional Baseball Game | No |
-| 2026-04-11 | 19:15 | San Francisco vs Baltimore Professional Baseball Game | Yes |
-| 2026-04-11 | 20:00 | What will John Fetterman say during his Fox News interview? | Yes |
 | 2026-04-11 | 21:00 | Cub Swanson vs Nate Landwehr UFC Fight | No |
 | 2026-04-11 | 21:20 | Dominick Reyes vs Johnny Walker UFC Fight | No |
 | 2026-04-11 | 21:40 | Curtis Blaydes vs Josh Hokit UFC Fight | No |
@@ -18,6 +17,7 @@
 | 2026-04-11 | 22:20 | Jiri Prochazka vs Carlos Ulberg UFC Fight | No |
 | 2026-04-11 | 23:00 | What will Colman Domingo say during his SNL opening monologue? | Yes |
 | 2026-04-11 | 23:00 | What will be said during SNL Weekend Update? | Yes |
+| 2026-04-11 | 23:00 | San Francisco vs Baltimore Professional Baseball Game | Yes |
 | 2026-04-12 | 10:00 | What will Trump say during his Fox News interview? | Yes |
 | 2026-04-12 | 10:00 | What will Ro Khanna say during Fox News Sunday? | Yes |
 | 2026-04-12 | 10:30 | What will Byron Donalds say during Meet the Press? | No |
