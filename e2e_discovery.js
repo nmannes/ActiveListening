@@ -4,7 +4,6 @@ const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
 const { scrapeESPNMatchups } = require("./lib/league_schedule_scraping.js");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
-const { scrapeNCAASchedulesForDays } = require("./lib/ncaa_tip_off_times.js");
 const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
 const _ = require("lodash");
@@ -52,8 +51,14 @@ function isFileExpired(filePath, ttlMs) {
       return detectedZip;
     })();
 
-    const CATEGORIES = ["basketball", "baseball", "saturday night live", "survivor"];
-    
+    const CATEGORIES = [
+      "basketball",
+      "baseball",
+      "saturday night live",
+      "survivor",
+      "meet the press",
+    ];
+
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
     const [zip, marketsResults, espnResults] = await Promise.all([
