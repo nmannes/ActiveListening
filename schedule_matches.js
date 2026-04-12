@@ -163,7 +163,7 @@ function getDuration(market, match) {
 
 // ── 1. Load existing scheduled server windows ───────────────────────
 // matchedMatches is already populated from the matching logic above
-const manualMatchesPath = path.join("cache", "manual_matches.json");
+const manualMatchesPath = path.join(__dirname, "cache", "manual_matches.json");
 let manualMatches = [];
 if (fs.existsSync(manualMatchesPath)) {
   try {

@@ -20,12 +20,22 @@ const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");
     if (!fs.existsSync(p)) fs.writeFileSync(p, JSON.stringify([], null, 2));
 });
 
+function readJsonFile(filePath, defaultValue = []) {
+    try {
+        if (!fs.existsSync(filePath)) return defaultValue;
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch (e) {
+        console.error(`Error reading ${filePath}: ${e.message}`);
+        return defaultValue;
+    }
+}
+
 app.get("/api/markets", (req, res) => {
     try {
         console.log(`[${new Date().toISOString()}] GET /api/markets`);
-        const matched = JSON.parse(fs.readFileSync(MATCHED_PATH, "utf8"));
-        const unmatched = JSON.parse(fs.readFileSync(UNMATCHED_PATH, "utf8"));
-        const manual = JSON.parse(fs.readFileSync(MANUAL_MATCHES_PATH, "utf8"));
+        const matched = readJsonFile(MATCHED_PATH);
+        const unmatched = readJsonFile(UNMATCHED_PATH);
+        const manual = readJsonFile(MANUAL_MATCHES_PATH);
 
         const scheduledSlugs = new Set(
             fs.readdirSync(path.join(__dirname, "scheduled"))
@@ -88,7 +98,7 @@ app.post("/api/manual-match", (req, res) => {
             return res.status(400).json({ error: "Missing market or mediaStreamURL" });
         }
 
-        let manual = JSON.parse(fs.readFileSync(MANUAL_MATCHES_PATH, "utf8"));
+        let manual = readJsonFile(MANUAL_MATCHES_PATH);
 
         // Update if exists, otherwise append
         const index = manual.findIndex(m => m.market.slug === market.slug);
@@ -114,7 +124,7 @@ app.post("/api/manual-match", (req, res) => {
 app.delete("/api/manual-match/:slug", (req, res) => {
     try {
         const slug = req.params.slug;
-        let manual = JSON.parse(fs.readFileSync(MANUAL_MATCHES_PATH, "utf8"));
+        let manual = readJsonFile(MANUAL_MATCHES_PATH);
         manual = manual.filter(m => m.market.slug !== slug);
         fs.writeFileSync(MANUAL_MATCHES_PATH, JSON.stringify(manual, null, 2));
         res.json({ success: true });
