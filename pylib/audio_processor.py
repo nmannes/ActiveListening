@@ -139,11 +139,19 @@ class AudioProcessor:
                 wf.close()
 
             # Save transcript alongside recordings
-            if self._audio_dir:
-                transcript_path = self._audio_dir / "transcript.json"
+            if self._recordings_dir:
+                transcript_path = self._recordings_dir / "transcript.json"
                 transcript_data = dict(self.session.transcript)
                 with open(transcript_path, "w") as f:
                     json.dump(transcript_data, f, indent=2)
+
+            # Save market data (slug.json) in the root of the recordings directory
+            if self._recordings_dir and hasattr(self.session, 'market') and self.session.market:
+                slug = self.session.market.get('slug', 'market')
+                market_path = self._recordings_dir / f"{slug}.json"
+                logger.info(f"[{self.session.session_id}] Saving market metadata to {market_path}")
+                with open(market_path, "w") as f:
+                    json.dump(self.session.market, f, indent=2)
 
             logger.info(
                 f"[{self.session.session_id}] Audio recordings saved to {self._recordings_dir}"
@@ -363,6 +371,15 @@ class AudioProcessor:
 
             s3 = boto3.client("s3")
             prefix = self._recordings_dir.name  # e.g. session-id_1711640123
+
+            # Upload files in the root of the recordings directory (e.g. slug.json)
+            for file_path in self._recordings_dir.iterdir():
+                if file_path.is_file():
+                    s3_key = f"{prefix}/{file_path.name}"
+                    logger.info(
+                        f"[{self.session.session_id}] Uploading {file_path.name} to s3://{bucket}/{s3_key}"
+                    )
+                    s3.upload_file(str(file_path), bucket, s3_key)
 
             for sub_dir in ["audio", "deepgram_responses"]:
                 dir_path = self._recordings_dir / sub_dir
