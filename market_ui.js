@@ -33,32 +33,42 @@ app.get("/api/markets", (req, res) => {
                 .map(f => f.replace(".json", ""))
         );
 
-        function getStreamURL(m) {
-            if (m.market.mediaStreamURL) return m.market.mediaStreamURL;
+        function getStreamInfo(m) {
+            if (m.market.mediaStreamURL) {
+                for (const [name, url] of Object.entries(CHANNEL_MAPPINGS)) {
+                    if (url === m.market.mediaStreamURL) return { url: m.market.mediaStreamURL, name };
+                }
+                return { url: m.market.mediaStreamURL, name: "Custom URL" };
+            }
             
             let url = m.tvEvent?.channelURL || m.espnEvent?.gameLink || null;
+            let name = m.tvEvent?.station || (m.espnEvent?.gameLink ? "ESPN.com" : null);
+
             if (m.espnEvent?.tvChannels) {
                 for (const ch of m.espnEvent.tvChannels) {
                     if (CHANNEL_MAPPINGS[ch.name]) {
-                        url = CHANNEL_MAPPINGS[ch.name];
-                        break;
+                        return { url: CHANNEL_MAPPINGS[ch.name], name: ch.name };
                     }
                 }
             }
             if (m.ncaaEvent?.network && CHANNEL_MAPPINGS[m.ncaaEvent.network]) {
-                url = CHANNEL_MAPPINGS[m.ncaaEvent.network];
+                return { url: CHANNEL_MAPPINGS[m.ncaaEvent.network], name: m.ncaaEvent.network };
             }
-            return url;
+            return { url, name };
         }
 
-        const enrich = (m) => ({
-            ...m,
-            market: {
-                ...m.market,
-                mediaStreamURL: m.market.mediaStreamURL || getStreamURL(m),
-                isScheduled: scheduledSlugs.has(m.market.slug)
-            }
-        });
+        const enrich = (m) => {
+            const streamInfo = getStreamInfo(m);
+            return {
+                ...m,
+                market: {
+                    ...m.market,
+                    mediaStreamURL: m.market.mediaStreamURL || streamInfo.url,
+                    channelName: streamInfo.name,
+                    isScheduled: scheduledSlugs.has(m.market.slug)
+                }
+            };
+        };
 
         res.json({ 
             matched: matched.map(enrich), 
