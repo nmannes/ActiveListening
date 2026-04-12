@@ -100,7 +100,7 @@ fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
 // Save speakers markdown table for visibility
 const speakersPath = path.join(__dirname, "speakers.md");
 const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
-const tableHeader = "| Date | Time | Title | HasMediaSource |\n| :--- | :--- | :--- | :--- |\n";
+const tableHeader = "| HasMediaSource | Date | Time | Title |\n| :--- | :--- | :--- | :--- |\n";
 const tableRows = sortedResults.map((result) => {
   const { market, tvEvent, espnEvent, ncaaEvent } = result;
   const startTimeVal = result.startTime || market?.eventStartTime || "T";
@@ -110,10 +110,10 @@ const tableRows = sortedResults.map((result) => {
 
   return [
     "",
+    hasMediaSource ? "Yes" : "No",
     date || "N/A",
     fullTime?.slice(0, 5) || "N/A",
     title,
-    hasMediaSource ? "Yes" : "No",
     "",
   ].join(" | ").trim();
 });
