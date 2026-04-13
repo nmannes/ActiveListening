@@ -190,7 +190,7 @@ class ClientSession:
         self.trade_processor = DiarizedTradeProcessor(self)
         self.audio_processor = AudioProcessor(
             self, on_tokens_callback=self.trade_processor.process_tokens
-        )
+		)
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
         if self.market.get("speakerEntities"):

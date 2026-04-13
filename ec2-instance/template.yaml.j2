@@ -227,8 +227,8 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                 Resource:
-                  - arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0
-                  - arn:aws:bedrock:us-east-1::inference-profile/us.amazon.nova-lite-v1:0
+                  - !Sub "arn:aws:bedrock:*::foundation-model/amazon.nova-lite-v1:0"
+                  - !Sub "arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/us.amazon.nova-lite-v1:0"
               - Effect: Allow
                 Action:
                   - cloudformation:DeleteStack
