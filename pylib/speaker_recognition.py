@@ -13,6 +13,14 @@ try:
 except ImportError:
     boto3 = None
 
+from pylib.prompt_templates import (
+    get_survivor_prompt, 
+    get_interview_prompt, 
+    get_sports_prompt, 
+    get_earnings_prompt, 
+    get_default_prompt
+)
+
 logger = logging.getLogger("remote_server")
 
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
@@ -108,11 +116,19 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         Calls Amazon Bedrock to identify which speaker_id is the target_speaker_name.
         Returns a mapping of {speaker_id: label}.
         """
-        client = self.bedrock_client
-        if not client:
+        prompt = self.format_prompt(transcript_history, target_speaker_name)
+        if not prompt:
             return {}
+            
+        result_text = await self.send_request(prompt)
+        if not result_text:
+            return {}
+            
+        return self.process_response(result_text)
 
-        # Re-aggregate to compute TF-IDF and word counts
+    def format_prompt(self, transcript_history: List[Tuple[str, str]], target_speaker_name: str) -> str:
+        """Aggregates data and generates the prompt for Bedrock."""
+        # speaker summary and ranking
         speaker_transcripts_dict = {}
         for sid, text in transcript_history:
             if sid not in speaker_transcripts_dict:
@@ -120,186 +136,83 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             speaker_transcripts_dict[sid].append(text)
 
         speaker_transcripts = {sid: " ".join(texts) for sid, texts in speaker_transcripts_dict.items()}
- 
-        # Only include the top 10 non-ad speakers by word count to reduce noise
         ranked = sorted(speaker_transcripts.items(), key=lambda x: len(x[1].split()), reverse=True)[:10]
+        top_sids = set(sid for sid, _ in ranked)
 
-        # Compute TF-IDF to find distinctive terms per speaker
-        from sklearn.feature_extraction.text import TfidfVectorizer
-
-        sids = [sid for sid, _ in ranked]
-        texts = [text for _, text in ranked]
-        vectorizer = TfidfVectorizer(stop_words="english", max_features=5000, token_pattern=r'(?u)\b[a-zA-Z]{3,}\b')
-        tfidf_matrix = vectorizer.fit_transform(texts)
-        feature_names = vectorizer.get_feature_names_out()
-
+        # TF-IDF for distinctive terms
         speaker_top_terms = {}
-        for i, sid in enumerate(sids):
-            row = tfidf_matrix[i].toarray().flatten()
-            top_indices = row.argsort()[-15:][::-1]
-            speaker_top_terms[sid] = [feature_names[j] for j in top_indices if row[j] > 0]
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            sids = [sid for sid, _ in ranked]
+            texts = [text for _, text in ranked]
+            vectorizer = TfidfVectorizer(stop_words="english", max_features=5000, token_pattern=r'(?u)\b[a-zA-Z]{3,}\b')
+            tfidf_matrix = vectorizer.fit_transform(texts)
+            feature_names = vectorizer.get_feature_names_out()
+
+            for i, sid in enumerate(sids):
+                row = tfidf_matrix[i].toarray().flatten()
+                top_indices = row.argsort()[-15:][::-1]
+                speaker_top_terms[sid] = [feature_names[j] for j in top_indices if row[j] > 0]
+        except ImportError:
+            logger.warning("sklearn not installed, skipping TF-IDF summary.")
 
         summary_data = []
-        for i, (sid, text) in enumerate(ranked):
+        for sid, text in ranked:
             word_count = len(text.split())
             top_terms = ", ".join(speaker_top_terms.get(sid, []))
             summary_data.append(f"ID {sid} ({word_count} words, distinctive terms: [{top_terms}])")
-
         summary_block = "\n".join(summary_data)
-        
-        top_sids = set(sid for sid, _ in ranked)
-        
-        transcript_lines = []
-        for sid, text in transcript_history:
-            if sid not in top_sids:
-                continue
-            transcript_lines.append(f"[Speaker {sid}]: {text}")
-            
+
+        # transcript block
+        transcript_lines = [f"[Speaker {sid}]: {text}" for sid, text in transcript_history if sid in top_sids]
         transcript_block = "\n".join(transcript_lines)
         if len(transcript_block) > 60000:
             transcript_block = transcript_block[:60000] + "\n...[TRUNCATED]"
 
+        # event type and market title
         market = getattr(self.listening_session, "market", {}) or {}
         clip_profile = market.get("clipProfile", "")
-        title = market.get("title", "").lower()
+        market_title = market.get("title", "Unknown Market")
+        title = market_title.lower()
         
         event_type = "standard"
         if clip_profile == "survivor" or "survivor" in title:
             event_type = "survivor"
-        elif "press conference" in title or "interview" in title or "briefing" in title:
+        elif any(kw in title for kw in ("press conference", "interview", "briefing")):
             event_type = "interview"
-        elif clip_profile in ("basketball", "baseball") or "nba" in title or "mlb" in title or "ncaab" in title:
+        elif clip_profile in ("basketball", "baseball") or any(kw in title for kw in ("nba", "mlb", "ncaab")):
             event_type = "sports_broadcast"
         elif "earnings" in title:
             event_type = "earnings_call"
 
+        # prompt generation
         if event_type == "survivor":
-            prompt = f"""
-        You are identifying participants in an episode of Survivor.
-        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify which Speaker ID is "Jeff Probst", which are "contestants", and which are advertisements.
-        The target entity for this session is conceptually: "{target_speaker_name}".
-
-        CRITICAL DISTINCTION:
-        1. **Jeff Probst**: The host. Asks questions, narrates challenges, often says "Come on in!", "Survivors ready?", "Dig deep!". Identify him accurately. Label him as "Jeff Probst".
-        2. **Contestants**: The players in the game who are competing, discussing strategy, or voting. Label them as "contestants".
-        3. **Advertisements**: Commercial breaks. Label them as "advertisement".
-        4. **Unknown**: Others.
-
-        SPEAKER SUMMARIES:
-        {summary_block}
-
-        CHRONOLOGICAL TRANSCRIPT:
-        {transcript_block}
-
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels must exactly match one of: "Jeff Probst", "contestants", "advertisement", "unknown".
-        """
+            return get_survivor_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "interview":
-            prompt = f"""
-        You are identifying the key participants in a press conference or interview broadcast transcript.
-        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify which Speaker ID is the "interviewer" and which is the "interviewee" (who is likely "{target_speaker_name}").
-
-        CRITICAL DISTINCTION:
-        1. **The Interviewee ({target_speaker_name})**: The main subject of the interview who answers questions or gives statements. Label as "{target_speaker_name}".
-        2. **The Interviewer**: The person (or people) asking questions, steering the conversation, or introducing the segment. Label as "interviewer".
-        3. **Mention-only Advertisements**: Often use names to sell products. Label them as "advertisement".
-        4. **Unknown**: Others outside these categories.
-
-        SPEAKER SUMMARIES:
-        {summary_block}
-
-        CHRONOLOGICAL TRANSCRIPT:
-        {transcript_block}
-
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels must exactly match one of: "{target_speaker_name}", "interviewer", "advertisement", "unknown".
-        """
+            return get_interview_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "sports_broadcast":
-            prompt = f"""
-        You are identifying the main announcers in a sports broadcast
-        Usually there a play by play guy, a color commentator guy
-        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify which Speaker ID is the target: "{target_speaker_name}".
-
-        CRITICAL DISTINCTION:
-        1. **The Target(s) ({target_speaker_name})**: The person(s) we are trying to identify. Label as "{target_speaker_name}".
-        2. **Non-main Commentators**: Other broadcasters that may speak up during breaks or in the booth. Label as "non-main commentator".
-        3. **Players/Coaches/Referees**: People on the court or field. Label as "participant".
-        4. **Advertisements**: Commercial breaks. Label them as "advertisement".
-        5. **Unknown**: Others.
-
-        SPEAKER SUMMARIES:
-        {summary_block}
-
-        CHRONOLOGICAL TRANSCRIPT:
-        {transcript_block}
-
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels must exactly match one of: "{target_speaker_name}", "other commentator", "participant", "advertisement", "unknown".
-        """
+            return get_sports_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "earnings_call":
-            prompt = f"""
-        You are identifying key participants in a corporate earnings call.
-        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify which Speaker ID represents the target executive: "{target_speaker_name}".
-
-        CRITICAL DISTINCTION:
-        1. **Company Representatives ({target_speaker_name})**: Anyone representing the hosting company. This includes the main executives (CEO, CFO) giving prepared remarks or answering questions, the operator who introduces the call and announcements, and any other company representatives on the call. Label ALL of them as "{target_speaker_name}".
-        2. **Analysts**: The people from outside the company asking questions in the Q&A portion. Label as "analyst".
-        3. **Unknown**: Others outside these categories.
-
-        SPEAKER SUMMARIES:
-        {summary_block}
-
-        CHRONOLOGICAL TRANSCRIPT:
-        {transcript_block}
-
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels must exactly match one of: "{target_speaker_name}", "analyst", "unknown".
-        """
+            return get_earnings_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         else:
-            prompt = f"""
-        You are identifying the real host or primary guests in a broadcast transcript.
-        I have a transcript from a broadcast session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify ALL Speaker IDs that are actually "{target_speaker_name}".
+            top_terms_str = ""
+            if ranked and ranked[0][0] in speaker_top_terms:
+                top_terms_str = f"(like {', '.join(speaker_top_terms[ranked[0][0]][:5])})"
+            return get_default_prompt(market_title, target_speaker_name, summary_block, transcript_block, top_terms_str)
 
-        CRITICAL DISTINCTION:
-        1. **The Host ({target_speaker_name})**: Usually has a very high word count, speaks in long monologues, introduces segments ("Coming up next...", "Tonight on the show..."), and analyzes news or specific topics (like "{', '.join(speaker_top_terms.get(ranked[0][0], [])[:5]) if ranked else ''}").
-        2. **Mention-only Advertisements**: Often use the host's name ("Hey {target_speaker_name}!", "Thanks {target_speaker_name}...", "Starting at just $79...") but speak for much less time and focus on products (jewelry, insurance, medicine, etc.). Do NOT label these as "{target_speaker_name}". Label them as "advertisement".
-        3. **Guests/Other**: May be interviewed by the host. Label as "unknown" unless they are also "{target_speaker_name}".
-
-        Diarization Note: The same person might be split across multiple Speaker IDs. Use the content, style, and vocabulary to link them.
-
-        SPEAKER SUMMARIES:
-        {summary_block}
-
-        CHRONOLOGICAL TRANSCRIPT:
-        {transcript_block}
-
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels: "{target_speaker_name}", "advertisement", "unknown".
-        """
-
-        logger.debug(f"Bedrock prompt type: {event_type}")
-        # logger.debug(f"Bedrock prompt text:\n{prompt}")
+    async def send_request(self, prompt: str) -> Optional[str]:
+        """Involved the Bedrock model to get speaker identifications."""
+        client = self.bedrock_client
+        if not client:
+            return None
 
         body_dict = {
-            "inferenceConfig": {
-                "max_new_tokens": 1000
-            },
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [{"text": prompt}]
-                }
-            ]
+            "inferenceConfig": {"max_new_tokens": 1000},
+            "messages": [{"role": "user", "content": [{"text": prompt}]}]
         }
         body = json.dumps(body_dict, indent=2)
 
         try:
-            # Use original loop executor for sync boto3 call
             response = await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: client.invoke_model(
@@ -312,39 +225,38 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 
             if not response or "body" not in response:
                 logger.warning("Bedrock response missing body.")
-                return {}
+                return None
 
             response_body = json.loads(response.get("body").read())
             content = response_body.get("output", {}).get("message", {}).get("content", [])
             if not content:
                 logger.warning("Bedrock response content is empty.")
-                return {}
+                return None
             
-            result_text = content[0].get("text", "").strip()
-            logger.debug(f"Raw Bedrock response: {result_text}")
-
-            # Find the JSON block in the text (in case the model adds preamble)
-            start_idx = result_text.find("{")
-            end_idx = result_text.rfind("}")
-            if start_idx != -1 and end_idx != -1:
-                json_str = result_text[start_idx:end_idx+1]
-                try:
-                    llm_result = json.loads(json_str)
-                    # Clean up keys in case the model added prefixes
-                    cleaned_result = {}
-                    for k, v in llm_result.items():
-                        clean_k = k.replace("Speaker ID ", "").replace("Speaker ID", "").replace("ID ", "").replace("ID", "").strip()
-                        cleaned_result[clean_k] = v
-                    return cleaned_result
-                except json.JSONDecodeError:
-                    logger.error(f"Failed to parse Bedrock JSON: {json_str}")
-            else:
-                logger.error(f"No JSON block found in Bedrock response: {result_text}")
-            
-            return {}
+            return content[0].get("text", "").strip()
 
         except Exception as e:
             logger.error(f"Bedrock invocation failed: {e}")
+            return None
+
+    def process_response(self, result_text: str) -> Dict[str, str]:
+        """Parses the JSON response from the LLM, cleaning up speaker ID keys."""
+        start_idx = result_text.find("{")
+        end_idx = result_text.rfind("}")
+        if start_idx == -1 or end_idx == -1:
+            logger.error(f"No JSON block found in Bedrock response: {result_text}")
+            return {}
+
+        try:
+            llm_result = json.loads(result_text[start_idx:end_idx+1])
+            cleaned_result = {}
+            for k, v in llm_result.items():
+                # Remove common prefixes from keys
+                clean_k = k.lower().replace("speaker", "").replace("id", "").strip()
+                cleaned_result[clean_k] = v
+            return cleaned_result
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Bedrock JSON: {e}")
             return {}
 
 
