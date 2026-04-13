@@ -52,7 +52,7 @@ app.get("/api/markets", (req, res) => {
             }
 
             let url = m.tvEvent?.channelURL || m.espnEvent?.gameLink || null;
-            let name = m.tvEvent?.station || (m.espnEvent?.gameLink ? "ESPN.com" : null);
+            let name = m.tvEvent?.station || (m.espnEvent?.gameLink ? "Prime Video" : null);
 
             if (m.espnEvent?.tvChannels) {
                 for (const ch of m.espnEvent.tvChannels) {
