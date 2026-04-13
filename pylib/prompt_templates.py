@@ -34,7 +34,7 @@ def get_interview_prompt(market_title: str, target_speaker_name: str, summary_bl
         Your goal is to identify which Speaker ID is the "interviewer" and which is the "interviewee" (who is likely "{target_speaker_name}").
 
         CRITICAL DISTINCTION:
-        1. **The Interviewee ({target_speaker_name})**: The main subject of the interview who answers questions or gives statements. Label as "{target_speaker_name}".
+        1. **The Interviewee ({target_speaker_name})**: The main subject(s) of the interview or panel who answer questions or give statements. Label as "{target_speaker_name}". Note: There may be multiple people who fit this role (e.g. multiple "panelists"). Label ALL of them as "{target_speaker_name}".
         2. **The Interviewer**: The person (or people) asking questions, steering the conversation, or introducing the segment. Label as "interviewer".
         3. **Mention-only Advertisements**: Often use names to sell products. Label them as "advertisement".
         4. **Unknown**: Others outside these categories.

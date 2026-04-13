@@ -178,7 +178,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         event_type = "standard"
         if clip_profile == "survivor" or "survivor" in title:
             event_type = "survivor"
-        elif any(kw in title for kw in ("press conference", "interview", "briefing")):
+        elif any(kw in title for kw in ("press conference", "interview", "briefing", "panel")):
             event_type = "interview"
         elif clip_profile in ("basketball", "baseball") or any(kw in title for kw in ("nba", "mlb", "ncaab")):
             event_type = "sports_broadcast"
