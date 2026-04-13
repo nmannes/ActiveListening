@@ -92,7 +92,7 @@ class TradeProcessor:
                 )
 
                 asyncio.get_running_loop().run_in_executor(
-                    None, send_telegram, msg, "info"
+                    None, send_telegram, msg, "debug"
                 )
 
                 if speaker_id not in self.trading_speakers:
@@ -117,7 +117,14 @@ class TradeProcessor:
                     )
                     logger.info(
                         f"[{self.session.session_id}][TRADE] Order result: {order_result}"
-                    
+                    )
+                    # Send Telegram notification for trade result
+                    msg = (
+                        f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
+                        f"Ticker: {matched['value']}\n"
+                        f"Result: {order_result}"
+                    )
+                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
                 # Notify client
                 try:
@@ -199,14 +206,6 @@ class TradeProcessor:
             logger.info(
                 f"[{self.session.session_id}][TRADE] Order result: {order_result}"
             )
-
-            # Send Telegram notification
-            msg = (
-                f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
-                f"Ticker: {matched['value']}\n"
-                f"Result: {order_result}"
-            )
-            asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
         except Exception as e:
             logger.error(
