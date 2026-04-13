@@ -282,6 +282,9 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         Possible labels: "{target_speaker_name}", "advertisement", "unknown".
         """
 
+        logger.debug(f"Bedrock prompt type: {event_type}")
+        # logger.debug(f"Bedrock prompt text:\n{prompt}")
+
         body_dict = {
             "inferenceConfig": {
                 "max_new_tokens": 1000
@@ -308,14 +311,18 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             )
 
             if not response or "body" not in response:
+                logger.warning("Bedrock response missing body.")
                 return {}
 
             response_body = json.loads(response.get("body").read())
             content = response_body.get("output", {}).get("message", {}).get("content", [])
             if not content:
+                logger.warning("Bedrock response content is empty.")
                 return {}
             
             result_text = content[0].get("text", "").strip()
+            logger.debug(f"Raw Bedrock response: {result_text}")
+
             # Find the JSON block in the text (in case the model adds preamble)
             start_idx = result_text.find("{")
             end_idx = result_text.rfind("}")
@@ -331,6 +338,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
                     return cleaned_result
                 except json.JSONDecodeError:
                     logger.error(f"Failed to parse Bedrock JSON: {json_str}")
+            else:
+                logger.error(f"No JSON block found in Bedrock response: {result_text}")
             
             return {}
 
@@ -425,7 +434,7 @@ class SpeakerRecognitionSession:
 
         # Use the first market entity as the target speaker by default
         target_name = self.market_entities[0] if self.market_entities else "Unknown"
-        logger.info(f"Running Bedrock identity inference for target: {target_name}")
+        logger.info(f"Running Bedrock identity inference for target: {target_name} (sid history size: {len(transcript_history)})")
 
         mapping = await self.transcript_recognizer.infer_identity_with_bedrock(
             transcript_history, target_name
@@ -450,7 +459,9 @@ class SpeakerRecognitionSession:
                 if last_3[0] == last_3[1] == last_3[2] and last_3[0]:
                     if any(label in self.market_entities for label in last_3[0].values()):
                         self.is_stable = True
-                        logger.info("Speaker mapping has been stable for 3 rounds with positive identifications. Disabling further inference.")
+                        logger.info("Speaker mapping has been stable for 3 rounds. Disabling further inference.")
+                else:
+                    logger.debug(f"Stability check: history not consistent yet ({len(self.identification_history)} rounds)")
 
         else:
             logger.warning("Identity inference returned no mapping.")

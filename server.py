@@ -194,6 +194,7 @@ class ClientSession:
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
         if self.market.get("speakerEntities"):
+            logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
             self.speaker_recognition_session = SpeakerRecognitionSession(self, self.market.get("speakerEntities"))
             self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
         else:
@@ -234,6 +235,7 @@ class ClientSession:
                 )
 
     async def speaker_recognition_loop(self):
+        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {SPEAKER_RECOGNITION_INTERVAL_SECS}s)")
         try:
             while True:
                 await asyncio.sleep(SPEAKER_RECOGNITION_INTERVAL_SECS)
@@ -250,7 +252,13 @@ class ClientSession:
                     logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
                     await self.speaker_recognition_session.run_identity_inference()
                     self.last_inference_word_count = total_words
+                else:
+                    if total_words >= SPEAKER_RECOGNITION_MAX_WORDS:
+                         logger.debug(f"[{self.session_id}] Speaker recognition max words reached ({total_words})")
+                    else:
+                         logger.debug(f"[{self.session_id}] Not enough new words for inference ({total_words} total, need {self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP})")
         except asyncio.CancelledError:
+            logger.info(f"[{self.session_id}] Speaker recognition loop cancelled")
             pass
         except Exception as e:
             logger.error(f"[{self.session_id}] Error in speaker recognition loop: {e}")
