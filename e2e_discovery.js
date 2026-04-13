@@ -31,23 +31,39 @@ const { HEADLESS } = require("./lib/args");
       defaultViewport: null,
     });
 
-    const zipPromise = (async () => {
-      let detectedZip = "20001";
-      try {
-        logger.info("Detecting location via ipinfo.io...");
-        const response = await fetch("https://ipinfo.io", { signal: AbortSignal.timeout(5000) });
-        if (response.ok) {
-          const ipInfoJson = await response.json();
-          if (ipInfoJson.postal) {
-            detectedZip = ipInfoJson.postal;
-            logger.info(`Detected ZIP: ${detectedZip}`);
+
+    /**
+     * Robust geolocation using multiple providers
+     */
+    const getZipCode = async () => {
+      const providers = [
+        { url: "https://ipinfo.io/json", key: "postal" },
+        { url: "https://ipapi.co/json/", key: "postal" },
+        { url: "http://ip-api.com/json/", key: "zip" }
+      ];
+
+      for (const provider of providers) {
+        try {
+          const resp = await fetch(provider.url, {
+            headers: { 'Accept': 'application/json' },
+            signal: AbortSignal.timeout(3000)
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            if (data[provider.key]) {
+              logger.info(`Detected ZIP: ${data[provider.key]} via ${new URL(provider.url).hostname}`);
+              return data[provider.key];
+            }
           }
+        } catch (e) {
+          logger.warn(`Geolocation provider ${provider.url} failed: ${e.message}`);
         }
-      } catch (err) {
-        logger.warn(`Failed to detect location, using default ZIP ${detectedZip}: ${err.message}`);
       }
-      return detectedZip;
-    })();
+      logger.warn("All geolocation providers failed, using default ZIP 20001");
+      return "20001";
+    };
+
+    const detectedZip = await getZipCode();
 
     const CATEGORIES = [
       "basketball",
@@ -59,39 +75,23 @@ const { HEADLESS } = require("./lib/args");
 
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
-    const [zip, marketsResults, espnResults] = await Promise.all([
-      zipPromise,
+    const [marketsResults, espnResults, amazonResults, tvSchedule] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
-      (async () => {
-        const amazonPath = path.join(cacheDir, "nba_search_results.json");
-        if (!fs.existsSync(amazonPath)) {
-          logger.info("Amazon search results cache missing. Running scraper...");
-          const page = await browser.newPage();
-          try {
-            const results = await scrapeAmazonNBA(page);
-            fs.writeFileSync(amazonPath, JSON.stringify(results, null, 2));
-            logger.info(`Saved ${results.length} Amazon search results.`);
-          } finally {
-            await page.close();
-          }
-        }
-      })(),
+      scrapeAmazonNBA(browser),
+      findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3)
     ]);
 
-    // Now that we have the zip, we can fetch TV schedules (TitanTV needs the ZIP)
-    logger.info(`Fetching TV schedule for ZIP ${zip}...`);
-    const tvSchedule = await findProgramsAcrossZipsAndKeywords([zip], CATEGORIES, browser, 3);
 
     const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
-    const ncaaSchedule = []; // Placeholder for now
 
     // Write to cache
     const cacheWrites = [
       { name: "latest_markets.json", data: freshMarkets },
       { name: "latest_tv_schedule.json", data: tvSchedule },
       { name: "espn_matchups.json", data: espnSchedule },
+      { name: "amazon_nba_search_results.json", data: amazonResults },
     ];
 
     for (const item of cacheWrites) {
