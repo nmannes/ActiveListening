@@ -67,7 +67,7 @@ const unmatchedPath = path.join(__dirname, "cache", "unmatched_markets.json");
 const marketsFile = path.join(__dirname, "cache", "latest_markets.json");
 const tvScheduleFile = path.join(__dirname, "cache", "latest_tv_schedule.json");
 const espnMatchupsFile = path.join(__dirname, "cache", "espn_matchups.json");
-const ncaaScheduleFile = path.join(__dirname, "cache", "ncaa_schedule.json");
+const amazonScheduleFile = path.join(__dirname, "cache", "nba_search_results.json");
 
 if (!fs.existsSync(marketsFile)) {
   console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
@@ -77,21 +77,21 @@ if (!fs.existsSync(marketsFile)) {
 const rawMarkets = JSON.parse(fs.readFileSync(marketsFile, "utf8"));
 const tvSchedule = fs.existsSync(tvScheduleFile) ? JSON.parse(fs.readFileSync(tvScheduleFile, "utf8")) : [];
 const espnSchedule = fs.existsSync(espnMatchupsFile) ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8")) : [];
-const ncaaSchedule = fs.existsSync(ncaaScheduleFile) ? JSON.parse(fs.readFileSync(ncaaScheduleFile, "utf8")) : [];
+const amazonSchedule = fs.existsSync(amazonScheduleFile) ? JSON.parse(fs.readFileSync(amazonScheduleFile, "utf8")) : [];
 
 const configuredMarkets = rawMarkets.map((m) => applyWordConfigurations(m));
 const allResults = matchDiscoveryEvents(
   configuredMarkets,
   tvSchedule,
   espnSchedule,
-  ncaaSchedule,
+  amazonSchedule,
 );
 
 const matchedMatches = allResults.filter(
-  (m) => m.tvEvent || m.espnEvent || m.ncaaEvent || m.market.mediaStreamURL,
+  (m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL,
 );
 const unmatchedMarkets = allResults.filter(
-  (m) => !m.tvEvent && !m.espnEvent && !m.ncaaEvent && !m.market.mediaStreamURL,
+  (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
 );
 
 fs.writeFileSync(matchedPath, JSON.stringify(matchedMatches, null, 2));
@@ -102,11 +102,11 @@ const speakersPath = path.join(__dirname, "speakers.md");
 const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
 const tableHeader = "| HasMediaSource | Date | Time | Title |\n| :--- | :--- | :--- | :--- |\n";
 const tableRows = sortedResults.map((result) => {
-  const { market, tvEvent, espnEvent, ncaaEvent } = result;
+  const { market, tvEvent, espnEvent } = result;
   const startTimeVal = result.startTime || market?.eventStartTime || "T";
   const [date, fullTime] = startTimeVal.split("T");
   const title = (market?.title || "N/A").replace("Announcers at ", "");
-  const hasMediaSource = !!(tvEvent || espnEvent || ncaaEvent || market.mediaStreamURL);
+  const hasMediaSource = !!(tvEvent || espnEvent || market.mediaStreamURL);
 
   return [
     "",

@@ -2,26 +2,17 @@ const fs = require("fs");
 const { fetchOpenMarkets } = require("./lib/discover_markets.js");
 const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
 const { scrapeESPNMatchups } = require("./lib/league_schedule_scraping.js");
-const { matchDiscoveryEvents } = require("./lib/discovery_matcher.js");
 const logger = require("./lib/logger");
-const { applyWordConfigurations } = require("./lib/word_configurations.js");
 const path = require("path");
-const _ = require("lodash");
+const { scrapeAmazonNBA } = require("./lib/scrape_amazon_video");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
 
-/**
- * Checks if a file exists and is not expired based on TTL.
- * @param {string} filePath - Path to the file.
- * @param {number} ttlMs - TTL in milliseconds.
- * @returns {boolean} - True if file exists and is not expired.
- */
-function isFileExpired(filePath, ttlMs) {
-  if (!fs.existsSync(filePath)) return true;
-  const stats = fs.statSync(filePath);
-  const age = Date.now() - stats.ctimeMs;
-  return age > ttlMs;
-}
+const { HEADLESS } = require("./lib/args");
 
 (async () => {
+  let browser;
   try {
     const cacheDir = path.join(__dirname, "cache");
     if (!fs.existsSync(cacheDir)) {
@@ -32,6 +23,13 @@ function isFileExpired(filePath, ttlMs) {
     if (!fs.existsSync(marketCacheDir)) {
       fs.mkdirSync(marketCacheDir, { recursive: true });
     }
+
+    browser = await puppeteer.launch({
+      executablePath: "/usr/bin/google-chrome",
+      headless: HEADLESS,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-minimized"],
+      defaultViewport: null,
+    });
 
     const zipPromise = (async () => {
       let detectedZip = "20001";
@@ -63,13 +61,27 @@ function isFileExpired(filePath, ttlMs) {
     logger.info("Starting parallel data fetching...");
     const [zip, marketsResults, espnResults] = await Promise.all([
       zipPromise,
-      fetchOpenMarkets(),
-      scrapeESPNMatchups(),
+      fetchOpenMarkets(browser),
+      scrapeESPNMatchups(browser),
+      (async () => {
+        const amazonPath = path.join(cacheDir, "nba_search_results.json");
+        if (!fs.existsSync(amazonPath)) {
+          logger.info("Amazon search results cache missing. Running scraper...");
+          const page = await browser.newPage();
+          try {
+            const results = await scrapeAmazonNBA(page);
+            fs.writeFileSync(amazonPath, JSON.stringify(results, null, 2));
+            logger.info(`Saved ${results.length} Amazon search results.`);
+          } finally {
+            await page.close();
+          }
+        }
+      })(),
     ]);
 
     // Now that we have the zip, we can fetch TV schedules (TitanTV needs the ZIP)
     logger.info(`Fetching TV schedule for ZIP ${zip}...`);
-    const tvSchedule = await findProgramsAcrossZipsAndKeywords([zip], CATEGORIES);
+    const tvSchedule = await findProgramsAcrossZipsAndKeywords([zip], CATEGORIES, browser, 3);
 
     const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
@@ -80,13 +92,12 @@ function isFileExpired(filePath, ttlMs) {
       { name: "latest_markets.json", data: freshMarkets },
       { name: "latest_tv_schedule.json", data: tvSchedule },
       { name: "espn_matchups.json", data: espnSchedule },
-      { name: "ncaa_schedule.json", data: ncaaSchedule },
     ];
 
     for (const item of cacheWrites) {
       const filePath = path.join(cacheDir, item.name);
       fs.writeFileSync(filePath, JSON.stringify(item.data, null, 2));
-      logger.info(`Saved ${item.name}`);
+      logger.info(`Saved ${item.data.length} records to ${item.name}`);
     }
 
     const earningsWithSource = freshMarkets.filter((m) => {
@@ -102,7 +113,7 @@ function isFileExpired(filePath, ttlMs) {
       cacheDir,
       "earnings_calls_with_source.json",
     );
-    
+
     fs.writeFileSync(
       earningsWithSourcePath,
       JSON.stringify(earningsWithSource, null, 2),
@@ -115,5 +126,7 @@ function isFileExpired(filePath, ttlMs) {
     );
   } catch (err) {
     logger.error(`Fatal execution error: ${err.message}`);
+  } finally {
+    if (browser) await browser.close();
   }
 })();

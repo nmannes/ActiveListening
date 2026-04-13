@@ -19,7 +19,7 @@ const mockMarkets = [
 
 const mockTvEvents = [];
 const mockEspnEvents = [];
-const mockNcaaEvents = [];
+const mockAmazonData = [];
 
 console.log("Testing matchDiscoveryEvents logging...");
-matchDiscoveryEvents(mockMarkets, mockTvEvents, mockEspnEvents, mockNcaaEvents);
+matchDiscoveryEvents(mockMarkets, mockTvEvents, mockEspnEvents, mockAmazonData);
