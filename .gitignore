@@ -31,3 +31,5 @@ cache/
 market_tracking/
 
 *.lock
+
+speakers.md
