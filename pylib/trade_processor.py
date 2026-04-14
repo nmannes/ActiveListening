@@ -122,7 +122,9 @@ class TradeProcessor:
                     msg = (
                         f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
                         f"Ticker: {matched['value']}\n"
+                        f"Word: {matched['key']}\n"
                         f"Result: {order_result}"
+
                     )
                     asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
