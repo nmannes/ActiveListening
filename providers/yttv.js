@@ -13,6 +13,7 @@ const { spawn } = require("child_process");
 const WebSocket = require("ws");
 const fs = require("fs");
 const path = require("path");
+const { executablePath } = require("puppeteer");
 
 puppeteer.use(StealthPlugin());
 
@@ -84,25 +85,9 @@ function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
   return ffmpeg;
 }
 
-async function runYTTVCapture() {
+async function runYTTVCapture(page) {
   _logger.info(`[yttv] Launching Puppeteer for YouTube TV...`);
 
-  const executablePath = "/usr/bin/google-chrome";
-
-  browser = await puppeteer.launch({
-    executablePath,
-    headless: HEADLESS, // Often required for YTTV to avoid detection/DRM issues
-    args: [
-      "--start-maximized",
-      "--autoplay-policy=no-user-gesture-required",
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-web-security",
-    ],
-  });
-
-  const page = await browser.newPage();
 
   // Expose audio chunk handler
   await page.exposeFunction("sendAudioChunk", (base64Data) => {
@@ -228,11 +213,29 @@ module.exports = {
     _streamUrl = streamUrl;
     _isStopped = false;
 
+    const browser = await puppeteer.launch({
+      executablePath: "/usr/bin/google-chrome",
+      headless: HEADLESS,
+      args: [
+        "--start-maximized",
+        "--autoplay-policy=no-user-gesture-required",
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-web-security",
+      ],
+    });
+
+    const page = await browser.newPage();
+
+
     try {
-      await runYTTVCapture();
+      await runYTTVCapture(page);
     } catch (e) {
       _logger.error(`[yttv] Failed to start YTTV capture: ${e.message}`);
       throw e;
+    } finally {
+      //
     }
   },
 
