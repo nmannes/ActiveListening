@@ -202,6 +202,21 @@ async function runYTTVCapture(page) {
 
   return page;
 }
+async function latencyReduction(page, logger, timeout = 5000) {
+  try {
+    await new Promise((r) => setTimeout(r, timeout)); // wait for the stream to start
+    logger.info(`[yttv] Stream started, attempting to reduce latency...`);
+
+    const keys = ["s", "Enter", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "Enter"];
+    for (const key of keys) {
+      await page.keyboard.press(key);
+      await new Promise((r) => setTimeout(r, Math.random() * 800 + 200));
+    }
+    logger.info(`[yttv] Latency reduction sequence completed.`);
+  } catch (e) {
+    logger.warn(`[yttv] Could not automatically reduce latency: ${e.message}`);
+  }
+}
 
 module.exports = {
   name: "yttv",
@@ -235,7 +250,7 @@ module.exports = {
       _logger.error(`[yttv] Failed to start YTTV capture: ${e.message}`);
       throw e;
     } finally {
-      //
+      await latencyReduction(page, logger)
     }
   },
 
