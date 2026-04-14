@@ -62,6 +62,7 @@ class Config:
         self.buy_count = getattr(args, "buy_count", 1)
         self.last_words_count = getattr(args, "last_words_count", 7)
         self.content_profile = getattr(args, "content_profile", "basketball")
+        self.local = getattr(args, "local", False)
 
         # Load env file
         env_files = [
@@ -297,7 +298,8 @@ class TradingServer:
             self.active_sessions.remove(session)
 
     async def start(self):
-        logger.info(f"WebSocket server listening on port {self.config.port}")
+        listen_host = "127.0.0.1" if self.config.local else "0.0.0.0"
+        logger.info(f"WebSocket server listening on {listen_host}:{self.config.port}")
         self.stop_event = asyncio.Event()
 
         # Register signal handlers for graceful shutdown
@@ -315,9 +317,10 @@ class TradingServer:
         msg = f"🚀 Kalshi server started on {hostname}\nEnv: {self.config.env}\nPort: {self.config.port}"
         asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
+        logger.info(f"Starting server on {listen_host}:{self.config.port}")
         async with websockets.serve(
             self.handle_client,
-            "0.0.0.0",
+            listen_host,
             self.config.port,
             ping_interval=None,
             max_size=None,
@@ -379,6 +382,11 @@ async def main():
         type=str,
         default="basketball",
         help="CLIP content profile (default: basketball)",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Listen on 127.0.0.1 only (default: 0.0.0.0)",
     )
 
     args = parser.parse_args()

@@ -44,6 +44,7 @@ Options:
   --url <stream-url>        Media stream URL
   --ip <ip>                 Remote server IP
   --server <ws://host:port> Remote WebSocket URL
+  --local                   Connect to 127.0.0.1 (skips discovery)
   --matchJSON <json|base64> Market data as JSON or base64
   --fromFile <file.json>    Market data from file
   --duration <minutes>      Auto-shutdown after N minutes (default 90)
@@ -58,16 +59,21 @@ Options:
 // ── Remote IP discovery ──────────────────────────────────────────────
 let REMOTE_IP_ADDRESS = args.ip;
 
-try {
-  logger.info("Discovery: Attempting to find running Kalshi worker...");
-  REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  }).trim();
-  logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
-} catch (e) {
-  logger.warn("Discovery: No running worker found via discover_instance.sh");
-  REMOTE_IP_ADDRESS = null;
+if (args.local) {
+  logger.info("Local mode: Using 127.0.0.1 (skipping discovery)");
+  REMOTE_IP_ADDRESS = "127.0.0.1";
+} else if (!REMOTE_IP_ADDRESS) {
+  try {
+    logger.info("Discovery: Attempting to find running Kalshi worker...");
+    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+  } catch (e) {
+    logger.warn("Discovery: No running worker found via discover_instance.sh");
+    REMOTE_IP_ADDRESS = null;
+  }
 }
 
 if (!REMOTE_IP_ADDRESS) {

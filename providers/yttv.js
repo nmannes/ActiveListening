@@ -128,8 +128,6 @@ async function runYTTVCapture() {
   // Run site handlers (e.g., for clicking play)
   await runSiteHandlers(_streamUrl, page, _logger);
 
-  _logger.info(`[yttv] Starting audio capture...`);
-  setupAudioTranscoder();
 
   await page.evaluate(() => {
     let captureStarted = false;
