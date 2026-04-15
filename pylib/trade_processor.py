@@ -109,16 +109,16 @@ class TradeProcessor:
 
                 if self.session.server.config.trade_for_real:
 
-                    trading_disabled = self.session.market.get("tradingDisabled", False)
-                    if trading_disabled:
+                    order_amount = self.session.market.get("orderAmount", 0)
+                    if order_amount <= 0:
                         logger.info(
-                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because trading is disabled"
+                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because orderAmount is {order_amount}"
                         )
                         continue
                     logger.info(
-                        f"[{self.session.session_id}][TRADE] Placing order for {speaker_id}: \"{matched['key']}\""
+                        f"[{self.session.session_id}][TRADE] Placing order for {speaker_id}: \"{matched['key']}\" (orderAmount={order_amount})"
                     )
-                    order_result = await self.place_order(matched)
+                    order_result = await self.place_order(matched, order_amount=order_amount)
                     remove_market_from_index(
                         self.session.keyword_index, matched["value"]
                     )
@@ -181,7 +181,7 @@ class TradeProcessor:
             except websockets.exceptions.ConnectionClosed:
                 pass
 
-    async def place_order(self, matched):
+    async def place_order(self, matched, order_amount=None):
         order_result = None
         try:
             # Check if there are specific word configurations
@@ -196,7 +196,9 @@ class TradeProcessor:
             purchase_count = int(
                 word_config.get(
                     "purchaseCount",
-                    self.session.market.get(
+                    order_amount
+                    if order_amount is not None
+                    else self.session.market.get(
                         "purchaseCount", self.session.server.config.buy_count
                     ),
                 )
