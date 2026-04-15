@@ -25,6 +25,9 @@ let _streamUrl = null;
 let _isStopped = false;
 let _retryTimeout = null;
 
+
+const LATENCY_REDUCTION_INTERVAL = 60_000
+
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
   if (_isStopped) return;
@@ -202,12 +205,15 @@ async function runYTTVCapture(page) {
 
   return page;
 }
-async function latencyReduction(page, logger, timeout = 5000) {
+async function latencyReduction(page, logger, count, timeout = 5000) {
   try {
     await new Promise((r) => setTimeout(r, timeout)); // wait for the stream to start
     logger.info(`[yttv] Stream started, attempting to reduce latency...`);
 
-    const keys = ["s", "Enter", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "Enter"];
+    let keys = ["s", "Enter", "ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown", "Enter", "s"];
+    if (count > 2) {
+      keys = ["s", "Enter", "ArrowDown", "ArrowDown", "Enter", "s"];
+    }
     for (const key of keys) {
       await page.keyboard.press(key);
       await new Promise((r) => setTimeout(r, Math.random() * 800 + 200));
@@ -250,7 +256,10 @@ module.exports = {
       _logger.error(`[yttv] Failed to start YTTV capture: ${e.message}`);
       throw e;
     } finally {
-      await latencyReduction(page, logger)
+      let count = 0
+      setInterval(async () => {
+        await latencyReduction(page, logger, count)
+      }, LATENCY_REDUCTION_INTERVAL)
     }
   },
 
