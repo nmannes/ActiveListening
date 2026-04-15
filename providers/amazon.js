@@ -194,7 +194,7 @@ async function runAmazonCapture() {
   await page.goto(_streamUrl, { waitUntil: "networkidle2", timeout: 60000 });
 
   // Run site handlers (e.g., for clicking play)
-  await runSiteHandlers(_streamUrl, page, _logger);
+  // await runSiteHandlers(_streamUrl, page, _logger);
 
   _logger.info(`[amazon] Starting system-level audio capture...`);
   setupAudioTranscoder();
