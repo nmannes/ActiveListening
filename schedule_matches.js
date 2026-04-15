@@ -38,7 +38,7 @@ const cleanup = () => {
       const pid = parseInt(fs.readFileSync(lockFile, "utf8"));
       if (pid === process.pid) fs.unlinkSync(lockFile);
     }
-  } catch (e) {}
+  } catch (e) { }
 };
 process.on("exit", cleanup);
 process.on("SIGINT", () => { cleanup(); process.exit(0); });
@@ -50,9 +50,9 @@ process.on("uncaughtException", (err) => {
 });
 
 const args = process.argv.slice(2);
-const dryRun = args.includes("--dry-run");
-const force = args.includes("--force");
-const youtubeOnly = args.includes("--youtube-only");
+const dryRun = args.includes("--dry-run") || args.includes("-d");
+const force = args.includes("--force") || args.includes("-f");
+const youtubeOnly = args.includes("--youtube-only") || args.includes("-yt");
 let lookaheadHours = 168; // 1 week lookahead
 const lookaheadIdx = args.indexOf("--lookahead");
 if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {

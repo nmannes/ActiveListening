@@ -107,7 +107,14 @@ class TradeProcessor:
                     )
                     continue
 
-                if self.session.server.config.trade_for_real and not self.session.market.get("tradingDisabled", False):
+                if self.session.server.config.trade_for_real:
+
+                    trading_disabled = self.session.market.get("tradingDisabled", False)
+                    if trading_disabled:
+                        logger.info(
+                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because trading is disabled"
+                        )
+                        continue
                     logger.info(
                         f"[{self.session.session_id}][TRADE] Placing order for {speaker_id}: \"{matched['key']}\""
                     )
