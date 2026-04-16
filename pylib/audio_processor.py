@@ -175,9 +175,9 @@ class AudioProcessor:
                     inbox_len = len(pcm_data)
                     self.session.audio_inbox.clear()
 
-                # Chunking: send in 16KB pieces (approx 0.5s of audio)
-                # to avoid massive WebSocket frames and allow event loop to breathe
-                chunk_len = 16000
+                # Chunking: send in ~3KB pieces (approx 100ms of audio)
+                # Smaller chunks = faster partial results from Deepgram
+                chunk_len = 3200
                 if inbox_len > 0:
                     logger.debug(f"[{self.session.session_id}][AUDIO_SENDER] Draining {inbox_len} bytes from inbox")
                 
@@ -252,11 +252,7 @@ class AudioProcessor:
 
                 if msg_type == "Results":
                     is_final = data.get("is_final", False)
-                    # We process final results for highest accuracy
-                    if not is_final:
-                        continue
 
-                    self.total_results_received += 1
                     channel = data.get("channel", {})
                     alternatives = channel.get("alternatives", [])
                     if not alternatives:
@@ -280,15 +276,23 @@ class AudioProcessor:
                     # Extract speaker from first word if diarized
                     speaker_id = str(words[0].get("speaker", "0"))
 
-                    # Extract per-speaker audio from PCM buffer
-                    self._write_speaker_audio(
-                        speaker_id, words[0]["start"], words[-1]["end"]
-                    )
-
+                    # Process tokens for keyword detection on BOTH interim and final
+                    # results — interim fires hundreds of ms before final
                     if self.on_tokens_callback:
                         await self.on_tokens_callback(
                             formatted_tokens, speaker_id=speaker_id
                         )
+
+                    # Only do recording/logging on final results to avoid duplicates
+                    if not is_final:
+                        continue
+
+                    self.total_results_received += 1
+
+                    # Extract per-speaker audio from PCM buffer
+                    self._write_speaker_audio(
+                        speaker_id, words[0]["start"], words[-1]["end"]
+                    )
 
                     # Log transcript segment
                     transcript_text = alt.get("transcript", "").strip()
