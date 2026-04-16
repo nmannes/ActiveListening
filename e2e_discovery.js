@@ -71,6 +71,7 @@ const { HEADLESS } = require("./lib/args");
       "saturday night live",
       "survivor",
       "meet the press",
+      "the last word",
     ];
 
     // Fetch data in parallel
