@@ -67,7 +67,7 @@ const unmatchedPath = path.join(__dirname, "cache", "unmatched_markets.json");
 const marketsFile = path.join(__dirname, "cache", "latest_markets.json");
 const tvScheduleFile = path.join(__dirname, "cache", "latest_tv_schedule.json");
 const espnMatchupsFile = path.join(__dirname, "cache", "espn_matchups.json");
-const amazonScheduleFile = path.join(__dirname, "cache", "nba_search_results.json");
+const amazonScheduleFile = path.join(__dirname, "cache", "amazon_nba_search_results.json");
 
 if (!fs.existsSync(marketsFile)) {
   console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
