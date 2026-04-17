@@ -41,9 +41,9 @@ function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
     "-flags",
     "low_delay",
     "-probesize",
-    "5000000",
+    "32000",
     "-analyzeduration",
-    "5000000",
+    "100000",
     "-i",
     inputUrl,
     "-f",
@@ -98,6 +98,21 @@ async function runYTTVCapture(page) {
       const buffer = Buffer.from(base64Data, "base64");
       ffmpegProc.stdin.write(buffer);
     }
+  });
+
+  // ── Manifest Interception Strategy (Experimental) ──────────────────
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    const url = request.url();
+    if (url.includes("/manifest/dash/")) {
+      const headers = request.headers();
+      _logger.info(`[yttv] DASH manifest found: ${url}`);
+      _logger.debug(`[yttv] Manifest headers: ${JSON.stringify(headers)}`);
+
+      // We could potentially stop the browser here and restart FFmpeg with this URL
+      // if we were confident FFmpeg could handle the auth.
+    }
+    request.continue();
   });
 
   // Load cookies
@@ -202,9 +217,9 @@ async function runYTTVCapture(page) {
       }
     }
   });
-
   return page;
 }
+
 async function latencyReduction(page, logger, count, timeout = 5000) {
   try {
     await new Promise((r) => setTimeout(r, timeout)); // wait for the stream to start
