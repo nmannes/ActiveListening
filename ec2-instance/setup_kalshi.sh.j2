@@ -9,8 +9,18 @@ echo "Starting setup_kalshi.sh at $(date)"
 STACK_NAME="${AWS::StackName}"
 REGION="${AWS::Region}"
 
-echo "Warning: AWS_STACK_NAME not found, falling back to shutdown."
-sudo shutdown -h +${ShutdownMinutes}
+if [ -z "$STACK_NAME" ]; then
+    echo "Warning: AWS_STACK_NAME not found, falling back to basic shutdown timer."
+    sudo shutdown -h +${ShutdownMinutes}
+fi
+
+
+curl -fsSL https://bun.sh/install | bash
+
+echo 'export BUN_INSTALL="$HOME/.bun"' >> ~/.bashrc
+echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> ~/.bashrc
+
+source ~/.bashrc
 
 if ! command -v ffmpeg &> /dev/null; then
     echo "Installing FFmpeg..."
@@ -23,6 +33,21 @@ if ! command -v ffmpeg &> /dev/null; then
     rm -rf ffmpeg_tmp ffmpeg.tar.xz
 fi
 
+set -a            # Turn on auto-export
+cd /home/ec2-user
+source .env       # Load the file
+set +a            # Turn off auto-export
+
+git clone "https://oauth2:${!GITLAB_TOKEN}@gitlab.com/nmannes/kalshi.git"
+
+cd kalshi
+
+git checkout all-in-aws
+
+pip3 install --no-cache-dir -r requirements.txt
+bun install
+
+
 # Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
 mkdir -p /home/ec2-user/pip_tmp
 export TMPDIR=/home/ec2-user/pip_tmp
@@ -32,12 +57,4 @@ export TMPDIR=/home/ec2-user/pip_tmp
 pip3 install --no-cache-dir open-clip-torch \
     --index-url https://download.pytorch.org/whl/cpu
 
-# Install the rest of the requirements from PyPI
-pip3 install --no-cache-dir -r /home/ec2-user/requirements.txt
-
 rm -rf /home/ec2-user/pip_tmp
-
-DEVICE="cpu"
-if ! grep -q "export DEVICE=$DEVICE" /home/ec2-user/.bashrc; then
-    echo "export DEVICE=$DEVICE" >> /home/ec2-user/.bashrc
-fi

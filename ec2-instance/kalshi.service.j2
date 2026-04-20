@@ -7,7 +7,7 @@ Type=simple
 User=ec2-user
 WorkingDirectory=/home/ec2-user
 EnvironmentFile=/home/ec2-user/.env
-ExecStart=/usr/bin/python3 /home/ec2-user/server.py --env ${Environment} --port 8090
+ExecStart=/usr/bin/python3 /home/ec2-user/kalshi/server.py --env ${Environment} --port 8090
 Restart=always
 RestartSec=5
 

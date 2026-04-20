@@ -22,6 +22,10 @@ Parameters:
     Default: us-east-1
   OperatorIp:
     Type: String
+  OperatorIpVersion:
+    Type: String
+    Default: IPv4
+    AllowedValues: [IPv4, IPv6]
   AmiId:
     Type: String
     Default: ami-0bbf3a5a5f8ea3603
@@ -34,10 +38,20 @@ Parameters:
   KalshiPrivateKey:
     Type: String
     NoEcho: true
+  EnvContent:
+    Type: String
+    NoEcho: true
+    Default: ""
+  RequirementsContent:
+    Type: String
+    NoEcho: true
+    Default: ""
 
 Conditions:
   UseSpotInstances: !Equals [!Ref UseSpot, 'true']
   HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
+  IsIpv6: !Equals [ !Ref OperatorIpVersion, "IPv6" ]
+  IsIpv4: !Not [ !Condition IsIpv6 ]
 
 Mappings:
   EnvToInstanceType:
@@ -56,11 +70,13 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !Ref OperatorIp
+          CidrIp: !If [ IsIpv4, !Ref OperatorIp, !Ref "AWS::NoValue" ]
+          CidrIpv6: !If [ IsIpv6, !Ref OperatorIp, !Ref "AWS::NoValue" ]
         - IpProtocol: tcp
           FromPort: 8090
           ToPort: 8090
-          CidrIp: !Ref OperatorIp
+          CidrIp: !If [ IsIpv4, !Ref OperatorIp, !Ref "AWS::NoValue" ]
+          CidrIpv6: !If [ IsIpv6, !Ref OperatorIp, !Ref "AWS::NoValue" ]
 
   KalshiWorkerInstance:
     Type: AWS::EC2::Instance
@@ -73,11 +89,11 @@ Resources:
               python3-pip: []
               amazon-cloudwatch-agent: []
               libsndfile: []
+              unzip: []
 
           files:
             "/home/ec2-user/.env":
-              content: !Sub |
-{{ env_content | indent(16, true) | default('# missing env content') }}
+              content: !Ref EnvContent
               mode: "000600"
               owner: "ec2-user"
               group: "ec2-user"
@@ -86,36 +102,15 @@ Resources:
               mode: "000600"
               owner: "ec2-user"
               group: "ec2-user"
-            "/home/ec2-user/requirements.txt":
-              content: |
-{{ requirements_txt | indent(16, true) | default('# missing requirements') }}
-              mode: "000644"
-              owner: "ec2-user"
-              group: "ec2-user"
-{% for filename, content in pylib_files.items() %}
-            "/home/ec2-user/pylib/{{ filename }}":
-              content: |
-{{ content | indent(16, true) }}
-              mode: "000644"
-              owner: ec2-user
-              group: ec2-user
-{% endfor %}
-            "/home/ec2-user/server.py":
-              content: |
-{{ server_py | indent(16, true) | default('# missing') }}
-              mode: "000755"
-              owner: ec2-user
-              group: ec2-user
             "/home/ec2-user/setup_kalshi.sh":
               content: !Sub |
-{{ setup_kalshi_sh | indent(16, true) }}
+                {{ setup_kalshi_sh | indent(16) }}
               mode: "000755"
               owner: ec2-user
               group: ec2-user
             "/etc/systemd/system/kalshi.service":
               content: !Sub |
-{{ kalshi_service | indent(16, true) }}
-
+                {{ kalshi_service | indent(16) }}
               mode: "000644"
               owner: root
               group: root
@@ -160,7 +155,7 @@ Resources:
             02_start_cw_agent:
               command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
             03_enable_service:
-                command: "systemctl enable --now kalshi"
+              command: "systemctl enable --now kalshi"
 
     Properties:
       ImageId: !Ref AmiId

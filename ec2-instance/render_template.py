@@ -49,74 +49,17 @@ if "--env" in sys.argv:
         env_name = sys.argv[idx + 1]
 
 
-def load_env_file(env_name):
-    env_file = os.path.join(template_dir, "..", f".env.{env_name}")
-    if not os.path.exists(env_file):
-        return "# missing env file"
-
-    with open(env_file, "r") as f:
-        lines = f.readlines()
-
-    processed_lines = []
-    for line in lines:
-        if line.startswith("KALSHI_KEY_ID="):
-            processed_lines.append("KALSHI_KEY_ID=${KalshiKeyId}\n")
-        elif line.startswith("KALSHI_ENV="):
-            processed_lines.append("KALSHI_ENV=${Environment}\n")
-        elif line.startswith("KALSHI_BASE_DOMAIN="):
-            processed_lines.append(
-                'KALSHI_BASE_DOMAIN=${!If [!Equals [!Ref Environment, "prod"], "https://api.elections.kalshi.com/trade-api/v2", "https://demo-api.kalshi.co/trade-api/v2"]}\n'
-            )
-        elif line.startswith("KALSHI_PRIVATE_KEY_PATH="):
-            processed_lines.append(
-                "KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt\n"
-            )
-        else:
-            processed_lines.append(line)
-    return "".join(processed_lines)
-
-
 context = {
-    "server_py": load_file("../server.py"),
     "setup_kalshi_sh": load_file("setup_kalshi.sh.j2"),
     "kalshi_service": load_file("kalshi.service.j2"),
-    "requirements_txt": load_file("../requirements.txt"),
-    "env_content": load_env_file(env_name),
 }
 
-pylib_dir = os.path.join(template_dir, "..", "pylib")
-pylib_files = {}
-
-# Load all files in pylib (excluding __pycache__ and subdirectories)
-if os.path.isdir(pylib_dir):
-    for fname in sorted(os.listdir(pylib_dir)):
-        if fname == "__pycache__" or os.path.isdir(os.path.join(pylib_dir, fname)):
-            continue
-            
-        var_name = f"pylib_{fname.replace('.', '_')}"
-        with open(os.path.join(pylib_dir, fname), "r") as f:
-            content = f.read()
-            # Ensure __init__.py isn't empty to avoid CloudFormation parser issues
-            if fname == "__init__.py" and not content.strip():
-                content = "# pylib package\n"
-            
-            pylib_files[fname] = content
-            # Keep individual variables for backward compatibility if needed
-            context[var_name] = content
-            print(f"Loaded {fname} ({len(content)} bytes)")
-
-context["pylib_files"] = pylib_files
-
 # Validation - ensure core files and some pylib files are present
-required_core_files = ["server_py", "setup_kalshi_sh", "kalshi_service", "requirements_txt"]
+required_core_files = ["setup_kalshi_sh", "kalshi_service"]
 missing = [v for v in required_core_files if v not in context or not context.get(v)]
 
 if missing:
     print(f"ERROR: Missing or empty required core variables in context: {missing}")
-    sys.exit(1)
-
-if not pylib_files:
-    print("ERROR: No files found in pylib directory")
     sys.exit(1)
 
 template = env.get_template(template_name)

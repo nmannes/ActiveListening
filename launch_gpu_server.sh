@@ -139,6 +139,15 @@ echo "[1/4] Gathering deployment context..."
 MY_IP=$(curl -s https://ifconfig.me)
 echo "Local IP: $MY_IP"
 
+# Detect IP version and set CIDR suffix
+if [[ "$MY_IP" == *:* ]]; then
+    IP_VERSION="IPv6"
+    OPERATOR_CIDR="${MY_IP}/128"
+else
+    IP_VERSION="IPv4"
+    OPERATOR_CIDR="${MY_IP}/32"
+fi
+
 # Load credentials from local env file
 ENV_FILE="$LOCAL_DIR/.env.$ENV"
 if [ ! -f "$ENV_FILE" ]; then
@@ -167,6 +176,21 @@ fi
 
 PRIVATE_KEY_CONTENT=$(cat "$PRIVATE_KEY_PATH")
 
+if [[ "$ENV" == "prod" ]]; then
+    DOMAIN="https://api.elections.kalshi.com/trade-api/v2"
+else
+    DOMAIN="https://demo-api.kalshi.co/trade-api/v2"
+fi
+
+# Process .env content for the instance (masking via NoEcho parameter)
+ENV_CONTENT=$(cat "$ENV_FILE" | \
+    sed "s/^KALSHI_KEY_ID=.*/KALSHI_KEY_ID=$KEY_ID/" | \
+    sed "s/^KALSHI_ENV=.*/KALSHI_ENV=$ENV/" | \
+    sed "s|^KALSHI_PRIVATE_KEY_PATH=.*|KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt|" | \
+    sed "s|^KALSHI_BASE_DOMAIN=.*|KALSHI_BASE_DOMAIN=$DOMAIN|")
+
+REQUIREMENTS_CONTENT=$(cat "$LOCAL_DIR/requirements.txt")
+
 # --- 2. Assemble and Launch Stack ---
 echo "[2/4] Assembling and deploying modular CloudFormation stack..."
 STACK_NAME="kalshi-worker-$RUN_ID"
@@ -193,24 +217,58 @@ fi
 # NOTE: Since 'deploy' is easier for updates, I'll stick with it but add a tip to the user.
 # Actually, let's just make it so the user can easily debug if it fails.
 
-aws cloudformation deploy \
-    --template-file "$TMP_TEMPLATE" \
-    --stack-name "$STACK_NAME" \
-    --region "$REGION" \
-    --parameter-overrides \
-        Environment="$ENV" \
-        InstanceTypeOverride="$INSTANCE_TYPE" \
-        UseSpot="$USE_SPOT" \
-        OperatorIp="${MY_IP}/32" \
-        KeyName="$KEY_NAME" \
-        AmiId="$AMI_ID" \
-        ShutdownMinutes="$SHUTDOWN_MINUTES" \
-        KalshiKeyId="$KEY_ID" \
-        KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
-        S3RecordingsBucket="$RECORDINGS_BUCKET" \
-    --s3-bucket "$S3_BUCKET" \
-    --capabilities CAPABILITY_IAM \
-    --no-fail-on-empty-changeset
+if [[ "$NO_ROLLBACK" == true ]]; then
+    echo "--------------------------------------------------------"
+    echo "DEBUG MODE: --no-rollback enabled."
+    echo "Using 'create-stack' with '--on-failure DO_NOTHING'..."
+    echo "--------------------------------------------------------"
+    
+    aws cloudformation create-stack \
+        --template-body "file://$TMP_TEMPLATE" \
+        --stack-name "$STACK_NAME" \
+        --region "$REGION" \
+        --on-failure DO_NOTHING \
+        --capabilities CAPABILITY_IAM \
+        --parameters \
+            ParameterKey=Environment,ParameterValue="$ENV" \
+            ParameterKey=InstanceTypeOverride,ParameterValue="$INSTANCE_TYPE" \
+            ParameterKey=UseSpot,ParameterValue="$USE_SPOT" \
+            ParameterKey=OperatorIp,ParameterValue="$OPERATOR_CIDR" \
+            ParameterKey=OperatorIpVersion,ParameterValue="$IP_VERSION" \
+            ParameterKey=KeyName,ParameterValue="$KEY_NAME" \
+            ParameterKey=AmiId,ParameterValue="$AMI_ID" \
+            ParameterKey=ShutdownMinutes,ParameterValue="$SHUTDOWN_MINUTES" \
+            ParameterKey=KalshiKeyId,ParameterValue="$KEY_ID" \
+            ParameterKey=KalshiPrivateKey,ParameterValue="$PRIVATE_KEY_CONTENT" \
+            ParameterKey=S3RecordingsBucket,ParameterValue="$RECORDINGS_BUCKET" \
+            ParameterKey=EnvContent,ParameterValue="$ENV_CONTENT" \
+            ParameterKey=RequirementsContent,ParameterValue="$REQUIREMENTS_CONTENT"
+    
+    echo "Waiting for stack creation to finish..."
+    aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$REGION" || true
+else
+    aws cloudformation deploy \
+        --template-file "$TMP_TEMPLATE" \
+        --stack-name "$STACK_NAME" \
+        --region "$REGION" \
+        --parameter-overrides \
+            Environment="$ENV" \
+            InstanceTypeOverride="$INSTANCE_TYPE" \
+            UseSpot="$USE_SPOT" \
+            OperatorIp="$OPERATOR_CIDR" \
+            OperatorIpVersion="$IP_VERSION" \
+            KeyName="$KEY_NAME" \
+            AmiId="$AMI_ID" \
+            ShutdownMinutes="$SHUTDOWN_MINUTES" \
+            KalshiKeyId="$KEY_ID" \
+            KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
+            S3RecordingsBucket="$RECORDINGS_BUCKET" \
+            EnvContent="$ENV_CONTENT" \
+            RequirementsContent="$REQUIREMENTS_CONTENT" \
+        --s3-bucket "$S3_BUCKET" \
+        --capabilities CAPABILITY_IAM \
+        --no-fail-on-empty-changeset
+fi
 
 PROVISION_END_TIME=$(date +%s)
 PROVISION_DURATION=$((PROVISION_END_TIME - PROVISION_START_TIME))
