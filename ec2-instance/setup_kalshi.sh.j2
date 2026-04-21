@@ -44,10 +44,6 @@ git clone "https://oauth2:$GITLAB_TOKEN@gitlab.com/nmannes/kalshi.git"
 
 cd kalshi
 
-git checkout all-in-aws
-
-
-
 # Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
 mkdir -p /home/ec2-user/pip_tmp
 export TMPDIR=/home/ec2-user/pip_tmp
