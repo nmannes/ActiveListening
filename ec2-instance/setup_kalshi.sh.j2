@@ -35,7 +35,7 @@ if ! command -v ffmpeg &> /dev/null; then
 fi
 
 
-
+curl https://intoli.com/install-google-chrome.sh | bash
 
 GITLAB_TOKEN=$(cat .env | grep GITLAB_TOKEN | cut -d'=' -f2)
 

@@ -14,6 +14,7 @@
 
 const path = require("path");
 const { execSync } = require("child_process");
+const net = require("net");
 const fs = require("fs");
 const WebSocket = require("ws");
 const baseLogger = require("./lib/logger");
@@ -75,7 +76,8 @@ if (!REMOTE_IP_ADDRESS) {
   REMOTE_IP_ADDRESS = "127.0.0.1";
 }
 
-const REMOTE_URL = args.server || `ws://${REMOTE_IP_ADDRESS}:8090`;
+const formattedIP = net.isIPv6(REMOTE_IP_ADDRESS) ? `[${REMOTE_IP_ADDRESS}]` : REMOTE_IP_ADDRESS;
+const REMOTE_URL = args.server || `ws://${formattedIP}:8090`;
 
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;

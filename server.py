@@ -317,7 +317,7 @@ class TradingServer:
 
         async with websockets.serve(
             self.handle_client,
-            "0.0.0.0",
+            "::",
             self.config.port,
             ping_interval=None,
             max_size=None,
