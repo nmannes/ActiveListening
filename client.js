@@ -50,6 +50,7 @@ Options:
   --duration <minutes>      Auto-shutdown after N minutes (default 90)
   --purchasePrice <price>   Optional purchase price for market
   --purchaseCount <count>   Optional purchase count for market
+  --local                   Force connection to localhost (skip discovery)
   --listen                  (tv only) Record 30s debug audio locally
   --help                    Show this message
 `);
@@ -59,21 +60,23 @@ Options:
 // ── Remote IP discovery ──────────────────────────────────────────────
 let REMOTE_IP_ADDRESS = args.ip;
 
-try {
-  logger.info("Discovery: Attempting to find running Kalshi worker...");
-  REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "ignore"],
-  }).trim();
-  logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
-} catch (e) {
-  logger.warn("Discovery: No running worker found via discover_instance.sh");
-  REMOTE_IP_ADDRESS = null;
-}
-
-if (!REMOTE_IP_ADDRESS) {
-  logger.warn("Error: Could not determine remote server IP. Using localhost");
-  REMOTE_IP_ADDRESS = "127.0.0.1";
+if (args.local) {
+  logger.info("Local mode: forcing connection to localhost");
+  REMOTE_IP_ADDRESS = "localhost";
+} else if (!REMOTE_IP_ADDRESS) {
+  try {
+    logger.info("Discovery: Attempting to find running Kalshi worker...");
+    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+  } catch (e) {
+    logger.warn(
+      "Discovery: No running worker found via discover_instance.sh. Falling back to localhost.",
+    );
+    REMOTE_IP_ADDRESS = "localhost";
+  }
 }
 
 const formattedIP = net.isIPv6(REMOTE_IP_ADDRESS) ? `[${REMOTE_IP_ADDRESS}]` : REMOTE_IP_ADDRESS;
