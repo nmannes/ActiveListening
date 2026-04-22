@@ -205,7 +205,7 @@ python3 "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" 
 # S3 bucket for template deployment (required for templates > 51KB)
 S3_BUCKET="deploys"
 
-PROVISION_START_TIME=$(date +%s)
+PROVISION_START_TIME_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 ROLLBACK_ARG=""
 if [[ "$NO_ROLLBACK" == true ]]; then
@@ -224,29 +224,70 @@ if [[ "$NO_ROLLBACK" == true ]]; then
     echo "Using 'create-stack' with '--on-failure DO_NOTHING'..."
     echo "--------------------------------------------------------"
     
+    echo "Parameters:"
+    echo "  Environment: $ENV"
+    echo "  InstanceType: $INSTANCE_TYPE"
+    echo "  UseSpot: $USE_SPOT"
+    echo "  OperatorIp: $OPERATOR_CIDR"
+    echo "  KeyName: $KEY_NAME"
+    echo "  AmiId: $AMI_ID"
+    echo "  ShutdownMinutes: $SHUTDOWN_MINUTES"
+    echo "--------------------------------------------------------"
+
+    # Create a temporary JSON file for parameters to handle special characters/newlines robustly
+    PARAMS_JSON_FILE="/tmp/stack_params_$RUN_ID.json"
+    jq -n \
+        --arg env "$ENV" \
+        --arg inst "$INSTANCE_TYPE" \
+        --arg spot "$USE_SPOT" \
+        --arg ip "$OPERATOR_CIDR" \
+        --arg ipv "$IP_VERSION" \
+        --arg key "$KEY_NAME" \
+        --arg ami "$AMI_ID" \
+        --arg shutdown "$SHUTDOWN_MINUTES" \
+        --arg kid "$KEY_ID" \
+        --arg pkey "$PRIVATE_KEY_CONTENT" \
+        --arg s3 "$RECORDINGS_BUCKET" \
+        --arg envc "$ENV_CONTENT" \
+        '[
+            {ParameterKey: "Environment", ParameterValue: $env},
+            {ParameterKey: "InstanceTypeOverride", ParameterValue: $inst},
+            {ParameterKey: "UseSpot", ParameterValue: $spot},
+            {ParameterKey: "OperatorIp", ParameterValue: $ip},
+            {ParameterKey: "OperatorIpVersion", ParameterValue: $ipv},
+            {ParameterKey: "KeyName", ParameterValue: $key},
+            {ParameterKey: "AmiId", ParameterValue: $ami},
+            {ParameterKey: "ShutdownMinutes", ParameterValue: $shutdown},
+            {ParameterKey: "KalshiKeyId", ParameterValue: $kid},
+            {ParameterKey: "KalshiPrivateKey", ParameterValue: $pkey},
+            {ParameterKey: "S3RecordingsBucket", ParameterValue: $s3},
+            {ParameterKey: "EnvContent", ParameterValue: $envc}
+        ]' > "$PARAMS_JSON_FILE"
+
     aws cloudformation create-stack \
         --template-body "file://$TMP_TEMPLATE" \
         --stack-name "$STACK_NAME" \
         --region "$REGION" \
         --on-failure DO_NOTHING \
         --capabilities CAPABILITY_IAM \
-        --parameters \
-            ParameterKey=Environment,ParameterValue="$ENV" \
-            ParameterKey=InstanceTypeOverride,ParameterValue="$INSTANCE_TYPE" \
-            ParameterKey=UseSpot,ParameterValue="$USE_SPOT" \
-            ParameterKey=OperatorIp,ParameterValue="$OPERATOR_CIDR" \
-            ParameterKey=OperatorIpVersion,ParameterValue="$IP_VERSION" \
-            ParameterKey=KeyName,ParameterValue="$KEY_NAME" \
-            ParameterKey=AmiId,ParameterValue="$AMI_ID" \
-            ParameterKey=ShutdownMinutes,ParameterValue="$SHUTDOWN_MINUTES" \
-            ParameterKey=KalshiKeyId,ParameterValue="$KEY_ID" \
-            ParameterKey=KalshiPrivateKey,ParameterValue="$PRIVATE_KEY_CONTENT" \
-            ParameterKey=S3RecordingsBucket,ParameterValue="$RECORDINGS_BUCKET" \
-            ParameterKey=EnvContent,ParameterValue="$ENV_CONTENT" \
-            ParameterKey=RequirementsContent,ParameterValue="$REQUIREMENTS_CONTENT"
+        --parameters "file://$PARAMS_JSON_FILE"
     
-    echo "Waiting for stack creation to finish..."
-    aws cloudformation wait stack-create-complete --stack-name "$STACK_NAME" --region "$REGION" || true
+    echo "Waiting for stack creation to finish (tailing events)..."
+    while true; do
+        STATUS=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --region "$REGION" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo "DELETED")
+        
+        # Clear screen or just print updates? Let's just print updates.
+        # We query for events newer than our start time.
+        aws cloudformation describe-stack-events --stack-name "$STACK_NAME" --region "$REGION" \
+            --query "StackEvents[?Timestamp >= '$PROVISION_START_TIME_ISO'].{Time:Timestamp, Resource:LogicalResourceId, Status:ResourceStatus, Reason:ResourceStatusReason}" \
+            --output table
+            
+        if [[ "$STATUS" == *"_COMPLETE" ]] || [[ "$STATUS" == *"_FAILED" ]]; then
+            echo "Stack creation finished with status: $STATUS"
+            break
+        fi
+        sleep 10
+    done
 else
     aws cloudformation deploy \
         --template-file "$TMP_TEMPLATE" \
@@ -272,10 +313,14 @@ else
 fi
 
 PROVISION_END_TIME=$(date +%s)
-PROVISION_DURATION=$((PROVISION_END_TIME - PROVISION_START_TIME))
+# Note: PROVISION_START_TIME is not set anymore in seconds, so we recreate it or just use end-start if we care.
+# Let's just set PROVISION_START_TIME_SEC for the duration calculation.
+PROVISION_START_TIME_SEC=$(date -d "$PROVISION_START_TIME_ISO" +%s)
+PROVISION_DURATION=$((PROVISION_END_TIME - PROVISION_START_TIME_SEC))
 
 
 rm "$TMP_TEMPLATE"
+[ -f "$PARAMS_JSON_FILE" ] && rm "$PARAMS_JSON_FILE"
 
 
 # --- 3. Get Outputs ---
