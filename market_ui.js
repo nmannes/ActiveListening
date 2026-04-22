@@ -44,6 +44,7 @@ app.get("/api/markets", (req, res) => {
         );
 
         function getStreamInfo(m) {
+            // Priority 1: Market defined URL (often from manual override or market metadata)
             if (m.market.mediaStreamURL) {
                 for (const [name, url] of Object.entries(CHANNEL_MAPPINGS)) {
                     if (url === m.market.mediaStreamURL) return { url: m.market.mediaStreamURL, name };
@@ -51,6 +52,23 @@ app.get("/api/markets", (req, res) => {
                 return { url: m.market.mediaStreamURL, name: "Custom URL" };
             }
 
+            // Priority 2: Normalized mediaSources (already prioritized in discovery_matcher.js)
+            if (m.mediaSources && m.mediaSources.length > 0) {
+                const bestSource = m.mediaSources[0];
+                let name = bestSource.name;
+                
+                // Try to get a prettier name from CHANNEL_MAPPINGS if it's a URL we recognize
+                for (const [mappedName, url] of Object.entries(CHANNEL_MAPPINGS)) {
+                    if (url === bestSource.url) {
+                        name = mappedName;
+                        break;
+                    }
+                }
+                
+                return { url: bestSource.url, name: name };
+            }
+
+            // Fallback for legacy data (if any remains)
             let url = m.tvEvent?.channelURL || m.espnEvent?.gameLink || null;
             let name = m.tvEvent?.station || (m.espnEvent?.gameLink ? "Prime Video" : null);
 
