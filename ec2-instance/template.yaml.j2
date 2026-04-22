@@ -104,14 +104,12 @@ Resources:
               mode: "000755"
               owner: ubuntu
               group: ubuntu
-{#
             "/etc/systemd/system/kalshi.service":
               content: !Sub |
                 {{ kalshi_service | indent(16) }}
               mode: "000644"
               owner: root
               group: root
-#}
             "/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json":
               content: !Sub |
                 {
@@ -158,8 +156,8 @@ Resources:
             04_run_setup:
               command: "su - ubuntu -c '/home/ubuntu/setup_kalshi.sh' && touch /home/ubuntu/.setup_done"
               test: "test ! -f /home/ubuntu/.setup_done"
-#            05_enable_service:
-#              command: "systemctl enable --now kalshi"
+            05_enable_service:
+              command: "systemctl enable --now kalshi"
 
     Properties:
       ImageId: !Ref AmiId
