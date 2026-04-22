@@ -48,6 +48,8 @@ ENV="demo"
 INSTANCE_TYPE_ARG=""
 USE_SPOT=false
 SHUTDOWN_MINUTES=45
+REMOTE_USER="ubuntu"
+REMOTE_DIR="/home/ubuntu"
 
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
@@ -82,9 +84,8 @@ if [[ "$USE_SPOT" == true ]]; then
 fi
 
 RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
-REMOTE_DIR="/home/ec2-user"
 
-echo "Deploying to environment: $ENV"
+echo "Deploying to environment: $ENV (Ubuntu)"
 
 # --- 0. Check for existing instance (Locked) ---
 mkdir -p "$LOCAL_DIR/locks"
@@ -186,7 +187,7 @@ fi
 ENV_CONTENT=$(cat "$ENV_FILE" | \
     sed "s/^KALSHI_KEY_ID=.*/KALSHI_KEY_ID=$KEY_ID/" | \
     sed "s/^KALSHI_ENV=.*/KALSHI_ENV=$ENV/" | \
-    sed "s|^KALSHI_PRIVATE_KEY_PATH=.*|KALSHI_PRIVATE_KEY_PATH=/home/ec2-user/private_key.txt|" | \
+    sed "s|^KALSHI_PRIVATE_KEY_PATH=.*|KALSHI_PRIVATE_KEY_PATH=$REMOTE_DIR/private_key.txt|" | \
     sed "s|^KALSHI_BASE_DOMAIN=.*|KALSHI_BASE_DOMAIN=$DOMAIN|")
 
 REQUIREMENTS_CONTENT=$(cat "$LOCAL_DIR/requirements.txt")

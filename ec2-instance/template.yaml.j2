@@ -89,22 +89,22 @@ Resources:
               unzip: []
 
           files:
-            "/home/ec2-user/.env":
+            "/home/ubuntu/.env":
               content: !Ref EnvContent
               mode: "000600"
-              owner: "ec2-user"
-              group: "ec2-user"
-            "/home/ec2-user/private_key.txt":
+              owner: "ubuntu"
+              group: "ubuntu"
+            "/home/ubuntu/private_key.txt":
               content: !Ref KalshiPrivateKey
               mode: "000600"
-              owner: "ec2-user"
-              group: "ec2-user"
-            "/home/ec2-user/setup_kalshi.sh":
+              owner: "ubuntu"
+              group: "ubuntu"
+            "/home/ubuntu/setup_kalshi.sh":
               content: !Sub |
                 {{ setup_kalshi_sh | indent(16) }}
               mode: "000755"
-              owner: ec2-user
-              group: ec2-user
+              owner: ubuntu
+              group: ubuntu
             "/etc/systemd/system/kalshi.service":
               content: !Sub |
                 {{ kalshi_service | indent(16) }}
@@ -125,13 +125,13 @@ Resources:
                             "retention_in_days": 7
                           },
                           {
-                            "file_path": "/home/ec2-user/logs/remote_server.log",
+                            "file_path": "/home/ubuntu/logs/remote_server.log",
                             "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/remote_server",
                             "retention_in_days": 7
                           },
                           {
-                            "file_path": "/home/ec2-user/logs/setup_trace.log",
+                            "file_path": "/home/ubuntu/logs/setup_trace.log",
                             "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/setup_trace",
                             "retention_in_days": 7
@@ -147,8 +147,8 @@ Resources:
 
           commands:
             01_run_setup:
-              command: "su - ec2-user -c '/home/ec2-user/setup_kalshi.sh' && touch /home/ec2-user/.setup_done"
-              test: "test ! -f /home/ec2-user/.setup_done"
+              command: "su - ubuntu -c '/home/ubuntu/setup_kalshi.sh' && touch /home/ubuntu/.setup_done"
+              test: "test ! -f /home/ubuntu/.setup_done"
             02_start_cw_agent:
               command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
             03_enable_service:

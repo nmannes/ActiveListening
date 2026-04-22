@@ -4,11 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
-WorkingDirectory=/home/ec2-user
-EnvironmentFile=/home/ec2-user/.env
-ExecStart=/usr/bin/python3 /home/ec2-user/kalshi/server.py --env ${Environment} --port 8090
-Restart=always
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+EnvironmentFile=/home/ubuntu/.env
+ExecStart=/usr/bin/python3 /home/ubuntu/kalshi/server.py --env ${Environment} --port 8090
+Restart=on-failure
 RestartSec=5
 
 [Install]
