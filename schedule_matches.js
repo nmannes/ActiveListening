@@ -53,6 +53,11 @@ const args = process.argv.slice(2);
 const dryRun = args.includes("--dry-run") || args.includes("-d");
 const force = args.includes("--force") || args.includes("-f");
 const youtubeOnly = args.includes("--youtube-only") || args.includes("-yt");
+
+const slugIdx = args.indexOf("--slug");
+const sIdx = args.indexOf("-s");
+const targetSlug = (slugIdx !== -1 && args[slugIdx + 1]) ? args[slugIdx + 1] : (sIdx !== -1 && args[sIdx + 1]) ? args[sIdx + 1] : null;
+
 let lookaheadHours = 168; // 1 week lookahead
 const lookaheadIdx = args.indexOf("--lookahead");
 if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
@@ -230,6 +235,8 @@ const candidates = [];
 for (const match of matches) {
   const { market, mediaSources } = match;
 
+  if (targetSlug && market.slug !== targetSlug) continue;
+
   // Select the best media source
   const bestSource = mediaSources[0]; // Already sorted by priority in discovery_matcher.js
 
@@ -249,13 +256,19 @@ for (const match of matches) {
     market?.eventStartTime ||
     null;
 
-  if (streamURL && scheduleStartTime) {
-    let startTime = new Date(scheduleStartTime);
-    let alreadyStarted = false;
+  if (streamURL) {
+    if (!scheduleStartTime && (force || targetSlug)) {
+      scheduleStartTime = now.toISOString();
+    }
+    
+    if (scheduleStartTime) {
+      let startTime = new Date(scheduleStartTime);
+      let alreadyStarted = false;
 
-    // Skip if started more than 60 minutes ago
-    const stalenessThresholdMs = 60 * 60 * 1000;
-    if (startTime < new Date(now.getTime() - stalenessThresholdMs)) {
+    // Skip if started more than 4 hours ago, unless forced or targeted
+    const stalenessThresholdMs = 4 * 60 * 60 * 1000;
+    const isStale = startTime < new Date(now.getTime() - stalenessThresholdMs);
+    if (isStale && !force && !targetSlug) {
       console.log(
         `Skipping ${market.title} - started too long ago (${startTime.toLocaleString()})`,
       );
@@ -278,6 +291,7 @@ for (const match of matches) {
       candidates.push(market);
     }
   }
+}
 }
 
 candidates.sort(
