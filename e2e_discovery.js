@@ -5,6 +5,7 @@ const { scrapeESPNMatchups } = require("./lib/scrapers/league_schedule.js");
 const logger = require("./lib/logger");
 const path = require("path");
 const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
+const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());
@@ -76,11 +77,12 @@ const { HEADLESS } = require("./lib/args");
 
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, tvSchedule] = await Promise.all([
+    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
-      findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3)
+      findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3),
+      scrapeCspanSchedule(browser),
     ]);
 
 
@@ -93,6 +95,7 @@ const { HEADLESS } = require("./lib/args");
       { name: "latest_tv_schedule.json", data: tvSchedule },
       { name: "espn_matchups.json", data: espnSchedule },
       { name: "amazon_nba_search_results.json", data: amazonResults },
+      { name: "cspan_schedule.json", data: cspanSchedule },
     ];
 
     for (const item of cacheWrites) {
