@@ -9,6 +9,7 @@ const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());
+const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 
 const { HEADLESS } = require("./lib/args");
 
@@ -86,23 +87,147 @@ const { HEADLESS } = require("./lib/args");
     ]);
 
 
+    /**
+     * Normalizes schedule data from different sources into a consistent format.
+     */
+    function normalizeSchedule(data, type) {
+      if (!data) return [];
+      return data.map(item => {
+        let normalized = {
+          title: "",
+          startTime: null,
+          channel: "",
+          linkURL: "",
+          description: "",
+          metadata: item
+        };
+
+        if (type === "tv") {
+          normalized.title = item.title;
+          normalized.startTime = item.startTimestamp;
+          normalized.channel = item.station;
+          
+          const stationUpper = (item.station || "").toUpperCase();
+          const isOtaPriority = stationUpper.includes("NBC") || stationUpper.includes("CBS");
+          if (isOtaPriority && item.channelURL) {
+            normalized.linkURL = item.channelURL;
+          } else {
+            normalized.linkURL = CHANNEL_MAPPINGS[item.station] || item.channelURL;
+          }
+          
+          normalized.description = item.description;
+        } else if (type === "espn") {
+          normalized.title = `${item.awayTeam} vs. ${item.homeTeam} ${item.league || ""}`.trim().toLowerCase();
+          normalized.startTime = item.startTime;
+          normalized.channel = item.tvChannels && item.tvChannels.length > 0 ? item.tvChannels[0].name : "ESPN";
+          
+          const yttvLink = CHANNEL_MAPPINGS[normalized.channel];
+          const watchLink = item.tvChannels?.find(ch => ch.link && ch.link.includes("/watch/player/"))?.link;
+          normalized.linkURL = yttvLink || watchLink || item.gameLink;
+
+          normalized.description = `${item.league || "sports"} game`;
+        } else if (type === "amazon") {
+          normalized.title = item.title;
+          normalized.startTime = parseAmazonTime(item.time);
+          normalized.channel = "Amazon Prime Video";
+          normalized.linkURL = item.href;
+          normalized.description = "NBA on Prime";
+        } else if (type === "cspan") {
+          normalized.title = item.title;
+          normalized.startTime = parseCspanTime(item.date, item.startTime);
+          normalized.channel = item.channel;
+          normalized.linkURL = CHANNEL_MAPPINGS[item.channel] || item.url;
+          normalized.description = item.sponsor || "";
+        }
+
+        return normalized;
+      });
+    }
+
+    function parseAmazonTime(timeStr) {
+      if (!timeStr) return null;
+      if (timeStr.includes("T") && timeStr.includes("Z")) return timeStr; // Already ISO
+
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
+
+      // Simple relative parser
+      if (timeStr.toLowerCase().includes("tomorrow")) {
+        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        const timeMatch = timeStr.match(/(\d{1,2})\s*(pm|am)/i);
+        if (timeMatch) {
+          let hours = parseInt(timeMatch[1]);
+          if (timeMatch[2].toLowerCase() === "pm" && hours < 12) hours += 12;
+          tomorrow.setHours(hours, 0, 0, 0);
+          return tomorrow.toISOString();
+        }
+        return tomorrow.toISOString();
+      }
+
+      // "Thu, Apr 23 8 PM"
+      const match = timeStr.match(/([a-z]{3}),\s*([a-z]{3})\s*(\d{1,2})(?:\s+(\d{1,2})\s*(pm|am))?/i);
+      if (match) {
+        const months = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+        const month = months[match[2].toLowerCase()];
+        const day = parseInt(match[3]);
+        let hours = 0;
+        if (match[4]) {
+          hours = parseInt(match[4]);
+          if (match[5].toLowerCase() === "pm" && hours < 12) hours += 12;
+        }
+        const date = new Date(2026, month, day, hours, 0, 0, 0);
+        return date.toISOString();
+      }
+
+      return null;
+    }
+
+    function parseCspanTime(dateStr, timeStr) {
+      if (!dateStr || !timeStr) return null;
+      // dateStr: "2026-04-22", timeStr: "07:00 AM EDT"
+      const [year, month, day] = dateStr.split("-").map(Number);
+      const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+      if (timeMatch) {
+        let hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        if (timeMatch[3].toUpperCase() === "PM" && hours < 12) hours += 12;
+        if (timeMatch[3].toUpperCase() === "AM" && hours === 12) hours = 0;
+        const date = new Date(year, month - 1, day, hours, minutes, 0, 0);
+        // Adjust for EDT (UTC-4) - assuming the server environment handles local time correctly, 
+        // but let's be explicit if we can. 
+        // For now, let's treat it as local system time which should be set to EDT.
+        return date.toISOString();
+      }
+      return null;
+    }
+
     const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
 
     // Write to cache
     const cacheWrites = [
       { name: "latest_markets.json", data: freshMarkets },
-      { name: "latest_tv_schedule.json", data: tvSchedule },
-      { name: "espn_matchups.json", data: espnSchedule },
-      { name: "amazon_nba_search_results.json", data: amazonResults },
-      { name: "cspan_schedule.json", data: cspanSchedule },
+      { name: "latest_tv_schedule.json", data: normalizeSchedule(tvSchedule, "tv") },
+      { name: "espn_matchups.json", data: normalizeSchedule(espnSchedule, "espn") },
+      { name: "amazon_nba_search_results.json", data: normalizeSchedule(amazonResults, "amazon") },
+      { name: "cspan_schedule.json", data: normalizeSchedule(cspanSchedule, "cspan") },
     ];
 
     for (const item of cacheWrites) {
       const filePath = path.join(cacheDir, item.name);
       fs.writeFileSync(filePath, JSON.stringify(item.data, null, 2));
-      logger.info(`Saved ${item.data.length} records to ${item.name}`);
+      logger.info(`Saved ${item.data.length} records to ${item.name} (normalized)`);
     }
+
+    // Also save a unified schedule for easy debugging/matching
+    const allNormalized = [
+      ...normalizeSchedule(tvSchedule, "tv"),
+      ...normalizeSchedule(espnResults, "espn"),
+      ...normalizeSchedule(amazonResults, "amazon"),
+      ...normalizeSchedule(cspanSchedule, "cspan"),
+    ];
+    fs.writeFileSync(path.join(cacheDir, "unified_schedule.json"), JSON.stringify(allNormalized, null, 2));
+    logger.info(`Saved ${allNormalized.length} records to unified_schedule.json`);
 
     const earningsWithSource = freshMarkets.filter((m) => {
       const title = (m.title || "").toLowerCase();

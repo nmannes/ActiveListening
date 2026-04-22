@@ -68,6 +68,7 @@ const marketsFile = path.join(__dirname, "cache", "latest_markets.json");
 const tvScheduleFile = path.join(__dirname, "cache", "latest_tv_schedule.json");
 const espnMatchupsFile = path.join(__dirname, "cache", "espn_matchups.json");
 const amazonScheduleFile = path.join(__dirname, "cache", "amazon_nba_search_results.json");
+const cspanScheduleFile = path.join(__dirname, "cache", "cspan_schedule.json");
 
 if (!fs.existsSync(marketsFile)) {
   console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
@@ -78,6 +79,7 @@ const rawMarkets = JSON.parse(fs.readFileSync(marketsFile, "utf8"));
 const tvSchedule = fs.existsSync(tvScheduleFile) ? JSON.parse(fs.readFileSync(tvScheduleFile, "utf8")) : [];
 const espnSchedule = fs.existsSync(espnMatchupsFile) ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8")) : [];
 const amazonSchedule = fs.existsSync(amazonScheduleFile) ? JSON.parse(fs.readFileSync(amazonScheduleFile, "utf8")) : [];
+const cspanSchedule = fs.existsSync(cspanScheduleFile) ? JSON.parse(fs.readFileSync(cspanScheduleFile, "utf8")) : [];
 
 const configuredMarkets = rawMarkets.map((m) => applyWordConfigurations(m));
 const allResults = matchDiscoveryEvents(
@@ -85,13 +87,14 @@ const allResults = matchDiscoveryEvents(
   tvSchedule,
   espnSchedule,
   amazonSchedule,
+  cspanSchedule,
 );
 
 const matchedMatches = allResults.filter(
-  (m) => m.tvEvent || m.espnEvent || m.market.mediaStreamURL,
+  (m) => m.mediaSources && m.mediaSources.length > 0,
 );
 const unmatchedMarkets = allResults.filter(
-  (m) => !m.tvEvent && !m.espnEvent && !m.market.mediaStreamURL,
+  (m) => !m.mediaSources || m.mediaSources.length === 0,
 );
 
 fs.writeFileSync(matchedPath, JSON.stringify(matchedMatches, null, 2));
@@ -102,11 +105,11 @@ const speakersPath = path.join(__dirname, "speakers.md");
 const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
 const tableHeader = "| HasMediaSource | Date | Time | Title |\n| :--- | :--- | :--- | :--- |\n";
 const tableRows = sortedResults.map((result) => {
-  const { market, tvEvent, espnEvent } = result;
+  const { market, mediaSources } = result;
   const startTimeVal = result.startTime || market?.eventStartTime || "T";
   const [date, fullTime] = startTimeVal.split("T");
   const title = (market?.title || "N/A").replace("Announcers at ", "");
-  const hasMediaSource = !!(tvEvent || espnEvent || market.mediaStreamURL);
+  const hasMediaSource = mediaSources && mediaSources.length > 0;
 
   return [
     "",
@@ -126,7 +129,9 @@ const lookaheadLimit = new Date(now.getTime() + lookaheadMs);
  * Determines the broadcast duration based on market content.
  */
 function getDuration(market, match) {
-  const { tvEvent, espnEvent, ncaaEvent } = match;
+  const { mediaSources, ncaaEvent } = match;
+  const espnEvent = mediaSources?.find(s => s.type === 'espn')?.metadata;
+  const tvEvent = mediaSources?.find(s => s.type === 'tv')?.metadata;
   const title = (market.title || "").toLowerCase();
   const slug = (market.slug || "").toLowerCase();
 
@@ -144,7 +149,7 @@ function getDuration(market, match) {
   if (title.includes("earnings") || slug.includes("earnings") || title.includes('his show') || title.includes('her show')) {
     return 60;
   }
-  if (ncaaEvent || title.includes("ncaa") || slug.includes("ncaa")) {
+  if (ncaaEvent || title.includes("ncaa") || slug.includes("ncaa") || (mediaSources && mediaSources.some(s => s.metadata?.league === 'ncaa'))) {
     return 150;
   }
   if (title.includes("nba") || slug.includes("nba")) {
@@ -168,6 +173,21 @@ let manualMatches = [];
 if (fs.existsSync(manualMatchesPath)) {
   try {
     manualMatches = JSON.parse(fs.readFileSync(manualMatchesPath, "utf8"));
+    // Normalize manual matches
+    manualMatches.forEach(m => {
+      if (!m.mediaSources) {
+        m.mediaSources = [];
+        if (m.market.mediaStreamURL) {
+          m.mediaSources.push({
+            type: 'market',
+            name: 'Market Stream',
+            url: m.market.mediaStreamURL,
+            startTime: m.market.eventStartTime,
+            metadata: {}
+          });
+        }
+      }
+    });
   } catch (e) {
     console.error(`Error reading ${manualMatchesPath}: ${e.message}`);
   }
@@ -208,28 +228,12 @@ for (const f of scheduledFiles) {
 const candidates = [];
 
 for (const match of matches) {
-  const { market, tvEvent, espnEvent, ncaaEvent } = match;
+  const { market, mediaSources } = match;
 
-  let streamURL =
-    tvEvent?.channelURL ||
-    espnEvent?.gameLink ||
-    market?.mediaStreamURL ||
-    null;
+  // Select the best media source
+  const bestSource = mediaSources[0]; // Already sorted by priority in discovery_matcher.js
 
-  // Prefer YTTV channel if available in ESPN metadata
-  if (espnEvent?.tvChannels) {
-    for (const ch of espnEvent.tvChannels) {
-      if (CHANNEL_MAPPINGS[ch.name]) {
-        streamURL = CHANNEL_MAPPINGS[ch.name];
-        break;
-      }
-    }
-  }
-
-  // Prefer NCAA network mapping if available
-  if (ncaaEvent?.network && CHANNEL_MAPPINGS[ncaaEvent.network]) {
-    streamURL = CHANNEL_MAPPINGS[ncaaEvent.network];
-  }
+  let streamURL = bestSource?.url || null;
 
   if (
     youtubeOnly &&
@@ -241,9 +245,7 @@ for (const match of matches) {
     continue;
 
   let scheduleStartTime =
-    ncaaEvent?.time ||
-    tvEvent?.startTimestamp ||
-    espnEvent?.startTime ||
+    bestSource?.startTime ||
     market?.eventStartTime ||
     null;
 
