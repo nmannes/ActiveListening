@@ -148,7 +148,7 @@ if [[ "$USE_BROWSER" == true ]]; then
     BROWSER_ARG="--browser"
 fi
 
-echo "cd $SCRIPT_DIR && ( $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG >> $SCRIPT_DIR/schedule_run.log 2>&1; rm -f $ABS_JSON_FILE )" \
+echo "cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG >> $SCRIPT_DIR/schedule_run.log 2>&1" \
     | at "$START_AT"
 
 echo ""

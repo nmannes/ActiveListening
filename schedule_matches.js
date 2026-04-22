@@ -10,6 +10,22 @@ const _ = require("lodash");
 const scheduledDir = path.join(__dirname, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
 
+// Cleanup old scheduled files (> 24 hours)
+const cleanupOldFiles = () => {
+  const files = fs.readdirSync(scheduledDir);
+  const now = Date.now();
+  files.forEach(file => {
+    const filePath = path.join(scheduledDir, file);
+    const stats = fs.statSync(filePath);
+    const ageMs = now - stats.mtimeMs;
+    if (ageMs > 24 * 60 * 60 * 1000) {
+      fs.unlinkSync(filePath);
+      console.log(`Cleaned up old scheduled file: ${file}`);
+    }
+  });
+};
+cleanupOldFiles();
+
 // ── 0. Lockfile to prevent concurrent runs ──────────────────────────
 const locksDir = path.join(__dirname, "locks");
 if (!fs.existsSync(locksDir)) fs.mkdirSync(locksDir);
@@ -265,8 +281,8 @@ for (const match of matches) {
       let startTime = new Date(scheduleStartTime);
       let alreadyStarted = false;
 
-    // Skip if started more than 4 hours ago, unless forced or targeted
-    const stalenessThresholdMs = 4 * 60 * 60 * 1000;
+    // Skip if started more than 30 minutes ago, unless forced or targeted
+    const stalenessThresholdMs = 30 * 60 * 1000;
     const isStale = startTime < new Date(now.getTime() - stalenessThresholdMs);
     if (isStale && !force && !targetSlug) {
       console.log(
