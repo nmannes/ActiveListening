@@ -86,13 +86,12 @@ cp ../.env .
 mkdir -p "$HOME_DIR/pip_tmp"
 export TMPDIR="$HOME_DIR/pip_tmp"
 
-# Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
+# Force CPU-only versions of torch, torchvision, and torchaudio first to prevent pip from downloading GPU wheels
 echo "[5/5] Installing dependencies..."
-pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# Install open-clip-torch from PyPI (it depends on torch, which we just installed)
-pip install --no-cache-dir open-clip-torch
-
-pip install -r "$HOME_DIR/kalshi/requirements.txt"
+# Install open-clip-torch and other requirements, using the CPU index as an extra to satisfy dependencies
+pip install --no-cache-dir open-clip-torch --extra-index-url https://download.pytorch.org/whl/cpu
+pip install --no-cache-dir -r "$HOME_DIR/kalshi/requirements.txt" --extra-index-url https://download.pytorch.org/whl/cpu
 
 rm -rf "$HOME_DIR/pip_tmp"
