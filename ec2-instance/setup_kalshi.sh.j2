@@ -7,8 +7,6 @@ mkdir -p "$HOME_DIR/logs" "$HOME_DIR/debug"
 exec > >(tee -a "$HOME_DIR/logs/setup_trace.log") 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 
-# Install basics for Ubuntu 24.04
-PIP_FLAGS="--break-system-packages"
 sudo apt-get update
 sudo apt-get install -y python3-pip git
 

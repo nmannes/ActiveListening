@@ -29,7 +29,7 @@ Parameters:
     AllowedValues: [IPv4, IPv6]
   AmiId:
     Type: String
-    Default: ami-0ec10929233384c7f
+    Default: ami-04b70fa74e45c3917
   ShutdownMinutes:
     Type: Number
     Default: 30
@@ -82,10 +82,9 @@ Resources:
       AWS::CloudFormation::Init:
         config:
           packages:
-            yum:
+            apt:
               python3-pip: []
-              amazon-cloudwatch-agent: []
-              libsndfile: []
+              libsndfile1: []
               unzip: []
 
           files:
@@ -149,9 +148,13 @@ Resources:
             01_run_setup:
               command: "su - ubuntu -c '/home/ubuntu/setup_kalshi.sh' && touch /home/ubuntu/.setup_done"
               test: "test ! -f /home/ubuntu/.setup_done"
-            02_start_cw_agent:
+            02_install_cw_agent:
+              command: |
+                wget https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb
+                dpkg -i -E ./amazon-cloudwatch-agent.deb
+            03_start_cw_agent:
               command: "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json"
-            03_enable_service:
+            04_enable_service:
               command: "systemctl enable --now kalshi"
 
     Properties:
@@ -187,9 +190,11 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          yum install -y aws-cfn-bootstrap
-          /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
-          /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+          apt-get update
+          apt-get install -y python3-pip
+          pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz --break-system-packages
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource KalshiWorkerInstance --region ${AWS::Region}
     CreationPolicy:
       ResourceSignal:
         Timeout: PT30M
