@@ -42,7 +42,10 @@ if ! command -v ffmpeg &> /dev/null; then
 fi
 
 
-curl https://intoli.com/install-google-chrome.sh | bash
+echo "[2.5/5] Installing Google Chrome..."
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+rm google-chrome-stable_current_amd64.deb
 
 GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
 
