@@ -49,25 +49,23 @@ rm google-chrome-stable_current_amd64.deb
 
 GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
 
-echo "[3/5] Cloning repository..."
+echo "[3/5] Installing Pyenv/python..."
+curl https://pyenv.run | bash
+
+echo "export PYENV_ROOT=\"$HOME_DIR/.pyenv\"" >> "$HOME_DIR/.bashrc"
+echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> "$HOME_DIR/.bashrc"
+echo 'eval "$(pyenv init --path)"' >> "$HOME_DIR/.bashrc"
+
+# shellcheck source=/dev/null
+source "$HOME_DIR/.bashrc"
+
+
+pyenv install 3.10.19
+pyenv global 3.10.19
+
+echo "[4/5] Cloning repository..."
 git clone "https://oauth2:$GITLAB_TOKEN@gitlab.com/nmannes/kalshi.git"
 
 cd kalshi
 
 cp ../.env .
-
-# Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
-mkdir -p "$HOME_DIR/pip_tmp"
-export TMPDIR="$HOME_DIR/pip_tmp"
-
-# Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
-# We use --index-url (instead of --extra-index-url) for torch to avoid PyPI's GPU versions
-echo "[4/5] Installing dependencies..."
-pip3 install $PIP_FLAGS --no-cache-dir open-clip-torch \
-    --index-url https://download.pytorch.org/whl/cpu
-
-
-echo "[5/5] Installing requirements.txt..."
-pip3 install $PIP_FLAGS -r "$HOME_DIR/kalshi/requirements.txt"
-
-rm -rf "$HOME_DIR/pip_tmp"
