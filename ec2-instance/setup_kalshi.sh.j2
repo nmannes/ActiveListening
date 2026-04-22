@@ -1,8 +1,25 @@
 #!/bin/bash
 set -ex
-mkdir -p /home/ec2-user/logs /home/ec2-user/debug
-exec > >(tee -a /home/ec2-user/logs/setup_trace.log) 2>&1
+
+# Handle default user home directory
+HOME_DIR=$HOME
+mkdir -p "$HOME_DIR/logs" "$HOME_DIR/debug"
+exec > >(tee -a "$HOME_DIR/logs/setup_trace.log") 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
+
+# Detect package manager and install basics
+PIP_FLAGS=""
+if command -v apt-get &> /dev/null; then
+    echo "Ubuntu/Debian detected"
+    sudo apt-get update
+    sudo apt-get install -y python3-pip git
+    # Ubuntu 23.04+ (PEP 668) requires this for global system-wide installs
+    PIP_FLAGS="--break-system-packages"
+elif command -v yum &> /dev/null; then
+    echo "Amazon Linux/RHEL detected"
+    sudo yum update -y
+    sudo yum install -y python3-pip git
+fi
 
 # Instead of just shutting down, we schedule the deletion of the entire stack.
 # This ensures the IAM role and other resources are cleaned up.
@@ -18,10 +35,11 @@ fi
 echo "[1/5] Installing Bun..."
 curl -fsSL https://bun.sh/install | bash
 
-echo 'export BUN_INSTALL="$HOME/.bun"' >> ~/.bashrc
-echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> ~/.bashrc
+echo "export BUN_INSTALL=\"$HOME_DIR/.bun\"" >> "$HOME_DIR/.bashrc"
+echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$HOME_DIR/.bashrc"
 
-source ~/.bashrc
+# shellcheck source=/dev/null
+source "$HOME_DIR/.bashrc"
 
 if ! command -v ffmpeg &> /dev/null; then
     echo "[2/5] Installing FFmpeg..."
@@ -37,7 +55,7 @@ fi
 
 curl https://intoli.com/install-google-chrome.sh | bash
 
-GITLAB_TOKEN=$(cat .env | grep GITLAB_TOKEN | cut -d'=' -f2)
+GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
 
 echo "[3/5] Cloning repository..."
 git clone "https://oauth2:$GITLAB_TOKEN@gitlab.com/nmannes/kalshi.git"
@@ -47,17 +65,17 @@ cd kalshi
 cp ../.env .
 
 # Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
-mkdir -p /home/ec2-user/pip_tmp
-export TMPDIR=/home/ec2-user/pip_tmp
+mkdir -p "$HOME_DIR/pip_tmp"
+export TMPDIR="$HOME_DIR/pip_tmp"
 
 # Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
 # We use --index-url (instead of --extra-index-url) for torch to avoid PyPI's GPU versions
 echo "[4/5] Installing dependencies..."
-pip3 install --no-cache-dir open-clip-torch \
+pip3 install $PIP_FLAGS --no-cache-dir open-clip-torch \
     --index-url https://download.pytorch.org/whl/cpu
 
 
 echo "[5/5] Installing requirements.txt..."
-pip3 install -r /home/ec2-user/kalshi/requirements.txt
+pip3 install $PIP_FLAGS -r "$HOME_DIR/kalshi/requirements.txt"
 
-rm -rf /home/ec2-user/pip_tmp
+rm -rf "$HOME_DIR/pip_tmp"
