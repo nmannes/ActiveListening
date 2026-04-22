@@ -8,7 +8,9 @@ exec > >(tee -a "$HOME_DIR/logs/setup_trace.log") 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 
 sudo apt-get update
-sudo apt-get install -y python3-pip git
+sudo apt-get install -y python3-pip git build-essential libssl-dev zlib1g-dev \
+    libbz2-dev libreadline-dev libsqlite3-dev curl \
+    libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev liblzma-dev
 
 # Instead of just shutting down, we schedule the deletion of the entire stack.
 # This ensures the IAM role and other resources are cleaned up.
@@ -28,7 +30,7 @@ echo "export BUN_INSTALL=\"$HOME_DIR/.bun\"" >> "$HOME_DIR/.bashrc"
 echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$HOME_DIR/.bashrc"
 
 # shellcheck source=/dev/null
-source "$HOME_DIR/.bashrc"
+source "$HOME_DIR/.bashrc" || true
 
 if ! command -v ffmpeg &> /dev/null; then
     echo "[2/5] Installing FFmpeg..."
@@ -50,22 +52,45 @@ rm google-chrome-stable_current_amd64.deb
 GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
 
 echo "[3/5] Installing Pyenv/python..."
-curl https://pyenv.run | bash
+if [ ! -d "$HOME_DIR/.pyenv" ]; then
+    curl https://pyenv.run | bash
+fi
 
+# Ensure pyenv is in the path for the rest of this script
+export PYENV_ROOT="$HOME_DIR/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+
+# Setup bashrc for future logins
 echo "export PYENV_ROOT=\"$HOME_DIR/.pyenv\"" >> "$HOME_DIR/.bashrc"
 echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> "$HOME_DIR/.bashrc"
-echo 'eval "$(pyenv init --path)"' >> "$HOME_DIR/.bashrc"
+echo 'eval "$(pyenv init -)"' >> "$HOME_DIR/.bashrc"
 
-# shellcheck source=/dev/null
-source "$HOME_DIR/.bashrc"
+# Initialize pyenv for the current script
+eval "$(pyenv init -)"
 
-
-pyenv install 3.10.19
+if ! pyenv versions | grep -q "3.10.19"; then
+    echo "This may take 5-10 minutes..."
+    pyenv install 3.10.19
+fi
 pyenv global 3.10.19
 
 echo "[4/5] Cloning repository..."
-git clone "https://oauth2:$GITLAB_TOKEN@gitlab.com/nmannes/kalshi.git"
+if [ ! -d "kalshi" ]; then
+    git clone "https://oauth2:$GITLAB_TOKEN@gitlab.com/nmannes/kalshi.git"
+fi
 
 cd kalshi
-
 cp ../.env .
+
+# Use a custom TMPDIR to avoid filling up /tmp (which might be small on some AMIs)
+mkdir -p "$HOME_DIR/pip_tmp"
+export TMPDIR="$HOME_DIR/pip_tmp"
+
+# Force CPU-only versions of torch and torchaudio first to prevent pip from downloading GPU wheels
+echo "[5/5] Installing dependencies..."
+pip install --no-cache-dir open-clip-torch \
+    --index-url https://download.pytorch.org/whl/cpu
+
+pip install -r "$HOME_DIR/kalshi/requirements.txt"
+
+rm -rf "$HOME_DIR/pip_tmp"
