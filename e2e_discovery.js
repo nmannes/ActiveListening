@@ -1,10 +1,10 @@
 const fs = require("fs");
 const { fetchOpenMarkets } = require("./lib/discover_markets.js");
-const { findProgramsAcrossZipsAndKeywords } = require("./lib/tv_discovery.js");
-const { scrapeESPNMatchups } = require("./lib/league_schedule_scraping.js");
+const { findProgramsAcrossZipsAndKeywords } = require("./lib/scrapers/tv_discovery.js");
+const { scrapeESPNMatchups } = require("./lib/scrapers/league_schedule.js");
 const logger = require("./lib/logger");
 const path = require("path");
-const { scrapeAmazonNBA } = require("./lib/scrape_amazon_video");
+const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());

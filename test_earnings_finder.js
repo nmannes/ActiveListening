@@ -1,6 +1,6 @@
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
-const EarningsSourceFinder = require("./lib/earnings_source_finder");
+const EarningsSourceFinder = require("./lib/scrapers/earnings_source");
 const logger = require("./lib/logger");
 const fs = require("fs");
 const path = require("path");
