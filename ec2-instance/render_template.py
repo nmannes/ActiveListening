@@ -49,9 +49,36 @@ if "--env" in sys.argv:
         env_name = sys.argv[idx + 1]
 
 
+import subprocess
+import requests
+
+# Fetch current IP for Security Group defaults
+def get_current_ip_context():
+    try:
+        # Use requests for public IP discovery
+        resp = requests.get('https://ifconfig.me', timeout=5)
+        ip = resp.text.strip()
+        if ':' in ip:
+            return {
+                "current_ip_cidr": f"{ip}/128",
+                "current_ip_version": "IPv6"
+            }
+        else:
+            return {
+                "current_ip_cidr": f"{ip}/32",
+                "current_ip_version": "IPv4"
+            }
+    except Exception as e:
+        print(f"Warning: Could not fetch public IP: {e}")
+        return {
+            "current_ip_cidr": "0.0.0.0/0",
+            "current_ip_version": "IPv4"
+        }
+
 context = {
     "setup_kalshi_sh": load_file("setup_kalshi.sh.j2"),
     "kalshi_service": load_file("kalshi.service.j2"),
+    **get_current_ip_context()
 }
 
 # Validation - ensure core files and some pylib files are present

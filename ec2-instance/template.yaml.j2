@@ -22,9 +22,10 @@ Parameters:
     Default: us-east-1
   OperatorIp:
     Type: String
+    Default: {{ current_ip_cidr }}
   OperatorIpVersion:
     Type: String
-    Default: IPv4
+    Default: {{ current_ip_version }}
     AllowedValues: [IPv4, IPv6]
   AmiId:
     Type: String
@@ -39,10 +40,6 @@ Parameters:
     Type: String
     NoEcho: true
   EnvContent:
-    Type: String
-    NoEcho: true
-    Default: ""
-  RequirementsContent:
     Type: String
     NoEcho: true
     Default: ""
