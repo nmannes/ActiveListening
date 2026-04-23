@@ -20,13 +20,12 @@ Parameters:
   KeyName:
     Type: AWS::EC2::KeyPair::KeyName
     Default: us-east-1
-  OperatorIp:
+  OperatorIpv4:
     Type: String
-    Default: {{ current_ip_cidr }}
-  OperatorIpVersion:
+    Default: ""
+  OperatorIpv6:
     Type: String
-    Default: {{ current_ip_version }}
-    AllowedValues: [IPv4, IPv6]
+    Default: ""
   AmiId:
     Type: String
     Default: ami-04b70fa74e45c3917
@@ -47,8 +46,8 @@ Parameters:
 Conditions:
   UseSpotInstances: !Equals [!Ref UseSpot, 'true']
   HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
-  IsIpv6: !Equals [ !Ref OperatorIpVersion, "IPv6" ]
-  IsIpv4: !Not [ !Condition IsIpv6 ]
+  HasIpv4: !Not [ !Equals [!Ref OperatorIpv4, ""] ]
+  HasIpv6: !Not [ !Equals [!Ref OperatorIpv6, ""] ]
 
 Mappings:
   EnvToInstanceType:
@@ -67,13 +66,13 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: !If [ IsIpv4, !Ref OperatorIp, !Ref "AWS::NoValue" ]
-          CidrIpv6: !If [ IsIpv6, !Ref OperatorIp, !Ref "AWS::NoValue" ]
+          CidrIp: !If [ HasIpv4, !Ref OperatorIpv4, !Ref "AWS::NoValue" ]
+          CidrIpv6: !If [ HasIpv6, !Ref OperatorIpv6, !Ref "AWS::NoValue" ]
         - IpProtocol: tcp
           FromPort: 8090
           ToPort: 8090
-          CidrIp: !If [ IsIpv4, !Ref OperatorIp, !Ref "AWS::NoValue" ]
-          CidrIpv6: !If [ IsIpv6, !Ref OperatorIp, !Ref "AWS::NoValue" ]
+          CidrIp: !If [ HasIpv4, !Ref OperatorIpv4, !Ref "AWS::NoValue" ]
+          CidrIpv6: !If [ HasIpv6, !Ref OperatorIpv6, !Ref "AWS::NoValue" ]
 
   KalshiWorkerInstance:
     Type: AWS::EC2::Instance

@@ -137,16 +137,19 @@ fi
 
 # --- 1. Get Local IP and Credentials ---
 echo "[1/4] Gathering deployment context..."
-MY_IP=$(curl -s https://ifconfig.me)
-echo "Local IP: $MY_IP"
+MY_IPV4=$(curl -4 -s https://ifconfig.me || true)
+MY_IPV6=$(curl -6 -s https://ifconfig.me || true)
 
-# Detect IP version and set CIDR suffix
-if [[ "$MY_IP" == *:* ]]; then
-    IP_VERSION="IPv6"
-    OPERATOR_CIDR="${MY_IP}/128"
-else
-    IP_VERSION="IPv4"
-    OPERATOR_CIDR="${MY_IP}/32"
+OPERATOR_IPV4=""
+if [[ -n "$MY_IPV4" ]]; then
+    OPERATOR_IPV4="${MY_IPV4}/32"
+    echo "Local IPv4: $MY_IPV4"
+fi
+
+OPERATOR_IPV6=""
+if [[ -n "$MY_IPV6" ]]; then
+    OPERATOR_IPV6="${MY_IPV6}/128"
+    echo "Local IPv6: $MY_IPV6"
 fi
 
 # Load credentials from local env file
@@ -240,8 +243,8 @@ if [[ "$NO_ROLLBACK" == true ]]; then
         --arg env "$ENV" \
         --arg inst "$INSTANCE_TYPE" \
         --arg spot "$USE_SPOT" \
-        --arg ip "$OPERATOR_CIDR" \
-        --arg ipv "$IP_VERSION" \
+        --arg ipv4 "$OPERATOR_IPV4" \
+        --arg ipv6 "$OPERATOR_IPV6" \
         --arg key "$KEY_NAME" \
         --arg ami "$AMI_ID" \
         --arg shutdown "$SHUTDOWN_MINUTES" \
@@ -253,8 +256,8 @@ if [[ "$NO_ROLLBACK" == true ]]; then
             {ParameterKey: "Environment", ParameterValue: $env},
             {ParameterKey: "InstanceTypeOverride", ParameterValue: $inst},
             {ParameterKey: "UseSpot", ParameterValue: $spot},
-            {ParameterKey: "OperatorIp", ParameterValue: $ip},
-            {ParameterKey: "OperatorIpVersion", ParameterValue: $ipv},
+            {ParameterKey: "OperatorIpv4", ParameterValue: $ipv4},
+            {ParameterKey: "OperatorIpv6", ParameterValue: $ipv6},
             {ParameterKey: "KeyName", ParameterValue: $key},
             {ParameterKey: "AmiId", ParameterValue: $ami},
             {ParameterKey: "ShutdownMinutes", ParameterValue: $shutdown},
@@ -297,8 +300,8 @@ else
             Environment="$ENV" \
             InstanceTypeOverride="$INSTANCE_TYPE" \
             UseSpot="$USE_SPOT" \
-            OperatorIp="$OPERATOR_CIDR" \
-            OperatorIpVersion="$IP_VERSION" \
+            OperatorIpv4="$OPERATOR_IPV4" \
+            OperatorIpv6="$OPERATOR_IPV6" \
             KeyName="$KEY_NAME" \
             AmiId="$AMI_ID" \
             ShutdownMinutes="$SHUTDOWN_MINUTES" \
