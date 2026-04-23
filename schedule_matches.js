@@ -302,10 +302,10 @@ for (const match of matches) {
       let startTime = new Date(scheduleStartTime);
       let alreadyStarted = false;
 
-    // Skip if started more than 30 minutes ago, unless forced or targeted
+    // Skip if started more than 30 minutes ago, unless targeted
     const stalenessThresholdMs = 30 * 60 * 1000;
     const isStale = startTime < new Date(now.getTime() - stalenessThresholdMs);
-    if (isStale && !force && !targetSlug) {
+    if (isStale && !targetSlug) {
       console.log(
         `Skipping ${market.title} - started too long ago (${startTime.toLocaleString()})`,
       );
