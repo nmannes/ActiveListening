@@ -164,7 +164,8 @@ const sessionId = market.slug || args.id || new Date().getUTCSeconds();
 logger = baseLogger.child({ sessionId });
 
 // ── Lockfile ────────────────────────────────────────────────────────
-const LOCK_DIR = path.join(__dirname, "locks");
+const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
+const LOCK_DIR = path.join(DATA_DIR, "locks");
 if (!fs.existsSync(LOCK_DIR)) {
   fs.mkdirSync(LOCK_DIR, { recursive: true });
 }

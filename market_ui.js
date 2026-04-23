@@ -10,7 +10,8 @@ const PORT = 3000;
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
+const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
+const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(DATA_DIR, "cache");
 const MATCHED_PATH = path.join(CACHE_DIR, "matched_markets.json");
 const UNMATCHED_PATH = path.join(CACHE_DIR, "unmatched_markets.json");
 const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");
@@ -38,7 +39,7 @@ app.get("/api/markets", (req, res) => {
         const manual = readJsonFile(MANUAL_MATCHES_PATH);
 
         const scheduledSlugs = new Set(
-            fs.readdirSync(path.join(__dirname, "scheduled"))
+            fs.readdirSync(path.join(DATA_DIR, "scheduled"))
                 .filter(f => f.endsWith(".json"))
                 .map(f => f.replace(".json", ""))
         );

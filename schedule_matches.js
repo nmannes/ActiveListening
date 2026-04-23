@@ -7,8 +7,9 @@ const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const _ = require("lodash");
 
-const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
-const scheduledDir = path.join(__dirname, "scheduled");
+const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
+const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(DATA_DIR, "cache");
+const scheduledDir = path.join(DATA_DIR, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
 
 let homeScheduledDir = null;
@@ -46,7 +47,7 @@ const cleanupOldFiles = () => {
 cleanupOldFiles();
 
 // ── 0. Lockfile to prevent concurrent runs ──────────────────────────
-const locksDir = path.join(__dirname, "locks");
+const locksDir = path.join(DATA_DIR, "locks");
 if (!fs.existsSync(locksDir)) fs.mkdirSync(locksDir);
 const lockFile = path.join(locksDir, "scheduler.lock");
 
@@ -142,7 +143,7 @@ fs.writeFileSync(matchedPath, JSON.stringify(matchedMatches, null, 2));
 fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
 
 // Save speakers markdown table for visibility
-const speakersPath = path.join(__dirname, "speakers.md");
+const speakersPath = path.join(DATA_DIR, "speakers.md");
 const sortedResults = _.sortBy(allResults, (r) => r.startTime || r.market?.eventStartTime || "");
 const tableHeader = "| HasMediaSource | Date | Time | Title |\n| :--- | :--- | :--- | :--- |\n";
 const tableRows = sortedResults.map((result) => {

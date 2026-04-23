@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=nathan
 WorkingDirectory=/opt/kalshi
+Environment="KALSHI_DATA_DIR=/home/nathan/kalshi"
 Environment="KALSHI_CACHE_DIR=/home/nathan/kalshi/cache"
 ExecStart=/home/nathan/.bun/bin/bun run --watch main_loop.js
 Restart=on-failure
