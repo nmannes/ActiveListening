@@ -81,15 +81,16 @@ if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
 }
 const lookaheadMs = lookaheadHours * 60 * 60 * 1000;
 
-const matchedPath = path.join(__dirname, "cache", "matched_markets.json");
-const unmatchedPath = path.join(__dirname, "cache", "unmatched_markets.json");
+const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
+const matchedPath = path.join(CACHE_DIR, "matched_markets.json");
+const unmatchedPath = path.join(CACHE_DIR, "unmatched_markets.json");
 
 // ── 0.1 Perform Matching ─────────────────────────────────────────────
-const marketsFile = path.join(__dirname, "cache", "latest_markets.json");
-const tvScheduleFile = path.join(__dirname, "cache", "latest_tv_schedule.json");
-const espnMatchupsFile = path.join(__dirname, "cache", "espn_matchups.json");
-const amazonScheduleFile = path.join(__dirname, "cache", "amazon_nba_search_results.json");
-const cspanScheduleFile = path.join(__dirname, "cache", "cspan_schedule.json");
+const marketsFile = path.join(CACHE_DIR, "latest_markets.json");
+const tvScheduleFile = path.join(CACHE_DIR, "latest_tv_schedule.json");
+const espnMatchupsFile = path.join(CACHE_DIR, "espn_matchups.json");
+const amazonScheduleFile = path.join(CACHE_DIR, "amazon_nba_search_results.json");
+const cspanScheduleFile = path.join(CACHE_DIR, "cspan_schedule.json");
 
 if (!fs.existsSync(marketsFile)) {
   console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
@@ -189,7 +190,7 @@ function getDuration(market, match) {
 
 // ── 1. Load existing scheduled server windows ───────────────────────
 // matchedMatches is already populated from the matching logic above
-const manualMatchesPath = path.join(__dirname, "cache", "manual_matches.json");
+const manualMatchesPath = path.join(CACHE_DIR, "manual_matches.json");
 let manualMatches = [];
 if (fs.existsSync(manualMatchesPath)) {
   try {

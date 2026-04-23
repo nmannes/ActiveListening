@@ -10,7 +10,7 @@ const PORT = 3000;
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const CACHE_DIR = path.join(__dirname, "cache");
+const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
 const MATCHED_PATH = path.join(CACHE_DIR, "matched_markets.json");
 const UNMATCHED_PATH = path.join(CACHE_DIR, "unmatched_markets.json");
 const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");

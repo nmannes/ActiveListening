@@ -16,7 +16,7 @@ const { HEADLESS } = require("./lib/args");
 (async () => {
   let browser;
   try {
-    const cacheDir = path.join(__dirname, "cache");
+    const cacheDir = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
     if (!fs.existsSync(cacheDir)) {
       fs.mkdirSync(cacheDir, { recursive: true });
     }

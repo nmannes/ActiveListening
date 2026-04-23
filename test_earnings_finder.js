@@ -17,7 +17,7 @@ puppeteer.use(StealthPlugin());
   const finder = new EarningsSourceFinder(browser);
 
   // Try to load from cache
-  const cacheDir = path.join(__dirname, "cache");
+  const cacheDir = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
   const marketsPath = path.join(cacheDir, "unmatched_markets.json");
   // unmatched_markets.json has { market: { ... } } structure
 
