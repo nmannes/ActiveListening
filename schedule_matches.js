@@ -294,7 +294,7 @@ for (const match of matches) {
     null;
 
   if (streamURL) {
-    if (!scheduleStartTime && (force || targetSlug)) {
+    if (!scheduleStartTime && targetSlug) {
       scheduleStartTime = now.toISOString();
     }
     
