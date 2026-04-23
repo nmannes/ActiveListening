@@ -7,21 +7,40 @@ const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const _ = require("lodash");
 
+const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
 const scheduledDir = path.join(__dirname, "scheduled");
 execSync(`mkdir -p ${scheduledDir}`);
 
+let homeScheduledDir = null;
+if (process.env.KALSHI_CACHE_DIR) {
+  homeScheduledDir = path.resolve(process.env.KALSHI_CACHE_DIR, "../scheduled");
+  if (homeScheduledDir !== scheduledDir) {
+    execSync(`mkdir -p ${homeScheduledDir}`);
+  } else {
+    homeScheduledDir = null;
+  }
+}
+
 // Cleanup old scheduled files (> 24 hours)
 const cleanupOldFiles = () => {
-  const files = fs.readdirSync(scheduledDir);
+  const dirsToCleanup = [scheduledDir];
+  if (homeScheduledDir) dirsToCleanup.push(homeScheduledDir);
+
   const now = Date.now();
-  files.forEach(file => {
-    const filePath = path.join(scheduledDir, file);
-    const stats = fs.statSync(filePath);
-    const ageMs = now - stats.mtimeMs;
-    if (ageMs > 24 * 60 * 60 * 1000) {
-      fs.unlinkSync(filePath);
-      console.log(`Cleaned up old scheduled file: ${file}`);
-    }
+  dirsToCleanup.forEach(dir => {
+    if (!fs.existsSync(dir)) return;
+    const files = fs.readdirSync(dir);
+    files.forEach(file => {
+      const filePath = path.join(dir, file);
+      const stats = fs.statSync(filePath);
+      const ageMs = now - stats.mtimeMs;
+      if (ageMs > 24 * 60 * 60 * 1000) {
+        try {
+          fs.unlinkSync(filePath);
+          console.log(`Cleaned up old scheduled file: ${filePath}`);
+        } catch (e) {}
+      }
+    });
   });
 };
 cleanupOldFiles();
@@ -81,7 +100,7 @@ if (lookaheadIdx !== -1 && args[lookaheadIdx + 1]) {
 }
 const lookaheadMs = lookaheadHours * 60 * 60 * 1000;
 
-const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
+// CACHE_DIR defined above
 const matchedPath = path.join(CACHE_DIR, "matched_markets.json");
 const unmatchedPath = path.join(CACHE_DIR, "unmatched_markets.json");
 
@@ -438,6 +457,15 @@ for (const seq of sequences) {
     market.clientOnly = clientOnly;
     market.serverDuration = serverDuration;
     fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
+
+    if (homeScheduledDir) {
+      try {
+        const homeFile = path.join(homeScheduledDir, `${slug}.json`);
+        fs.writeFileSync(homeFile, JSON.stringify(market, null, 2));
+      } catch (e) {
+        console.error(`Failed to write to home scheduled dir: ${e.message}`);
+      }
+    }
 
     const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
     const marketDuration = getDuration(market, originalMatchForCmd);
