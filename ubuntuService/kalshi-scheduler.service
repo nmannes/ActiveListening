@@ -5,8 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=nathan
-WorkingDirectory=/home/nathan/kalshi
-EnvironmentFile=-/home/nathan/kalshi/.env.prod
+WorkingDirectory=/opt/kalshi
 ExecStart=/home/nathan/.bun/bin/bun run --watch main_loop.js
 Restart=on-failure
 RestartSec=5

@@ -1,0 +1,9 @@
+[Unit]
+Description=Kalshi Auto-Updater
+After=network.target
+
+[Service]
+Type=oneshot
+User=nathan
+WorkingDirectory=/opt/kalshi
+ExecStart=/usr/bin/git pull origin main
