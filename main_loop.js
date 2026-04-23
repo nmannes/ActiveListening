@@ -7,7 +7,7 @@ const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 function runScript(scriptName, args = []) {
     return new Promise((resolve, reject) => {
         console.log(`[${new Date().toISOString()}] Running ${scriptName} ${args.join(" ")}...`);
-        const proc = spawn("bun", ["run", scriptName, ...args], {
+        const proc = spawn(process.execPath, ["run", scriptName, ...args], {
             cwd: __dirname,
             stdio: "inherit"
         });
@@ -29,7 +29,7 @@ async function start() {
 
     // 1. Start UI Server in background
     console.log("Starting Market Manager UI...");
-    const uiProc = spawn("bun", ["run", "market_ui.js"], {
+    const uiProc = spawn(process.execPath, ["run", "market_ui.js"], {
         cwd: __dirname,
         stdio: "inherit"
     });
