@@ -132,7 +132,11 @@ async function runBrowserCapture() {
     window._isCommercial = false;
   });
 
-  page.on("console", (msg) => _logger.info(`[Browser] ${msg.text()}`));
+  page.on("console", (msg) => {
+    const text = msg.text();
+    if (text.includes("OneID")) return;
+    _logger.info(`[Browser] ${text}`);
+  });
 
   await loginToESPN(page);
 
