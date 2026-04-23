@@ -1,0 +1,15 @@
+[Unit]
+Description=Kalshi Main Loop Service
+After=network.target
+
+[Service]
+Type=simple
+User=nathan
+WorkingDirectory=/home/nathan/kalshi
+EnvironmentFile=-/home/nathan/kalshi/.env.prod
+ExecStart=/home/nathan/.bun/bin/bun run --watch main_loop.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
