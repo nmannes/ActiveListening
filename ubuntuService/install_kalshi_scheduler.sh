@@ -1,5 +1,7 @@
 #!/bin/bash
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "This script must be run as root"
     exit 1
@@ -23,14 +25,13 @@ cd $PROD_DIR
 sudo -u nathan /home/nathan/.bun/bin/bun install
 
 echo "Installing systemd files..."
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
-sudo cp $DIR/kalshi-scheduler.service /etc/systemd/system/
-sudo cp $DIR/kalshi-updater.service /etc/systemd/system/
-sudo cp $DIR/kalshi-updater.timer /etc/systemd/system/
+sudo cp $SCRIPT_DIR/kalshi-scheduler.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/kalshi-updater.service /etc/systemd/system/
+sudo cp $SCRIPT_DIR/kalshi-updater.timer /etc/systemd/system/
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now kalshi-scheduler
-sudo systemctl enable --now kalshi-updater.timer
+sudo systemctl enable --now kalshi-updater
 
 echo "kalshi-scheduler.service installed and enabled"
 echo "kalshi-updater.timer installed and enabled"
