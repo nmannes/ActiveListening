@@ -9,7 +9,7 @@ FILTER_STATE="Name=instance-state-name,Values=running"
 IP=$(aws ec2 describe-instances \
     --region "$REGION" \
     --filters "$FILTER_NAME" "$FILTER_STATE" \
-    --query 'Reservations[].Instances[0].NetworkInterfaces[0].Ipv6Addresses[0].Ipv6Address || Reservations[].Instances[0].PublicIpAddress' \
+    --query 'Reservations[].Instances[0].PublicIpAddress || Reservations[].Instances[0].NetworkInterfaces[0].Ipv6Addresses[0].Ipv6Address' \
     --output text)
 
 if [[ "$IP" == "None" ]] || [[ -z "$IP" ]]; then
