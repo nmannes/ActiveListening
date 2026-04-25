@@ -63,16 +63,10 @@ Resources:
     Properties:
       GroupDescription: Security group for Kalshi Worker
       SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !If [ HasIpv4, !Ref OperatorIpv4, !Ref "AWS::NoValue" ]
-          CidrIpv6: !If [ HasIpv6, !Ref OperatorIpv6, !Ref "AWS::NoValue" ]
-        - IpProtocol: tcp
-          FromPort: 8090
-          ToPort: 8090
-          CidrIp: !If [ HasIpv4, !Ref OperatorIpv4, !Ref "AWS::NoValue" ]
-          CidrIpv6: !If [ HasIpv6, !Ref OperatorIpv6, !Ref "AWS::NoValue" ]
+        - !If [ HasIpv4, { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref OperatorIpv4 }, !Ref "AWS::NoValue" ]
+        - !If [ HasIpv6, { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIpv6: !Ref OperatorIpv6 }, !Ref "AWS::NoValue" ]
+        - !If [ HasIpv4, { IpProtocol: tcp, FromPort: 8090, ToPort: 8090, CidrIp: !Ref OperatorIpv4 }, !Ref "AWS::NoValue" ]
+        - !If [ HasIpv6, { IpProtocol: tcp, FromPort: 8090, ToPort: 8090, CidrIpv6: !Ref OperatorIpv6 }, !Ref "AWS::NoValue" ]
 
   KalshiWorkerInstance:
     Type: AWS::EC2::Instance
@@ -179,6 +173,7 @@ Resources:
           - UseSpotInstances
           - MarketType: spot
           - !Ref AWS::NoValue
+      Ipv6AddressCount: !If [ HasIpv6, 1, !Ref "AWS::NoValue" ]
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
@@ -258,5 +253,6 @@ Outputs:
   PrivateIp:
     Value: !GetAtt KalshiWorkerInstance.PrivateIp
   PublicIpv6:
+    Condition: HasIpv6
     Value: !Select [0, !GetAtt KalshiWorkerInstance.Ipv6Addresses]
 

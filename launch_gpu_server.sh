@@ -145,13 +145,11 @@ MY_IPV6=$(curl -6 -s https://ifconfig.me || true)
 OPERATOR_IPV4=""
 if [[ -n "$MY_IPV4" ]]; then
     OPERATOR_IPV4="${MY_IPV4}/32"
-    echo "Local IPv4: $MY_IPV4"
 fi
 
 OPERATOR_IPV6=""
 if [[ -n "$MY_IPV6" ]]; then
     OPERATOR_IPV6="${MY_IPV6}/128"
-    echo "Local IPv6: $MY_IPV6"
 fi
 
 # Load credentials from local env file
@@ -269,14 +267,14 @@ if [[ "$NO_ROLLBACK" == true ]]; then
             {ParameterKey: "EnvContent", ParameterValue: $envc}
         ]' > "$PARAMS_JSON_FILE"
 
-    $DEPLOYMENT_RESULTS=$( \
+    DEPLOYMENT_RESULTS=$( \
         aws cloudformation create-stack \
             --template-body "file://$TMP_TEMPLATE" \
             --stack-name "$STACK_NAME" \
             --region "$REGION" \
             --on-failure DO_NOTHING \
             --capabilities CAPABILITY_IAM \
-            --parameters "file://$PARAMS_JSON_FILE"
+            --parameters "file://$PARAMS_JSON_FILE" \
     )
     
     echo "Waiting for stack creation to finish (tailing events)..."
@@ -296,7 +294,7 @@ if [[ "$NO_ROLLBACK" == true ]]; then
         sleep 10
     done
 else
-    $DEPLOYMENT_RESULTS=$( \
+    DEPLOYMENT_RESULTS=$( \
         aws cloudformation deploy \
         --template-file "$TMP_TEMPLATE" \
         --stack-name "$STACK_NAME" \
@@ -317,7 +315,7 @@ else
             RequirementsContent="$REQUIREMENTS_CONTENT" \
         --s3-bucket "$S3_BUCKET" \
         --capabilities CAPABILITY_IAM \
-        --no-fail-on-empty-changeset
+        --no-fail-on-empty-changeset \
     )
 fi
 
