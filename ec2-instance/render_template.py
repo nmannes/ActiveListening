@@ -75,9 +75,20 @@ def get_current_ip_context():
             "current_ip_version": "IPv4"
         }
 
+def get_ssh_public_key():
+    key_path = os.path.expanduser("~/.ssh/id_ed25519.pub")
+    if os.path.exists(key_path):
+        try:
+            with open(key_path, "r") as f:
+                return f.read().strip()
+        except Exception as e:
+            print(f"Warning: Could not read SSH public key: {e}")
+    return ""
+
 context = {
     "setup_kalshi_sh": load_file("setup_kalshi.sh.j2"),
     "kalshi_service": load_file("kalshi.service.j2"),
+    "ssh_public_key": get_ssh_public_key(),
     **get_current_ip_context()
 }
 
