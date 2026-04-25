@@ -15,6 +15,8 @@ REMOTE_DIR="/home/ubuntu"
 AMI_ID="ami-04b70fa74e45c3917" # Ubuntu 24.04 LTS
 
 
+DEPLOYED_IP_ADDRESS=""
+
 # --- Subcommand: Destroy All ---
 if [[ "$1" == "--destroy-all" ]]; then
     echo "Querying all Kalshi worker stacks in $REGION..."
@@ -267,13 +269,15 @@ if [[ "$NO_ROLLBACK" == true ]]; then
             {ParameterKey: "EnvContent", ParameterValue: $envc}
         ]' > "$PARAMS_JSON_FILE"
 
-    aws cloudformation create-stack \
-        --template-body "file://$TMP_TEMPLATE" \
-        --stack-name "$STACK_NAME" \
-        --region "$REGION" \
-        --on-failure DO_NOTHING \
-        --capabilities CAPABILITY_IAM \
-        --parameters "file://$PARAMS_JSON_FILE"
+    $DEPLOYMENT_RESULTS=$( \
+        aws cloudformation create-stack \
+            --template-body "file://$TMP_TEMPLATE" \
+            --stack-name "$STACK_NAME" \
+            --region "$REGION" \
+            --on-failure DO_NOTHING \
+            --capabilities CAPABILITY_IAM \
+            --parameters "file://$PARAMS_JSON_FILE"
+    )
     
     echo "Waiting for stack creation to finish (tailing events)..."
     while true; do
@@ -292,7 +296,8 @@ if [[ "$NO_ROLLBACK" == true ]]; then
         sleep 10
     done
 else
-    aws cloudformation deploy \
+    $DEPLOYMENT_RESULTS=$( \
+        aws cloudformation deploy \
         --template-file "$TMP_TEMPLATE" \
         --stack-name "$STACK_NAME" \
         --region "$REGION" \
@@ -313,7 +318,9 @@ else
         --s3-bucket "$S3_BUCKET" \
         --capabilities CAPABILITY_IAM \
         --no-fail-on-empty-changeset
+    )
 fi
+
 
 PROVISION_END_TIME=$(date +%s)
 # Note: PROVISION_START_TIME is not set anymore in seconds, so we recreate it or just use end-start if we care.
@@ -329,7 +336,9 @@ rm "$TMP_TEMPLATE"
 # --- 3. Get Outputs ---
 echo "[3/4] Deployment complete. Fetching details..."
 
+echo "results:\n$DEPLOYMENT_RESULTS"
 
+echo "--------------------------"
 
 INSTANCE_ID=$(aws cloudformation describe-stacks \
     --stack-name "$STACK_NAME" \
