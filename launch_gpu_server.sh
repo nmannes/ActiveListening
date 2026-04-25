@@ -147,9 +147,19 @@ if [[ -n "$MY_IPV4" ]]; then
     OPERATOR_IPV4="${MY_IPV4}/32"
 fi
 
-OPERATOR_IPV6=""
 if [[ -n "$MY_IPV6" ]]; then
     OPERATOR_IPV6="${MY_IPV6}/128"
+fi
+
+ASSIGN_IPV6="false"
+if [[ -n "$OPERATOR_IPV6" ]]; then
+    # Check if any default subnet in the region has IPv6 associated
+    HAS_VPC_IPV6=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=default-for-az,Values=true" --query 'Subnets[*].Ipv6CidrBlockAssociationSet[*].Ipv6CidrBlock' --output text | xargs)
+    if [[ -n "$HAS_VPC_IPV6" ]]; then
+        ASSIGN_IPV6="true"
+    else
+        echo "Warning: Operator has IPv6, but default subnets in $REGION do not support IPv6. Disabling instance IPv6 assignment."
+    fi
 fi
 
 # Load credentials from local env file
@@ -252,6 +262,7 @@ if [[ "$NO_ROLLBACK" == true ]]; then
         --arg pkey "$PRIVATE_KEY_CONTENT" \
         --arg s3 "$RECORDINGS_BUCKET" \
         --arg envc "$ENV_CONTENT" \
+        --arg a6 "$ASSIGN_IPV6" \
         '[
             {ParameterKey: "Environment", ParameterValue: $env},
             {ParameterKey: "InstanceTypeOverride", ParameterValue: $inst},
@@ -264,7 +275,8 @@ if [[ "$NO_ROLLBACK" == true ]]; then
             {ParameterKey: "KalshiKeyId", ParameterValue: $kid},
             {ParameterKey: "KalshiPrivateKey", ParameterValue: $pkey},
             {ParameterKey: "S3RecordingsBucket", ParameterValue: $s3},
-            {ParameterKey: "EnvContent", ParameterValue: $envc}
+            {ParameterKey: "EnvContent", ParameterValue: $envc},
+            {ParameterKey: "AssignIpv6Address", ParameterValue: $a6}
         ]' > "$PARAMS_JSON_FILE"
 
     DEPLOYMENT_RESULTS=$( \
@@ -313,6 +325,7 @@ else
             S3RecordingsBucket="$RECORDINGS_BUCKET" \
             EnvContent="$ENV_CONTENT" \
             RequirementsContent="$REQUIREMENTS_CONTENT" \
+            AssignIpv6Address="$ASSIGN_IPV6" \
         --s3-bucket "$S3_BUCKET" \
         --capabilities CAPABILITY_IAM \
         --no-fail-on-empty-changeset \

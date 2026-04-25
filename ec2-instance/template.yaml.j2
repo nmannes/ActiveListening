@@ -38,16 +38,19 @@ Parameters:
   KalshiPrivateKey:
     Type: String
     NoEcho: true
-  EnvContent:
-    Type: String
     NoEcho: true
     Default: ""
+  AssignIpv6Address:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
 
 Conditions:
   UseSpotInstances: !Equals [!Ref UseSpot, 'true']
   HasInstanceTypeOverride: !Not [ !Equals [!Ref InstanceTypeOverride, ""] ]
   HasIpv4: !Not [ !Equals [!Ref OperatorIpv4, ""] ]
   HasIpv6: !Not [ !Equals [!Ref OperatorIpv6, ""] ]
+  ShouldAssignIpv6: !Equals [!Ref AssignIpv6Address, "true"]
 
 Mappings:
   EnvToInstanceType:
@@ -173,7 +176,7 @@ Resources:
           - UseSpotInstances
           - MarketType: spot
           - !Ref AWS::NoValue
-      Ipv6AddressCount: !If [ HasIpv6, 1, !Ref "AWS::NoValue" ]
+      Ipv6AddressCount: !If [ ShouldAssignIpv6, 1, !Ref "AWS::NoValue" ]
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
@@ -253,6 +256,6 @@ Outputs:
   PrivateIp:
     Value: !GetAtt KalshiWorkerInstance.PrivateIp
   PublicIpv6:
-    Condition: HasIpv6
+    Condition: ShouldAssignIpv6
     Value: !Select [0, !GetAtt KalshiWorkerInstance.Ipv6Addresses]
 
