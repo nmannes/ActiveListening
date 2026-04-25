@@ -51,6 +51,12 @@ Parameters:
   RequirementsContent:
     Type: String
     Default: ""
+  SubnetId:
+    Type: String
+    Default: ""
+  VpcId:
+    Type: String
+    Default: ""
 
 Conditions:
   UseSpotInstances: !Equals [!Ref UseSpot, 'true']
@@ -58,6 +64,8 @@ Conditions:
   HasIpv4: !Not [ !Equals [!Ref OperatorIpv4, ""] ]
   HasIpv6: !Not [ !Equals [!Ref OperatorIpv6, ""] ]
   ShouldAssignIpv6: !Equals [!Ref AssignIpv6Address, "true"]
+  HasSubnetId: !Not [ !Equals [!Ref SubnetId, ""] ]
+  HasVpcId: !Not [ !Equals [!Ref VpcId, ""] ]
 
 Mappings:
   EnvToInstanceType:
@@ -72,6 +80,7 @@ Resources:
     DeletionPolicy: Delete
     Properties:
       GroupDescription: Security group for Kalshi Worker
+      VpcId: !If [ HasVpcId, !Ref VpcId, !Ref "AWS::NoValue" ]
       SecurityGroupIngress:
         - !If [ HasIpv4, { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIp: !Ref OperatorIpv4 }, !Ref "AWS::NoValue" ]
         - !If [ HasIpv6, { IpProtocol: tcp, FromPort: 22, ToPort: 22, CidrIpv6: !Ref OperatorIpv6 }, !Ref "AWS::NoValue" ]
@@ -183,6 +192,7 @@ Resources:
       IamInstanceProfile: !Ref KalshiWorkerInstanceProfile
       SecurityGroupIds: 
         - !Ref KalshiWorkerSecurityGroup
+      SubnetId: !If [ HasSubnetId, !Ref SubnetId, !Ref "AWS::NoValue" ]
       InstanceMarketOptions:
         !If
           - UseSpotInstances
@@ -267,7 +277,4 @@ Outputs:
     Value: !GetAtt KalshiWorkerInstance.PublicIp
   PrivateIp:
     Value: !GetAtt KalshiWorkerInstance.PrivateIp
-  PublicIpv6:
-    Condition: ShouldAssignIpv6
-    Value: !Select [0, !GetAtt KalshiWorkerInstance.Ipv6Addresses]
 

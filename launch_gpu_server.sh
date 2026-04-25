@@ -152,15 +152,26 @@ if [[ -n "$MY_IPV6" ]]; then
 fi
 
 ASSIGN_IPV6="false"
+TARGET_SUBNET=""
 if [[ -n "$OPERATOR_IPV6" ]]; then
-    # Check if any default subnet in the region has IPv6 associated
-    HAS_VPC_IPV6=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=default-for-az,Values=true" --query 'Subnets[*].Ipv6CidrBlockAssociationSet[*].Ipv6CidrBlock' --output text | xargs)
-    if [[ -n "$HAS_VPC_IPV6" ]]; then
+    # Find a default subnet in the region that has IPv6 associated
+    IPV6_SUBNET=$(aws ec2 describe-subnets --region "$REGION" --filters "Name=default-for-az,Values=true" --query 'Subnets[?Ipv6CidrBlockAssociationSet[0].Ipv6CidrBlock != `null`].SubnetId' --output text | awk '{print $1}')
+    if [[ -n "$IPV6_SUBNET" ]]; then
         ASSIGN_IPV6="true"
+        TARGET_SUBNET="$IPV6_SUBNET"
+        echo "Found IPv6-capable default subnet: $TARGET_SUBNET"
     else
-        echo "Warning: Operator has IPv6, but default subnets in $REGION do not support IPv6. Disabling instance IPv6 assignment."
+        echo "Warning: Operator has IPv6, but no default subnets in $REGION support IPv6. Disabling instance IPv6 assignment."
     fi
 fi
+
+# Discover VpcId (required for Security Group if using SubnetId)
+if [[ -n "$TARGET_SUBNET" ]]; then
+    VPC_ID=$(aws ec2 describe-subnets --region "$REGION" --subnet-ids "$TARGET_SUBNET" --query 'Subnets[0].VpcId' --output text)
+else
+    VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=is-default,Values=true" --query 'Vpcs[0].VpcId' --output text)
+fi
+echo "Using VPC: $VPC_ID"
 
 # Load credentials from local env file
 ENV_FILE="$LOCAL_DIR/.env.$ENV"
@@ -263,6 +274,8 @@ if [[ "$NO_ROLLBACK" == true ]]; then
         --arg s3 "$RECORDINGS_BUCKET" \
         --arg envc "$ENV_CONTENT" \
         --arg a6 "$ASSIGN_IPV6" \
+        --arg subnet "$TARGET_SUBNET" \
+        --arg vpc "$VPC_ID" \
         '[
             {ParameterKey: "Environment", ParameterValue: $env},
             {ParameterKey: "InstanceTypeOverride", ParameterValue: $inst},
@@ -276,7 +289,9 @@ if [[ "$NO_ROLLBACK" == true ]]; then
             {ParameterKey: "KalshiPrivateKey", ParameterValue: $pkey},
             {ParameterKey: "S3RecordingsBucket", ParameterValue: $s3},
             {ParameterKey: "EnvContent", ParameterValue: $envc},
-            {ParameterKey: "AssignIpv6Address", ParameterValue: $a6}
+            {ParameterKey: "AssignIpv6Address", ParameterValue: $a6},
+            {ParameterKey: "SubnetId", ParameterValue: $subnet},
+            {ParameterKey: "VpcId", ParameterValue: $vpc}
         ]' > "$PARAMS_JSON_FILE"
 
     DEPLOYMENT_RESULTS=$( \
@@ -326,6 +341,8 @@ else
             EnvContent="$ENV_CONTENT" \
             RequirementsContent="$REQUIREMENTS_CONTENT" \
             AssignIpv6Address="$ASSIGN_IPV6" \
+            SubnetId="$TARGET_SUBNET" \
+            VpcId="$VPC_ID" \
         --s3-bucket "$S3_BUCKET" \
         --capabilities CAPABILITY_IAM \
         --no-fail-on-empty-changeset \
