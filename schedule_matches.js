@@ -289,8 +289,8 @@ for (const match of matches) {
     continue;
 
   let scheduleStartTime =
-    bestSource?.startTime ||
     market?.eventStartTime ||
+    bestSource?.startTime ||
     null;
 
   if (streamURL) {
