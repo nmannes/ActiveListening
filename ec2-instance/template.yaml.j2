@@ -255,4 +255,8 @@ Outputs:
     Value: !Ref KalshiWorkerInstance
   PublicIp:
     Value: !GetAtt KalshiWorkerInstance.PublicIp
+  PrivateIp:
+    Value: !GetAtt KalshiWorkerInstance.PrivateIp
+  PublicIpv6:
+    Value: !Select [0, !GetAtt KalshiWorkerInstance.Ipv6Addresses]
 
