@@ -111,12 +111,12 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # This is a simple per-segment check, but infer_identity_with_bedrock is preferred for batch.
         return 0.0
 
-    async def infer_identity_with_bedrock(self, transcript_history: List[Tuple[str, str]], target_speaker_name: str) -> Dict[str, str]:
+    async def infer_identity_with_bedrock(self, transcript_history: List[Tuple[str, str]], target_speaker_names: str) -> Dict[str, str]:
         """
         Calls Amazon Bedrock to identify which speaker_id is the target_speaker_name.
         Returns a mapping of {speaker_id: label}.
         """
-        prompt = self.format_prompt(transcript_history, target_speaker_name)
+        prompt = self.format_prompt(transcript_history, target_speaker_names)
         if not prompt:
             return {}
             
@@ -126,7 +126,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             
         return self.process_response(result_text)
 
-    def format_prompt(self, transcript_history: List[Tuple[str, str]], target_speaker_name: str) -> str:
+    def format_prompt(self, transcript_history: List[Tuple[str, str]], target_speaker_names: str) -> str:
         """Aggregates data and generates the prompt for Bedrock."""
         # speaker summary and ranking
         speaker_transcripts_dict = {}
@@ -187,18 +187,18 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 
         # prompt generation
         if event_type == "survivor":
-            return get_survivor_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+            return get_survivor_prompt(market_title, target_speaker_names, summary_block, transcript_block)
         elif event_type == "interview":
-            return get_interview_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+            return get_interview_prompt(market_title, target_speaker_names, summary_block, transcript_block)
         elif event_type == "sports_broadcast":
-            return get_sports_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+            return get_sports_prompt(market_title, target_speaker_names, summary_block, transcript_block)
         elif event_type == "earnings_call":
-            return get_earnings_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+            return get_earnings_prompt(market_title, target_speaker_names, summary_block, transcript_block)
         else:
             top_terms_str = ""
             if ranked and ranked[0][0] in speaker_top_terms:
                 top_terms_str = f"(like {', '.join(speaker_top_terms[ranked[0][0]][:5])})"
-            return get_default_prompt(market_title, target_speaker_name, summary_block, transcript_block, top_terms_str)
+            return get_default_prompt(market_title, target_speaker_names, summary_block, transcript_block, top_terms_str)
 
     async def send_request(self, prompt: str) -> Optional[str]:
         """Involved the Bedrock model to get speaker identifications."""
@@ -344,12 +344,12 @@ class SpeakerRecognitionSession:
             logger.info("Transcript is empty, skipping identity inference.")
             return
 
-        # Use the first market entity as the target speaker by default
-        target_name = self.market_entities[0] if self.market_entities else "Unknown"
-        logger.info(f"Running Bedrock identity inference for target: {target_name} (sid history size: {len(transcript_history)})")
+        # Use all market entities for target names
+        target_names = ", ".join(self.market_entities) if self.market_entities else "Unknown"
+        logger.info(f"Running Bedrock identity inference for targets: {target_names} (sid history size: {len(transcript_history)})")
 
         mapping = await self.transcript_recognizer.infer_identity_with_bedrock(
-            transcript_history, target_name
+            transcript_history, target_names
         )
 
         self.identification_history.append(mapping)

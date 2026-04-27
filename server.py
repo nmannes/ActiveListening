@@ -141,37 +141,43 @@ class ClientSession:
                 )
                 return
 
-            if msg.get("type") == "hello" and "market" in msg:
+            if msg.get("type") == "hello" and "markets" in msg:
                 await self.start_session(msg)
         except Exception as e:
             logger.error(f"Handshake parse error: {e}")
 
     async def start_session(self, msg):
-        self.market = msg["market"]
+        self.markets = msg["markets"]
         self.audio_only = msg.get("audioOnly", False)
         self.voice_profile = msg.get("voiceProfile")
         self.clip_profile = msg.get("clipProfile")
-        self.session_id = self.market.get("slug", f"session-{int(time.time())}")
+        
+        # Use slugs for session IDs; first one is the primary session_id for logging
+        self.session_ids = [m.get("slug", f"session-{int(time.time())}") for m in self.markets]
+        self.session_id = self.session_ids[0] if self.session_ids else f"session-{int(time.time())}"
 
         logger.info(
-            f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
+            f"[{self.session_id}] Client identified with {len(self.markets)} markets (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
         )
 
         if self.audio_only:
             self.is_content_visible = True
 
-        # Build keyword index
-        self.keyword_index = build_keyword_index(self.market.get("keywords", {}))
-        logger.info(
-            f"[{self.session_id}] Keyword index: {len(self.keyword_index)} last-words"
-        )
+        # Build separate keyword indices for each market
+        all_speaker_entities = []
+        for m in self.markets:
+            m["keyword_index"] = build_keyword_index(m.get("keywords", {}))
+            logger.info(f"[{self.session_id}] Market {m.get('slug')} keyword index: {len(m.get('keywords', {}))} phrases")
+            
+            entities = m.get("speakerEntities")
+            if entities:
+                if isinstance(entities, list):
+                    all_speaker_entities.extend(entities)
+                else:
+                    all_speaker_entities.append(entities)
 
-        # Save debug index
-        debug_dir = Path(__file__).parent / "debug"
-        debug_dir.mkdir(exist_ok=True)
-        (debug_dir / f"indexedKeywordsByLastWord-{self.session_id}.json").write_text(
-            json.dumps(self.keyword_index, indent=2, default=str)
-        )
+        # Unique entities across all markets
+        all_speaker_entities = list(set(all_speaker_entities))
 
         if not self.audio_only and self.clip_profile is not None:
             self.frame_processor = FrameProcessor(self)
@@ -193,12 +199,12 @@ class ClientSession:
 		)
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
-        if self.market.get("speakerEntities"):
-            logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
-            self.speaker_recognition_session = SpeakerRecognitionSession(self, self.market.get("speakerEntities"))
+        if all_speaker_entities:
+            logger.info(f"[{self.session_id}] Consolidated speaker entities: {all_speaker_entities}")
+            self.speaker_recognition_session = SpeakerRecognitionSession(self, all_speaker_entities)
             self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
         else:
-            logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
+            logger.info(f"[{self.session_id}] No speakerEntities defined across any markets — skipping speaker recognition")
 
         logger.info(
             f"[{self.session_id}] Session ready — receiving audio over WebSocket"

@@ -65,91 +65,88 @@ class TradeProcessor:
                 speaker_transcript.append(token_dict)
                 new_tokens_added.append(token_dict)
 
-        # 2. Update per-speaker buffer and Match
+        # 2. Update per-speaker buffer and Match against each market
         speaker_buffer = self.speaker_buffers[speaker_id]
-
-        # We always want to detect keywords for notifications, even if NOT trading
         for t in new_tokens_added:
             word = t["text"]
             speaker_buffer.append(word)
 
-            matched = find_keyword_match(
-                self.session.keyword_index, speaker_buffer, word
-            )
-            if matched:
-                logger.info(
-                    f"[{self.session.session_id}][SIGNAL] Detected for speaker {speaker_id}: \"{matched['key']}\""
-                )
-                
-                # Send Telegram notification regardless of trading status
-                market_title = self.session.market.get("title", matched["key"])
-                msg = (
-                    f"🔔 [SIGNAL] {market_title}\n"
-                    f"Keyword: \"{matched['key']}\"\n"
-                    f"Speaker: {speaker_id}\n"
-                    f"Ticker: {matched['value']}\n"
-                    f"Trading: {self.session.server.config.trade_for_real}"
-                )
-
-                asyncio.get_running_loop().run_in_executor(
-                    None, send_telegram, msg, "debug"
-                )
-
-                if speaker_id not in self.trading_speakers:
-                    logger.info(
-                        f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because not a trading speaker"
-                    )
+            # Check each market independently
+            for market in self.session.markets:
+                keyword_index = market.get("keyword_index")
+                if not keyword_index:
                     continue
 
-                if not self.session.is_content_visible:
+                matched = find_keyword_match(keyword_index, speaker_buffer, word)
+                if matched:
+                    market_title = market.get("title", matched["key"])
                     logger.info(
-                        f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen"
+                        f"[{self.session.session_id}][SIGNAL] Detected in {market_title} for speaker {speaker_id}: \"{matched['key']}\""
                     )
-                    continue
+                    
+                    # Send Telegram notification
+                    msg = (
+                        f"🔔 [SIGNAL] {market_title}\n"
+                        f"Keyword: \"{matched['key']}\"\n"
+                        f"Speaker: {speaker_id}\n"
+                        f"Ticker: {matched['value']}\n"
+                        f"Trading: {self.session.server.config.trade_for_real}"
+                    )
+                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "debug")
 
-                if self.session.server.config.trade_for_real:
-
-                    order_amount = self.session.market.get("orderAmount", 0)
-                    if order_amount <= 0:
+                    if speaker_id not in self.trading_speakers:
                         logger.info(
-                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because orderAmount is {order_amount}"
+                            f"[{self.session.session_id}][TRADE] Skipping trade in {market_title} for {speaker_id} because not whitelisted"
                         )
                         continue
-                    logger.info(
-                        f"[{self.session.session_id}][TRADE] Placing order for {speaker_id}: \"{matched['key']}\" (orderAmount={order_amount})"
-                    )
-                    order_result = await self.place_order(matched, order_amount=order_amount)
-                    remove_market_from_index(
-                        self.session.keyword_index, matched["value"]
-                    )
-                    logger.info(
-                        f"[{self.session.session_id}][TRADE] Order result: {order_result}"
-                    )
-                    # Send Telegram notification for trade result
-                    msg = (
-                        f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
-                        f"Ticker: {matched['value']}\n"
-                        f"Word: {matched['key']}\n"
-                        f"Result: {order_result}"
 
-                    )
-                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
-
-                # Notify client
-                try:
-                    await self.session.websocket.send(
-                        json.dumps(
-                            {
-                                "type": "signal",
-                                "keyword": matched["key"],
-                                "start": t.get("start"),
-                            }
+                    if not self.session.is_content_visible:
+                        logger.info(
+                            f"[{self.session.session_id}][TRADE] Skipping trade in {market_title} for {speaker_id} because content not visible"
                         )
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[{self.session.session_id}] Error notifying client of signal: {e}"
-                    )
+                        continue
+
+                    if self.session.server.config.trade_for_real:
+                        order_amount = market.get("orderAmount", 0)
+                        if order_amount <= 0:
+                            logger.info(
+                                f"[{self.session.session_id}][TRADE] Skipping trade in {market_title}, orderAmount is {order_amount}"
+                            )
+                            continue
+
+                        logger.info(
+                            f"[{self.session.session_id}][TRADE] Placing order in {market_title} for {speaker_id}: \"{matched['key']}\" (orderAmount={order_amount})"
+                        )
+                        order_result = await self.place_order(matched, market, order_amount=order_amount)
+                        
+                        # Clear keyword index for THIS market to prevent double-trading
+                        market["keyword_index"] = {}
+                        
+                        logger.info(
+                            f"[{self.session.session_id}][TRADE] Order result for {market_title}: {order_result}"
+                        )
+                        msg = (
+                            f"🚀 [TRADE] {market_title}\n"
+                            f"Ticker: {matched['value']}\n"
+                            f"Word: {matched['key']}\n"
+                            f"Result: {order_result}"
+                        )
+                        asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
+
+                    # Notify client
+                    try:
+                        await self.session.websocket.send(
+                            json.dumps(
+                                {
+                                    "type": "signal",
+                                    "keyword": matched["key"],
+                                    "market_slug": market.get("slug"),
+                                    "start": t.get("start"),
+                                }
+                            )
+                        )
+                    except Exception as e:
+                        logger.error(f"[{self.session.session_id}] Error notifying client of signal: {e}")
 
         if new_tokens_added:
             new_text = " ".join(t["text"] for t in new_tokens_added)
@@ -181,16 +178,16 @@ class TradeProcessor:
             except websockets.exceptions.ConnectionClosed:
                 pass
 
-    async def place_order(self, matched, order_amount=None):
+    async def place_order(self, matched, market, order_amount=None):
         order_result = None
         try:
             # Check if there are specific word configurations
-            keyword_configs = self.session.market.get("keywordConfigs", {})
+            keyword_configs = market.get("keywordConfigs", {})
             word_config = keyword_configs.get(matched["key"], {})
 
             purchase_price = int(
                 word_config.get(
-                    "purchasePrice", self.session.market.get("purchasePrice", 90)
+                    "purchasePrice", market.get("purchasePrice", 90)
                 )
             )
             purchase_count = int(
@@ -198,7 +195,7 @@ class TradeProcessor:
                     "purchaseCount",
                     order_amount
                     if order_amount is not None
-                    else self.session.market.get(
+                    else market.get(
                         "purchaseCount", self.session.server.config.buy_count
                     ),
                 )
