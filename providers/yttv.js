@@ -41,9 +41,10 @@ function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
     "-flags",
     "low_delay",
     "-probesize",
-    "32000",
+    "8000",
     "-analyzeduration",
-    "100000",
+    "50000",
+
     "-i",
     inputUrl,
     "-f",
@@ -185,7 +186,8 @@ async function runYTTVCapture(page) {
             reader.readAsDataURL(event.data);
           }
         };
-        recorder.start(50);
+        recorder.start(20);
+
         console.log("Audio MediaRecorder active");
       }
     }
@@ -220,7 +222,7 @@ async function runYTTVCapture(page) {
   return page;
 }
 
-async function latencyReduction(page, logger, count, timeout = 5000) {
+async function latencyReduction(page, logger, count, timeout = 2000) {
   try {
     await new Promise((r) => setTimeout(r, timeout)); // wait for the stream to start
     logger.info(`[yttv] Stream started, attempting to reduce latency...`);
@@ -267,16 +269,21 @@ module.exports = {
 
     try {
       await runYTTVCapture(page);
+      
+      // Trigger first latency reduction after a short delay
+      setTimeout(async () => {
+        await latencyReduction(page, logger, 0);
+      }, 5000);
+
+      setInterval(async () => {
+        await latencyReduction(page, logger, 0);
+      }, LATENCY_REDUCTION_INTERVAL);
     } catch (e) {
       _logger.error(`[yttv] Failed to start YTTV capture: ${e.message}`);
       throw e;
-    } finally {
-      let count = 0
-      setInterval(async () => {
-        await latencyReduction(page, logger, count)
-      }, LATENCY_REDUCTION_INTERVAL)
     }
   },
+
 
   updateWs(ws) {
     _ws = ws;

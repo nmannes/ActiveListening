@@ -29,8 +29,14 @@ class AudioProcessor:
             "channels=1&"
             "diarize=true&"
             "model=nova-2&"
-            "smart_format=true"
+            "smart_format=true&"
+            "interim_results=true&"
+            "no_delay=true&"
+            "vad_turnaround=10&"
+            "endpointing=100"
         )
+
+
 
         # Audio recording
         self._pcm_buffer = bytearray()  # all PCM sent, for slicing by timestamp
@@ -175,9 +181,10 @@ class AudioProcessor:
                     inbox_len = len(pcm_data)
                     self.session.audio_inbox.clear()
 
-                # Chunking: send in ~3KB pieces (approx 100ms of audio)
+                # Chunking: send in ~1.6KB pieces (approx 50ms of audio)
                 # Smaller chunks = faster partial results from Deepgram
-                chunk_len = 3200
+                chunk_len = 1600
+
                 if inbox_len > 0:
                     logger.debug(f"[{self.session.session_id}][AUDIO_SENDER] Draining {inbox_len} bytes from inbox")
                 
