@@ -360,163 +360,94 @@ if (currentSequence) sequences.push(currentSequence);
 
 // ── 4. Process Sequences ─────────────────────────────────────────────
 for (const seq of sequences) {
-  // Calculate optimal server window for the entire sequence
-  const firstM = seq[0];
-  const lastM = seq[seq.length - 1];
+  // Group markets within the sequence by their stream URL
+  const groupsByStream = _.groupBy(seq, 'mediaStreamURL');
 
-  const seqStart = new Date(firstM.eventStartTime);
-  const seqLastStart = new Date(lastM.eventStartTime);
+  for (const [streamURL, groupMarkets] of Object.entries(groupsByStream)) {
+    const primaryMarket = groupMarkets[0];
+    const startTime = new Date(primaryMarket.eventStartTime);
+    const sessionSlug = primaryMarket.slug;
+    const sessionFile = path.join(scheduledDir, `${sessionSlug}_multi.json`);
 
-  // Server should launch 10m before first and shut down based on the longest duration required
-  const overallLaunch = new Date(seqStart.getTime() - 10 * 60 * 1000);
+    // Calculate optimal server window for the group
+    const overallLaunch = new Date(startTime.getTime() - 10 * 60 * 1000);
+    let maxEndTime = 0;
+    for (const m of groupMarkets) {
+      const mStartTime = new Date(m.eventStartTime).getTime();
+      const originalMatch = matches.find((match) => match.market.slug === m.slug);
+      const duration = getDuration(m, originalMatch);
+      const mEndTime = mStartTime + duration * 60 * 1000;
+      if (mEndTime > maxEndTime) maxEndTime = mEndTime;
+    }
+    const overallShutdown = new Date(maxEndTime);
+    const optimizedDuration = Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
 
-  let maxEndTime = 0;
-  for (const m of seq) {
-    const mStartTime = new Date(m.eventStartTime).getTime();
-    // We need to find the original match object to get duration context
-    const originalMatch = matches.find((match) => match.market.slug === m.slug);
-    const duration = getDuration(m, originalMatch);
-    const mEndTime = mStartTime + duration * 60 * 1000;
-    if (mEndTime > maxEndTime) maxEndTime = mEndTime;
-  }
-
-  const overallShutdown = new Date(maxEndTime);
-  const optimizedDuration =
-    Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
-
-  let seqServerWindow = null;
-
-  for (const market of seq) {
-    const originalMatch = matches.find(
-      (match) => match.market.slug === market.slug,
-    );
-    const startTime = new Date(market.eventStartTime);
-    const slug = market.slug;
-    const newFile = path.join(scheduledDir, `${slug}.json`);
-
-    // Check if we can reuse an existing server window (from previous runs or current sequence)
+    // Check for reusable server window
     const estimatedEndTime = new Date(startTime.getTime() + 60 * 60 * 1000);
     let reusableWindow = serverWindows.find(
       (w) => w.start <= startTime && w.end >= estimatedEndTime,
     );
 
-    if (!reusableWindow && seqServerWindow) {
-      if (
-        seqServerWindow.start <= startTime &&
-        seqServerWindow.end >= estimatedEndTime
-      ) {
-        reusableWindow = seqServerWindow;
-      }
-    }
-
-    let clientOnly = market.alreadyStarted || !!reusableWindow;
+    let clientOnly = primaryMarket.alreadyStarted || !!reusableWindow;
     let serverDuration = clientOnly ? 0 : optimizedDuration;
 
-    const isAlreadyScheduled = fs.existsSync(newFile) && !force;
+    const isAlreadyScheduled = fs.existsSync(sessionFile) && !force;
+    if (isAlreadyScheduled) {
+      console.log(`Skipping ${sessionSlug} - already scheduled`);
+      continue;
+    }
 
     if (dryRun) {
-      console.log(`[DRY-RUN] Market: ${market.title}`);
-      console.log(`          Event:   ${startTime.toLocaleString()}`);
-      console.log(`          Stream:  ${market.mediaStreamURL || "NONE"}`);
-      console.log(`          Source:  ${scheduledDir}/${slug}.json`);
-
-      if (isAlreadyScheduled) {
-        console.log(`          Status:  ALREADY SCHEDULED (Would be skipped)`);
-      }
-      console.log(
-        `          Mode:    ${clientOnly ? (reusableWindow ? "REUSE Server (Client Only)" : "Client Only (Started)") : "NEW Server (Full Run)"}`,
-      );
-      if (!clientOnly) {
-        console.log(
-          `          Server:  Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
-        );
-        seqServerWindow = { start: overallLaunch, end: overallShutdown };
-      } else if (reusableWindow) {
-        console.log(
-          `          Using:   Existing server window (${reusableWindow.start.toLocaleTimeString()} - ${reusableWindow.end.toLocaleTimeString()})`,
-        );
-      }
-
-      const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
-      const marketDuration = getDuration(market, originalMatchForCmd);
-      let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
-      if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
-      if (clientOnly) cmd += " --client-only";
-      if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) cmd += " --browser";
-      console.log(`          Command: ${cmd}`);
+      console.log(`[DRY-RUN] Multi-Market Session: ${groupMarkets.length} markets`);
+      groupMarkets.forEach(m => console.log(`          - ${m.title}`));
+      console.log(`          Launch:  ${overallLaunch.toLocaleString()}`);
+      console.log(`          Stream:  ${streamURL || "NONE"}`);
+      console.log(`          Mode:    ${clientOnly ? "REUSE Server" : "NEW Server"}`);
       console.log("");
       continue;
     }
 
-    if (isAlreadyScheduled) {
-      console.log(`Skipping ${market.title} - already scheduled`);
-      continue;
-    }
+    // Prepare consolidated market file (array of markets)
+    const marketsToSave = groupMarkets.map(m => {
+      const copy = { ...m };
+      if (copy.keywords) delete copy["keywords"]["event does not qualify"];
+      return copy;
+    });
 
-    // Prepare market file
-    if (market.keywords) delete market["keywords"]["event does not qualify"];
-    market.clientOnly = clientOnly;
-    market.serverDuration = serverDuration;
-    fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
+    // Add session-level metadata to the first market or as sidecar (client.js expects array or object)
+    // We'll save it as a pure array. client.js handles the rest.
+    fs.writeFileSync(sessionFile, JSON.stringify(marketsToSave, null, 2));
 
     if (homeScheduledDir) {
       try {
-        const homeFile = path.join(homeScheduledDir, `${slug}.json`);
-        fs.writeFileSync(homeFile, JSON.stringify(market, null, 2));
-      } catch (e) {
-        console.error(`Failed to write to home scheduled dir: ${e.message}`);
-      }
+        const homeFile = path.join(homeScheduledDir, `${sessionSlug}_multi.json`);
+        fs.writeFileSync(homeFile, JSON.stringify(marketsToSave, null, 2));
+      } catch (e) {}
     }
 
-    const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
-    const marketDuration = getDuration(market, originalMatchForCmd);
-    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
-    if (!clientOnly) {
-      cmd += ` --server-duration ${serverDuration}`;
-    }
-    if (clientOnly) {
-      cmd += " --client-only";
-    }
-    if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) {
-      cmd += " --browser";
-    }
+    // Build command
+    const marketDuration = Math.ceil((overallShutdown - startTime) / 60000);
+    let cmd = `/home/nathan/kalshi/schedule_run.sh ${sessionFile} --duration ${marketDuration}`;
+    if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
+    if (clientOnly) cmd += " --client-only";
+    if (streamURL && streamURL.includes("amazon.com")) cmd += " --browser";
 
     try {
-      console.log(
-        `Scheduling ${market.title} for ${startTime.toLocaleString()}`,
-      );
-      console.log(
-        `          Mode:   ${clientOnly ? (reusableWindow ? "REUSE Server" : "Client Only") : "NEW Server"}`,
-      );
-      if (market.mediaStreamURL) {
-        const displayStream = market.mediaStreamURL.includes("localhost") ? "localhost" : market.mediaStreamURL;
-        console.log(`          Stream: ${displayStream}`);
-      }
-      if (!clientOnly) {
-        console.log(
-          `          Server: Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
-        );
-      }
-
+      console.log(`Scheduling multi-market session for ${startTime.toLocaleString()} with ${groupMarkets.length} markets`);
       execSync(cmd);
 
-      const mode = clientOnly
-        ? reusableWindow
-          ? "REUSE Server"
-          : "Client Only"
-        : "NEW Server";
-      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Stream: ${market.mediaStreamURL || "NONE"}`;
-      sendTelegram(message).catch((e) =>
-        console.error(`Failed to send Telegram: ${e.message}`),
-      );
+      const mode = clientOnly ? (reusableWindow ? "REUSE Server" : "Client Only") : "NEW Server";
+      const marketTitles = groupMarkets.map(m => m.title).join('\n- ');
+      const message = `✅ Scheduled Multi-Market Session\n🚀 Mode: ${mode}\n📺 Stream: ${streamURL || "NONE"}\n📦 Markets:\n- ${marketTitles}`;
+      
+      sendTelegram(message).catch((e) => console.error(`Telegram fail: ${e.message}`));
 
       if (!clientOnly) {
-        seqServerWindow = { start: overallLaunch, end: overallShutdown };
-        serverWindows.push(seqServerWindow);
+        const win = { start: overallLaunch, end: overallShutdown };
+        serverWindows.push(win);
       }
-      console.log("");
     } catch (e) {
-      console.error(`Failed to schedule ${market.title}: ${e.message}`);
+      console.error(`Failed to schedule ${sessionSlug}: ${e.message}`);
     }
   }
 }

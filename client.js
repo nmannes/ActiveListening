@@ -83,15 +83,15 @@ const formattedIP = net.isIPv6(REMOTE_IP_ADDRESS) ? `[${REMOTE_IP_ADDRESS}]` : R
 const REMOTE_URL = args.server || `ws://${formattedIP}:8090`;
 
 // ── Parse market data ────────────────────────────────────────────────
-let market = null;
+let inputData = null;
 if (args.fromFile) {
-  market = JSON.parse(fs.readFileSync(args.fromFile, "utf8"));
+  inputData = JSON.parse(fs.readFileSync(args.fromFile, "utf8"));
 } else if (args.matchJSON) {
   try {
-    if (args.matchJSON.trim().startsWith("{")) {
-      market = JSON.parse(args.matchJSON);
+    if (args.matchJSON.trim().startsWith("{") || args.matchJSON.trim().startsWith("[")) {
+      inputData = JSON.parse(args.matchJSON);
     } else {
-      market = JSON.parse(Buffer.from(args.matchJSON, "base64").toString());
+      inputData = JSON.parse(Buffer.from(args.matchJSON, "base64").toString());
     }
   } catch (e) {
     console.error(`Failed to parse matchJSON: ${e.message}`);
@@ -102,14 +102,22 @@ if (args.fromFile) {
   process.exit(1);
 }
 
-if (args.purchasePrice !== undefined) {
-  market.purchasePrice = parseFloat(args.purchasePrice);
-}
-if (args.purchaseCount !== undefined) {
-  market.purchaseCount = parseInt(args.purchaseCount, 1);
+// Support single market or array of markets
+const markets = Array.isArray(inputData) ? inputData : [inputData];
+
+// Apply global overrides to all markets
+for (const m of markets) {
+  if (args.purchasePrice !== undefined) {
+    m.purchasePrice = parseFloat(args.purchasePrice);
+  }
+  if (args.purchaseCount !== undefined) {
+    m.purchaseCount = parseInt(args.purchaseCount, 10);
+  }
 }
 
-let STREAM_URL = args.url || market.mediaStreamURL || market.channelURL;
+const primaryMarket = markets[0];
+
+let STREAM_URL = args.url || primaryMarket.mediaStreamURL || primaryMarket.channelURL;
 if (!STREAM_URL) {
   console.error(
     "No stream URL found. Use --url or include mediaStreamURL/channelURL in market data.",
@@ -123,11 +131,12 @@ if (STREAM_URL && !STREAM_URL.match(/^[a-zA-Z]+:\/\//)) {
   logger.warn(`Stream URL was missing protocol, fixed to: ${STREAM_URL}`);
 }
 
-market.mediaStreamURL =
-  market.mediaStreamURL || market.channelURL || STREAM_URL;
+for (const m of markets) {
+  m.mediaStreamURL = m.mediaStreamURL || m.channelURL || STREAM_URL;
+}
 
 // Apply custom word configurations (substitutions & custom buy amounts)
-market = applyWordConfigurations(market);
+applyWordConfigurations(markets);
 
 // ── Auto-detect provider ─────────────────────────────────────────────
 let providerName = args.provider;
@@ -160,7 +169,8 @@ try {
 }
 
 // ── Logging ──────────────────────────────────────────────────────────
-const sessionId = market.slug || args.id || new Date().getUTCSeconds();
+const sessionId = primaryMarket.slug || args.id || new Date().getUTCSeconds();
+const sessionIds = markets.map(m => m.slug).join(',');
 logger = baseLogger.child({ sessionId });
 
 // ── Lockfile ────────────────────────────────────────────────────────
@@ -184,15 +194,15 @@ fs.writeFileSync(lockPath, process.pid.toString());
 logger.info(`[client] Lockfile created: ${lockPath}`);
 
 logger.info(`Session ID: ${sessionId}`);
+logger.info(`All Markets: ${sessionIds}`);
 logger.info(`Provider: ${provider.name}`);
-logger.info(`Market: ${market.title || market.slug}`);
 logger.info(`Stream: ${STREAM_URL}`);
 logger.info(`Remote: ${REMOTE_URL}`);
 
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require("./lib/orderbook_tracking");
-const orderbook = startOrderbookTracking(market);
-const msg = `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes\nStream: ${STREAM_URL}`;
+const orderbookTracker = startOrderbookTracking(markets);
+const msg = `[client] Tracking ${markets.length} markets for ${args.duration || 90} minutes\nStream: ${STREAM_URL}`;
 logger.info(msg);
 sendTelegram(msg).catch((err) =>
   logger.error(`[client] Failed to send Telegram: ${err.message}`),
@@ -217,11 +227,14 @@ function connectWebSocket() {
     logger.info(`[ws] Connected to remote server`);
     reconnectStartTime = null;
 
-    // Send handshake with market data
-    const hello = { type: "hello", market };
+    // Send handshake with ALL markets
+    const hello = { type: "hello", markets };
     if (provider.audioOnly) hello.audioOnly = true;
-    if (market.clipProfile !== undefined)
-      hello.clipProfile = market.clipProfile;
+    
+    // Use clipProfile from the first market that defined it
+    const clipProfile = markets.find(m => m.clipProfile !== undefined)?.clipProfile;
+    if (clipProfile !== undefined) hello.clipProfile = clipProfile;
+    
     ws.send(JSON.stringify(hello));
 
     // Update provider's ws reference
@@ -288,7 +301,7 @@ function shutdown(reason, exitCode = 0) {
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   provider.stop();
   if (ws) ws.close();
-  if (orderbook && orderbook.stop) orderbook.stop();
+  if (orderbookTracker && orderbookTracker.stopAll) orderbookTracker.stopAll();
 
   if (typeof lockPath !== "undefined" && lockPath && fs.existsSync(lockPath)) {
     fs.unlinkSync(lockPath);
@@ -304,14 +317,14 @@ connectWebSocket();
 // Small delay to let WS connect before starting the provider
 setTimeout(async () => {
   try {
-    // Wait for the event to start if necessary
-    await waitIfNecessary(market, logger).catch((err) => {
+    // Wait for the event to start if necessary (using primary market for timing)
+    await waitIfNecessary(primaryMarket, logger).catch((err) => {
       logger.error(`Error in waitIfNecessary: ${err.message}`);
     });
 
     await provider.start({
       ws,
-      market,
+      markets,
       streamUrl: STREAM_URL,
       args,
       logger,
