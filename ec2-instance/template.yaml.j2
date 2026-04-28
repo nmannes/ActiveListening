@@ -48,9 +48,6 @@ Parameters:
     Type: String
     NoEcho: true
     Default: ""
-  RequirementsContent:
-    Type: String
-    Default: ""
   SubnetId:
     Type: String
     Default: ""
@@ -103,11 +100,6 @@ Resources:
             "/home/ubuntu/.env":
               content: !Ref EnvContent
               mode: "000600"
-              owner: "ubuntu"
-              group: "ubuntu"
-            "/home/ubuntu/requirements.txt":
-              content: !Ref RequirementsContent
-              mode: "000644"
               owner: "ubuntu"
               group: "ubuntu"
             "/home/ubuntu/private_key.txt":

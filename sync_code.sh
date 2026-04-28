@@ -24,7 +24,6 @@ echo "Syncing code to remote instance..."
 
 FILES_TO_COPY=(
     "server.py"
-    "requirements.txt"
     ".env.demo"
     ".env.prod"
     "demo_private_key.txt"

@@ -52,12 +52,15 @@ USE_SPOT=false
 SHUTDOWN_MINUTES=45
 REMOTE_USER="ubuntu"
 REMOTE_DIR="/home/ubuntu"
+FORCE=false
+
 
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
     arg="${args[$i]}"
     case $arg in
         prod|demo) ENV=$arg ;;
+        -f|--force) FORCE=true ;;
         --spot) USE_SPOT=true ;;
         --no-rollback) NO_ROLLBACK=true ;;
         --destroy-all) ENV="--destroy-all" ;;
@@ -131,10 +134,15 @@ if [[ "$EXISTING_INSTANCE" != "None" && -n "$EXISTING_INSTANCE" ]]; then
     echo "--------------------------------------------------------"
     echo "ALREADY RUNNING: A $ENV instance is active at $EXISTING_IP"
     echo "Instance ID: $EXISTING_INSTANCE"
-    echo "Aborting launch to avoid duplicates."
-    echo "--------------------------------------------------------"
-    $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $EXISTING_IP ($EXISTING_INSTANCE)" --channel info
-    exit 0
+    if [[ "$FORCE" == true ]]; then
+        echo "FORCE ENABLED: Proceeding despite existing instance."
+        echo "--------------------------------------------------------"
+    else
+        echo "Aborting launch to avoid duplicates."
+        echo "--------------------------------------------------------"
+        $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $EXISTING_IP ($EXISTING_INSTANCE)" --channel info
+        exit 0
+    fi
 fi
 
 # --- 1. Get Local IP and Credentials ---
@@ -214,11 +222,13 @@ ENV_CONTENT=$(cat "$ENV_FILE" | \
     sed "s|^KALSHI_PRIVATE_KEY_PATH=.*|KALSHI_PRIVATE_KEY_PATH=$REMOTE_DIR/private_key.txt|" | \
     sed "s|^KALSHI_BASE_DOMAIN=.*|KALSHI_BASE_DOMAIN=$DOMAIN|")
 
-REQUIREMENTS_CONTENT=$(cat "$LOCAL_DIR/requirements.txt")
 
 # --- 2. Assemble and Launch Stack ---
 echo "[2/4] Assembling and deploying modular CloudFormation stack..."
 STACK_NAME="kalshi-worker-$RUN_ID"
+if [[ "$FORCE" == true ]]; then
+    STACK_NAME="${STACK_NAME}-forced"
+fi
 
 # Blueprint assembly via Jinja2
 BLUEPRINT_DIR="$LOCAL_DIR/ec2-instance"
@@ -339,7 +349,6 @@ else
             KalshiPrivateKey="$PRIVATE_KEY_CONTENT" \
             S3RecordingsBucket="$RECORDINGS_BUCKET" \
             EnvContent="$ENV_CONTENT" \
-            RequirementsContent="$REQUIREMENTS_CONTENT" \
             AssignIpv6Address="$ASSIGN_IPV6" \
             SubnetId="$TARGET_SUBNET" \
             VpcId="$VPC_ID" \

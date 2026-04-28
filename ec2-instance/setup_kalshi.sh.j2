@@ -7,6 +7,12 @@ mkdir -p "$HOME_DIR/logs" "$HOME_DIR/debug"
 exec > >(tee -a "$HOME_DIR/logs/setup_trace.log") 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 
+# Function to log errors before exiting
+error_handler() {
+    echo "ERROR: setup_kalshi.sh failed at line $1"
+}
+trap 'error_handler $LINENO' ERR
+
 sudo apt-get update
 sudo apt-get install -y python3-pip git build-essential libssl-dev zlib1g-dev \
     libbz2-dev libreadline-dev libsqlite3-dev curl \
@@ -50,6 +56,10 @@ sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
 rm google-chrome-stable_current_amd64.deb
 
 GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
+if [ -z "$GITLAB_TOKEN" ]; then
+    echo "ERROR: GITLAB_TOKEN not found in .env"
+    exit 1
+fi
 
 echo "[3/5] Installing Pyenv/python..."
 if [ ! -d "$HOME_DIR/.pyenv" ]; then
