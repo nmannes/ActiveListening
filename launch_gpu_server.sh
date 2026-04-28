@@ -118,29 +118,28 @@ while true; do
 done
 
 echo "[0/4] Checking for existing $ENV instances in $REGION..."
-EXISTING_INSTANCE=$(aws ec2 describe-instances \
+EXISTING_INSTANCES=$(aws ec2 describe-instances \
     --region "$REGION" \
     --filters "Name=tag:Environment,Values=$ENV" "Name=instance-state-name,Values=running,pending" \
-    --query 'Reservations[].Instances[0].InstanceId' \
-    --output text | awk '{print $1}')
+    --query 'Reservations[].Instances[].{ID:InstanceId, IP:PublicIpAddress}' \
+    --output json)
 
-if [[ "$EXISTING_INSTANCE" != "None" && -n "$EXISTING_INSTANCE" ]]; then
-    # Get the IP of the existing instance
-    EXISTING_IP=$(aws ec2 describe-instances \
-        --region "$REGION" \
-        --instance-ids "$EXISTING_INSTANCE" \
-        --query 'Reservations[].Instances[0].PublicIpAddress' \
-        --output text)
+COUNT=$(echo "$EXISTING_INSTANCES" | jq '. | length')
+
+if [[ "$COUNT" -gt 0 ]]; then
     echo "--------------------------------------------------------"
-    echo "ALREADY RUNNING: A $ENV instance is active at $EXISTING_IP"
-    echo "Instance ID: $EXISTING_INSTANCE"
+    echo "ALREADY RUNNING: $COUNT $ENV instance(s) found:"
+    echo "$EXISTING_INSTANCES" | jq -r '.[] | "  - \(.ID) at \(.IP)"'
+    
     if [[ "$FORCE" == true ]]; then
-        echo "FORCE ENABLED: Proceeding despite existing instance."
+        echo "FORCE ENABLED: Proceeding despite existing instance(s)."
         echo "--------------------------------------------------------"
     else
-        echo "Aborting launch to avoid duplicates."
+        echo "Aborting launch to avoid duplicates. Use -f to force."
         echo "--------------------------------------------------------"
-        $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $EXISTING_IP ($EXISTING_INSTANCE)" --channel info
+        FIRST_IP=$(echo "$EXISTING_INSTANCES" | jq -r '.[0].IP')
+        FIRST_ID=$(echo "$EXISTING_INSTANCES" | jq -r '.[0].ID')
+        $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $FIRST_IP ($FIRST_ID)" --channel info
         exit 0
     fi
 fi

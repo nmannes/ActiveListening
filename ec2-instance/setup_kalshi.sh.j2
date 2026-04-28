@@ -83,8 +83,8 @@ source .venv/bin/activate
 
 # Force CPU-only versions of torch, torchvision, and torchaudio first to prevent download of GPU wheels
 echo "[5/5] Installing dependencies via uv..."
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 
 # Install open-clip-torch and other requirements
-uv pip install open-clip-torch --extra-index-url https://download.pytorch.org/whl/cpu
-uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
+uv pip install open-clip-torch --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
