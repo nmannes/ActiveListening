@@ -141,16 +141,20 @@ Resources:
                             "retention_in_days": 7
                           },
                           {
-                            "file_path": "/home/ubuntu/logs/remote_server.log",
-                            "log_group_name": "/kalshi/worker",
-                            "log_stream_name": "{instance_id}/remote_server",
-                            "retention_in_days": 7
-                          },
-                          {
                             "file_path": "/home/ubuntu/logs/setup_trace.log",
                             "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/setup_trace",
                             "retention_in_days": 7
+                          }
+                        ]
+                      },
+                      "journal": {
+                        "collect_list": [
+                          {
+                            "journal_name": "systemd",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/remote_server",
+                            "services": ["kalshi"]
                           }
                         ]
                       }
