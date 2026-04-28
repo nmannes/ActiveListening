@@ -208,6 +208,14 @@ function getDuration(market, match) {
   return 75; // Default
 }
 
+/**
+ * Checks if a market is a sports event.
+ */
+function isSport(market) {
+  const slug = (market.slug || "").toLowerCase();
+  return slug.includes("nbamention") || slug.includes("mlbmention") || slug.includes("nhlmention");
+}
+
 // ── 1. Load existing scheduled server windows ───────────────────────
 // matchedMatches is already populated from the matching logic above
 const manualMatchesPath = path.join(CACHE_DIR, "manual_matches.json");
@@ -361,10 +369,15 @@ if (currentSequence) sequences.push(currentSequence);
 // ── 4. Process Sequences ─────────────────────────────────────────────
 for (const seq of sequences) {
   // Group markets within the sequence by their stream URL
-  const groupsByStream = _.groupBy(seq, 'mediaStreamURL');
+  // Only group non-sports events. Sports events get a unique key to prevent consolidation.
+  const groupsByStream = _.groupBy(seq, (m) => {
+    if (isSport(m)) return `${m.mediaStreamURL}_${m.slug}`;
+    return m.mediaStreamURL;
+  });
 
-  for (const [streamURL, groupMarkets] of Object.entries(groupsByStream)) {
+  for (const [groupKey, groupMarkets] of Object.entries(groupsByStream)) {
     const primaryMarket = groupMarkets[0];
+    const streamURL = primaryMarket.mediaStreamURL;
     const startTime = new Date(primaryMarket.eventStartTime);
     const sessionSlug = primaryMarket.slug;
     const sessionFile = path.join(scheduledDir, `${sessionSlug}_multi.json`);
@@ -383,9 +396,9 @@ for (const seq of sequences) {
     const optimizedDuration = Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
 
     // Check for reusable server window
-    const estimatedEndTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+    // Use the actual overall shutdown time to ensure the reused server lasts long enough
     let reusableWindow = serverWindows.find(
-      (w) => w.start <= startTime && w.end >= estimatedEndTime,
+      (w) => w.start <= startTime && w.end >= overallShutdown,
     );
 
     let clientOnly = primaryMarket.alreadyStarted || !!reusableWindow;
