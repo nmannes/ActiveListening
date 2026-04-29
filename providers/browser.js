@@ -38,9 +38,9 @@ function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
     "-flags",
     "low_delay",
     "-probesize",
-    "32000",
+    "64000",
     "-analyzeduration",
-    "100000",
+    "200000",
     "-i",
     inputUrl,
     "-f",
@@ -131,6 +131,10 @@ async function runBrowserCapture() {
       _streamUrl.includes("event.choruscall.com/mediaframe") ||
       _streamUrl.includes("q4inc.com") ||
       _streamUrl.includes("event.webcasts.com") ||
+      _streamUrl.includes("webcasts.com") ||
+      _streamUrl.includes("on24.com") ||
+      _streamUrl.includes("veracast.com") ||
+      _streamUrl.includes("media-server.com") ||
       _streamUrl.includes("open-exchange.net") ||
       _streamUrl.includes("knowledgevision.com");
 
@@ -197,6 +201,10 @@ async function runBrowserCapture() {
     _streamUrl.includes("event.choruscall.com/mediaframe") ||
     _streamUrl.includes("q4inc.com") ||
     _streamUrl.includes("event.webcasts.com") ||
+    _streamUrl.includes("webcasts.com") ||
+    _streamUrl.includes("on24.com") ||
+    _streamUrl.includes("veracast.com") ||
+    _streamUrl.includes("media-server.com") ||
     _streamUrl.includes("open-exchange.net") ||
     _streamUrl.includes("knowledgevision.com");
 
@@ -242,6 +250,7 @@ async function runBrowserCapture() {
             );
             try {
               const audioCtx = new AudioContext();
+              if (audioCtx.state === "suspended") await audioCtx.resume();
               const source = audioCtx.createMediaElementSource(videoElement);
               const dest = audioCtx.createMediaStreamDestination();
               source.connect(audioCtx.destination);

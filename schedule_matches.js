@@ -442,7 +442,9 @@ for (const seq of sequences) {
       let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
       if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
       if (clientOnly) cmd += " --client-only";
-      if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) cmd += " --browser";
+      const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
+      const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
+      if (!isTv && !isYoutube) cmd += " --browser";
       console.log(`          Command: ${cmd}`);
       console.log("");
       continue;
@@ -477,7 +479,9 @@ for (const seq of sequences) {
     if (clientOnly) {
       cmd += " --client-only";
     }
-    if (market.mediaStreamURL && market.mediaStreamURL.includes("amazon.com")) {
+    const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
+    const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
+    if (!isTv && !isYoutube) {
       cmd += " --browser";
     }
 
