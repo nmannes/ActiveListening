@@ -193,12 +193,10 @@ class ClientSession:
 		)
         self.audio_task = asyncio.create_task(self.audio_processor.run())
 
-        if self.market.get("speakerEntities") and not self.market.get("ignoreSpeakerRecognition"):
+        if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
             self.speaker_recognition_session = SpeakerRecognitionSession(self, self.market.get("speakerEntities"))
             self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
-        elif self.market.get("ignoreSpeakerRecognition"):
-            logger.info(f"[{self.session_id}] Speaker recognition disabled for this session (earnings call policy)")
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
 
