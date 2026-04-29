@@ -188,7 +188,10 @@ function getDuration(market, match) {
   ) {
     return 90;
   }
-  if (title.includes("earnings") || slug.includes("earnings") || title.includes('his show') || title.includes('her show')) {
+  if (title.includes("earnings") || slug.includes("earnings")) {
+    return 30;
+  }
+  if (title.includes('his show') || title.includes('her show')) {
     return 60;
   }
   if (ncaaEvent || title.includes("ncaa") || slug.includes("ncaa") || (mediaSources && mediaSources.some(s => s.metadata?.league === 'ncaa'))) {
@@ -325,6 +328,11 @@ for (const match of matches) {
       market.mediaStreamURL = streamURL;
       market.eventStartTime = startTime;
       market.alreadyStarted = alreadyStarted;
+
+      if (market.slug?.includes("earnings") || market.title?.toLowerCase().includes("earnings")) {
+        market.ignoreSpeakerRecognition = true;
+      }
+
       candidates.push(market);
     }
   }
