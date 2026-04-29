@@ -48,7 +48,7 @@ logger, transcript_logger = setup_logging()
 SPEAKER_RECOGNITION_INTERVAL_SECS = 30
 SPEAKER_RECOGNITION_WORD_STEP = 500
 SPEAKER_RECOGNITION_MAX_WORDS = 10000
-AUDIO_INBOX_CAP_SECS = 30
+AUDIO_INBOX_CAP_SECS = 60
 
 
 # ── Main server ───────────────────────────────────────────────────────

@@ -171,7 +171,12 @@ class AudioProcessor:
         logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Task started")
         try:
             while True:
-                await asyncio.sleep(0.01)
+                # Adaptive sleep: if we have a backlog (>1s), don't sleep to drain faster
+                with self.session.audio_inbox_lock:
+                    inbox_len_current = len(self.session.audio_inbox)
+                
+                if inbox_len_current < (16000 * 2): # less than 1 second
+                    await asyncio.sleep(0.01)
 
                 with self.session.audio_inbox_lock:
                     if not self.session.audio_inbox:
@@ -181,12 +186,12 @@ class AudioProcessor:
                     inbox_len = len(pcm_data)
                     self.session.audio_inbox.clear()
 
-                # Chunking: send in ~1.6KB pieces (approx 50ms of audio)
-                # Smaller chunks = faster partial results from Deepgram
-                chunk_len = 1600
+                # Chunking: send in ~6.4KB pieces (approx 200ms of audio)
+                # Larger chunks = higher throughput, less event loop overhead
+                chunk_len = 6400
 
-                if inbox_len > 0:
-                    logger.debug(f"[{self.session.session_id}][AUDIO_SENDER] Draining {inbox_len} bytes from inbox")
+                if inbox_len > 16000: # Log if we are draining more than 0.5s
+                    logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Draining large batch: {inbox_len} bytes ({int(inbox_len/(16000*2)*1000)}ms)")
                 
                 for i in range(0, len(pcm_data), chunk_len):
                     chunk = pcm_data[i : i + chunk_len]
@@ -200,7 +205,13 @@ class AudioProcessor:
 
                     # Send to Deepgram with a timeout to prevent permanent hangs
                     try:
+                        t0 = time.time()
                         await asyncio.wait_for(dg_ws.send(chunk), timeout=2.0)
+                        duration_ms = (time.time() - t0) * 1000
+                        if duration_ms > 500:
+                            logger.warning(
+                                f"[{self.session.session_id}][AUDIO_SENDER] High latency sending {len(chunk)} bytes to Deepgram: {duration_ms:.1f}ms"
+                            )
                     except asyncio.TimeoutError:
                         logger.error(
                             f"[{self.session.session_id}][AUDIO_SENDER] Timeout sending {len(chunk)} bytes to Deepgram"
