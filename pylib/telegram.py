@@ -1,7 +1,9 @@
 import os
 import sys
+import atexit
 import requests
 from dotenv import load_dotenv
+import threading
 from pathlib import Path
 
 
@@ -21,6 +23,11 @@ def setup_env():
 
 # Initialize environment
 setup_env()
+
+# Batching state for debug channel
+_debug_buffer = []
+_buffer_lock = threading.Lock()
+_BATCH_SIZE = 10
 
 
 def get_bot(channel="info"):
@@ -53,12 +60,49 @@ def get_updates(channel="info"):
 
 
 def send_telegram(message, channel="info"):
+    is_debug = channel == "debug" or channel is True
+
+    if is_debug:
+        with _buffer_lock:
+            _debug_buffer.append(message)
+            if len(_debug_buffer) < _BATCH_SIZE:
+                return {"ok": True, "msg": "Buffered"}
+
+            # Batch is full, send it
+            batched_message = "\n".join(_debug_buffer)
+            _debug_buffer.clear()
+            message = batched_message
+
     token, chat_id = get_bot(channel)
     response = requests.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
         json={"chat_id": chat_id, "text": message},
     )
     return response.json()
+
+
+def flush_telegram(channel="debug"):
+    is_debug = channel == "debug" or channel is True
+    if not is_debug:
+        return {"ok": True, "msg": "No buffer for this channel"}
+
+    with _buffer_lock:
+        if not _debug_buffer:
+            return {"ok": True, "msg": "Buffer empty"}
+
+        message = "\n".join(_debug_buffer)
+        _debug_buffer.clear()
+
+    token, chat_id = get_bot(channel)
+    response = requests.post(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        json={"chat_id": chat_id, "text": message},
+    )
+    return response.json()
+
+
+# Register flush on exit
+atexit.register(flush_telegram, "debug")
 
 
 def send_telegram_photo(photo, caption=None, channel="info"):
