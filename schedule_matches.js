@@ -329,10 +329,6 @@ for (const match of matches) {
       market.eventStartTime = startTime;
       market.alreadyStarted = alreadyStarted;
 
-      if (market.slug?.includes("earnings") || market.title?.toLowerCase().includes("earnings")) {
-        market.ignoreSpeakerRecognition = true;
-      }
-
       candidates.push(market);
     }
   }
