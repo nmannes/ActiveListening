@@ -30,22 +30,15 @@ echo "✅ Valid items (non-test) to be synced:"
 echo "$VALID_ITEMS" | sed 's|^|  |'
 echo ""
 
-echo "📥 Syncing s3://$BUCKET/ to $LOCAL_DIR/ ..."
+# Sync each folder individually
+TOTAL=$(echo "$VALID_ITEMS" | grep -c . || true)
+CURRENT=0
 
-# Build include arguments based on valid items
-INCLUDE_ARGS=()
-if [ -n "$VALID_ITEMS" ]; then
-    while read -r item; do
-        if [ -n "$item" ]; then
-            # Re-include the item and its contents
-            INCLUDE_ARGS+=(--include "$item/*" --include "$item")
-        fi
-    done <<< "$VALID_ITEMS"
-fi
+while read -r item; do
+    [ -z "$item" ] && continue
+    CURRENT=$((CURRENT + 1))
+    echo "$(date '+%H:%M:%S') 📥 [$CURRENT/$TOTAL] Syncing $item ..."
+    aws s3 sync "s3://$BUCKET/$item/" "$LOCAL_DIR/$item/" --only-show-errors "$@"
+done <<< "$VALID_ITEMS"
 
-# Run the sync command (Download: S3 -> Local)
-# Construction: --exclude "*" followed by specific --include flags
-# "$@" allows passing additional flags like --dryrun or --delete
-aws s3 sync "s3://$BUCKET/" "$LOCAL_DIR/" --quiet --exclude "*" "${INCLUDE_ARGS[@]}" "$@"
-
-echo "✅ Sync operation completed."
+echo "✅ Sync complete. $TOTAL folders synced."

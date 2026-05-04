@@ -24,7 +24,7 @@ for PREFIX in $PREFIXES; do
 
     echo "📥 Syncing $PREFIX ($FILE_COUNT files) → $LOCAL_PATH"
     mkdir -p "$LOCAL_PATH"
-    aws s3 sync "$S3_PATH" "$LOCAL_PATH" --quiet
+    aws s3 sync "$S3_PATH" "$LOCAL_PATH"
 done
 
 echo ""
