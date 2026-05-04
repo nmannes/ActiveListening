@@ -37,7 +37,16 @@ import pylib.trade_processor
 # Disable Telegram notifications for offline processing
 pylib.trade_processor.send_telegram = lambda *args, **kwargs: None
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+# Configure logging to both file and console
+log_file = "build_identities.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(log_file, mode='a'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 logger = logging.getLogger(__name__)
 
 # Audio constants matching audio_processor.py
@@ -180,6 +189,14 @@ async def infer_speaker_for_session(folder_path: Path, target: str, market_data:
     if not transcript_history:
         return None, None
 
+    # Print transcripts for each separate speaker for review
+    logger.info(f"\n--- Transcript Summary for {folder_path.name} ---")
+    for sid, text in transcript_history:
+        # Show first 500 chars to avoid overwhelming logs but give enough context
+        snippet = text if len(text) <= 500 else text[:500] + "..."
+        logger.info(f"  [Speaker {sid}] {snippet}")
+    logger.info(f"--------------------------------------------------\n")
+
     # Call Bedrock
     rec_session = SpeakerRecognitionSession(session, [target])
     mapping = await rec_session.transcript_recognizer.infer_identity_with_bedrock(
@@ -321,6 +338,12 @@ async def main():
             logger.error(f"  ❌ Error: {e}")
 
         await asyncio.sleep(1) # Bedrock rate limit
+        
+        # Save final JSON results
+        with open(args.results_json, "w") as f:
+            json.dump(final_results, f, indent=2)
+        
+        break # Run for one market and then cut out
 
     # Save final JSON results
     with open(args.results_json, "w") as f:
