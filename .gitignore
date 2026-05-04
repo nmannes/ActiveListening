@@ -33,3 +33,5 @@ market_tracking/
 *.lock
 
 speakers.md
+
+s3/*
