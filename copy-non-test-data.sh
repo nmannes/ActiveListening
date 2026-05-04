@@ -38,10 +38,12 @@ while read -r item; do
     [ -z "$item" ] && continue
     CURRENT=$((CURRENT + 1))
     echo "$(date '+%H:%M:%S') 📥 [$CURRENT/$TOTAL] Syncing $item ..."
+    JSON_BEFORE=$(find "$LOCAL_DIR/$item" -name '*.json' 2>/dev/null | wc -l)
+    WAV_BEFORE=$(find "$LOCAL_DIR/$item" -name '*.wav' 2>/dev/null | wc -l)
     aws s3 sync "s3://$BUCKET/$item/" "$LOCAL_DIR/$item/" --only-show-errors "$@" --exclude "$LOCAL_DIR/$item/audio/speaker_*.wav"
-    JSON_COUNT=$(find "$LOCAL_DIR/$item" -name '*.json' 2>/dev/null | wc -l)
-    WAV_COUNT=$(find "$LOCAL_DIR/$item" -name '*.wav' 2>/dev/null | wc -l)
-    echo "             → $JSON_COUNT json, $WAV_COUNT wav"
+    JSON_AFTER=$(find "$LOCAL_DIR/$item" -name '*.json' 2>/dev/null | wc -l)
+    WAV_AFTER=$(find "$LOCAL_DIR/$item" -name '*.wav' 2>/dev/null | wc -l)
+    echo "             → +$((JSON_AFTER - JSON_BEFORE)) json, +$((WAV_AFTER - WAV_BEFORE)) wav (total: $JSON_AFTER json, $WAV_AFTER wav)"
 done <<< "$VALID_ITEMS"
 
 echo "✅ Sync complete. $TOTAL folders synced."
