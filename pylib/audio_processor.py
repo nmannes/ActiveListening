@@ -347,8 +347,9 @@ class AudioProcessor:
         """Extract audio slice from PCM buffer and append to speaker's WAV file."""
         # 16kHz * 2 bytes per sample = 32000 bytes per second
         bytes_per_sec = 16000 * 2
-        start_byte = int(start_time * bytes_per_sec)
-        end_byte = int(end_time * bytes_per_sec)
+        # Ensure 2-byte alignment for 16-bit PCM to avoid "loud static" noise
+        start_byte = (int(start_time * bytes_per_sec) // 2) * 2
+        end_byte = (int(end_time * bytes_per_sec) // 2) * 2
 
         buf_len = len(self._pcm_buffer)
         if start_byte >= buf_len:
