@@ -6,6 +6,7 @@
  * and send raw PCM audio over WebSocket to the remote server.
  */
 
+const path = require("path");
 const { spawn } = require("child_process");
 const WebSocket = require("ws");
 const puppeteer = require("puppeteer-extra");
@@ -117,6 +118,7 @@ async function runBrowserCapture() {
       "--use-fake-ui-for-media-stream",
       "--disable-web-security",
     ],
+    userDataDir: path.join(__dirname, "..", "cache", "browser_profile"),
   });
 
   const page = await browser.newPage();
