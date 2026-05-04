@@ -38,7 +38,7 @@ while read -r item; do
     [ -z "$item" ] && continue
     CURRENT=$((CURRENT + 1))
     echo "$(date '+%H:%M:%S') 📥 [$CURRENT/$TOTAL] Syncing $item ..."
-    aws s3 sync "s3://$BUCKET/$item/" "$LOCAL_DIR/$item/" --only-show-errors "$@"
+    aws s3 sync "s3://$BUCKET/$item/" "$LOCAL_DIR/$item/" --only-show-errors "$@" --exclude "speaker_*.wav"
 done <<< "$VALID_ITEMS"
 
 echo "✅ Sync complete. $TOTAL folders synced."
