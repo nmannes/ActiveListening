@@ -28,7 +28,7 @@ class AudioProcessor:
             "sample_rate=16000&"
             "channels=1&"
             "diarize=true&"
-            "model=nova-2&"
+            "model=nova-3&"
             "smart_format=true&"
             "interim_results=true&"
             "no_delay=true&"
