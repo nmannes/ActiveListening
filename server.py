@@ -34,6 +34,7 @@ from pylib.audio_processor import AudioProcessor
 from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
 from pylib.speaker_recognition import SpeakerRecognitionSession
+from pylib.speaker_identifier import SpeakerIdentifier
 
 from pylib.log_config import setup_logging
 from pylib.telegram import send_telegram
@@ -279,6 +280,7 @@ class TradingServer:
 
         # Shared resources (initially None, loaded asynchronously)
         self.frame_classifier = None
+        self.speaker_identifier = None
         self.clip_executor = ThreadPoolExecutor(max_workers=1)
 
         # Init Kalshi client
@@ -350,6 +352,13 @@ class TradingServer:
                     content_profile=self.config.content_profile,
                 ),
             )
+
+            # Load SpeakerIdentifier (TitaNet) for audio-based speaker recognition
+            self.speaker_identifier = SpeakerIdentifier(
+                device=self.config.device
+            )
+            await self.speaker_identifier.initialize()
+
             logger.info("Background resource initialization complete.")
         except Exception as e:
             logger.exception(f"Error during resource initialization: {e}")

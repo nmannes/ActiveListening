@@ -30,7 +30,6 @@ from collections import defaultdict
 
 sys.path.insert(0, os.getcwd())
 
-from pylib.speaker_recognition import SpeakerRecognitionSession
 from scripts.replay_session import ReplaySession, DiarizedTradeProcessor
 import pylib.trade_processor
 
@@ -189,28 +188,40 @@ async def infer_speaker_for_session(folder_path: Path, target: str, market_data:
     if not transcript_history:
         return None, None
 
-    # Print transcripts for each separate speaker for review
-    logger.info(f"\n--- Transcript Summary for {folder_path.name} ---")
+    # Aggregate all words per speaker across all turns
+    speaker_words = defaultdict(list)
     for sid, text in transcript_history:
-        # Show first 500 chars to avoid overwhelming logs but give enough context
-        snippet = text if len(text) <= 500 else text[:500] + "..."
-        logger.info(f"  [Speaker {sid}] {snippet}")
-    logger.info(f"--------------------------------------------------\n")
+        speaker_words[sid].extend(text.split())
 
-    # Call Bedrock
-    rec_session = SpeakerRecognitionSession(session, [target])
-    mapping = await rec_session.transcript_recognizer.infer_identity_with_bedrock(
-        transcript_history, target
-    )
+    # Sort speakers by total word count (descending) for easier review
+    sorted_speakers = sorted(speaker_words.keys(), key=lambda s: len(speaker_words[s]), reverse=True)
 
-    if not mapping:
-        return None, None
+    # Print first 500 words of each speaker
+    print(f"\n{'='*60}")
+    print(f"  TARGET IDENTITY: {target}")
+    print(f"  Session: {folder_path.name}")
+    print(f"{'='*60}")
+    for sid in sorted_speakers:
+        words = speaker_words[sid]
+        word_count = len(words)
+        snippet = " ".join(words[:500])
+        print(f"\n--- Speaker {sid} ({word_count} total words) ---")
+        print(snippet)
+        print(f"--- end Speaker {sid} ---\n")
 
-    matched_sids = [sid for sid, label in mapping.items() if label == target]
-    if not matched_sids:
-        return None, None
-
-    return matched_sids[0], dict(speaker_segments)
+    # Prompt user to select the correct speaker
+    valid_ids = set(sorted_speakers)
+    print(f"Which speaker is '{target}'?")
+    print(f"  Options: {', '.join(sorted_speakers)} | 's' to skip")
+    while True:
+        choice = input("  > ").strip().lower()
+        if choice == 's':
+            logger.info(f"  ⏩ User skipped {target}")
+            return None, None
+        if choice in valid_ids:
+            logger.info(f"  ✅ User selected Speaker {choice} as {target}")
+            return choice, dict(speaker_segments)
+        print(f"  Invalid choice. Enter one of: {', '.join(sorted_speakers)} | 's' to skip")
 
 
 def discover_sessions(s3_dir: Path):
@@ -337,13 +348,9 @@ async def main():
         except Exception as e:
             logger.error(f"  ❌ Error: {e}")
 
-        await asyncio.sleep(1) # Bedrock rate limit
-        
-        # Save final JSON results
+        # Save incremental results after each session
         with open(args.results_json, "w") as f:
             json.dump(final_results, f, indent=2)
-        
-        break # Run for one market and then cut out
 
     # Save final JSON results
     with open(args.results_json, "w") as f:

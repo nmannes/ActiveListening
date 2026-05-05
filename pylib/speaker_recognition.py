@@ -308,6 +308,20 @@ class SpeakerRecognitionSession:
             logger.info("Speaker identities have stabilized. Skipping further inference.")
             return
 
+        logger.info(f"Running identity inference for session {self.session_id}")
+
+        # Try audio-based identification first if we have reference samples
+        audio_samples_dir = Path(__file__).parent.parent / "audio-samples"
+        entities_with_samples = [
+            entity for entity in self.market_entities
+            if (audio_samples_dir / f"{entity}.wav").exists()
+        ]
+        if entities_with_samples:
+            logger.info(f"Audio samples found for: {entities_with_samples} — attempting audio-based identification")
+            result = await self._run_audio_identification(entities_with_samples)
+            if result:
+                return
+
         # Access transcript from session
         if not hasattr(self.listening_session, "transcript"):
             logger.warning("Session has no transcript to infer identities from.")
@@ -377,3 +391,58 @@ class SpeakerRecognitionSession:
 
         else:
             logger.warning("Identity inference returned no mapping.")
+
+    async def _run_audio_identification(self, entities_with_samples: List[str]) -> bool:
+        """
+        Use audio-based speaker identification (SpeakerIdentifier + TitaNet) to match
+        diarized speakers against reference .wav samples.
+
+        Reads per-speaker WAV files already saved by AudioProcessor
+        (recordings/<session>/audio/speaker_<id>.wav) and compares them
+        against reference samples in audio-samples/.
+
+        Returns True if at least one speaker was successfully identified and mapped.
+        """
+
+        # Find the per-speaker WAV files saved by AudioProcessor
+        audio_processor = getattr(self.listening_session, "audio_processor", None)
+        if not audio_processor or not audio_processor._audio_dir:
+            logger.warning(f"[{self.session_id}] No audio_dir available from AudioProcessor")
+            return False
+
+        audio_dir = audio_processor._audio_dir
+        speaker_wavs = sorted(audio_dir.glob("speaker_*.wav"))
+        if not speaker_wavs:
+            logger.info(f"[{self.session_id}] No per-speaker WAV files found yet in {audio_dir}")
+            return False
+
+        logger.info(f"[{self.session_id}] Found {len(speaker_wavs)} speaker WAV files: {[f.name for f in speaker_wavs]}")
+
+        # Use the server's pre-loaded SpeakerIdentifier
+        identifier = self.listening_session.server.speaker_identifier
+        if not identifier or not identifier._ready:
+            logger.warning(f"[{self.session_id}] SpeakerIdentifier not ready yet, falling back to Bedrock")
+            return False
+
+        matched_any = False
+        for wav_path in speaker_wavs:
+            # Extract speaker ID from filename: "speaker_0.wav" -> "0"
+            speaker_id = wav_path.stem.replace("speaker_", "")
+
+            # Skip speakers already labeled
+            if speaker_id in self.profile_labels:
+                logger.debug(f"[{self.session_id}] Speaker {speaker_id} already labeled as '{self.profile_labels[speaker_id]}', skipping")
+                continue
+
+            best_name, scores = await identifier.identify_file(wav_path)
+            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
+
+            if best_name and best_name in entities_with_samples:
+                self.set_profile_label(speaker_id, best_name)
+                if hasattr(self.listening_session, "trade_processor"):
+                    self.listening_session.trade_processor.add_trading_speaker(speaker_id)
+                    logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {best_name} (added to trading whitelist)")
+                matched_any = True
+
+        return matched_any
+
