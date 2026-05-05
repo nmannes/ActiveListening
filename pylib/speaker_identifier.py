@@ -6,7 +6,7 @@ import librosa
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
-import nemo.collections.asr as nemo_asr
+from nemo.collections.asr.models import EncDecSpeakerLabelModel
 
 logger = logging.getLogger("remote_server")
 
@@ -55,7 +55,7 @@ class SpeakerIdentifier:
             logger.info("SpeakerIdentifier: loading TitaNet-Large …")
             self.model = await loop.run_in_executor(
                 None,
-                lambda: nemo_asr.EncDecSpeakerLabelModel.from_pretrained(
+                lambda: EncDecSpeakerLabelModel.from_pretrained(
                     model_name="titanet_large"
                 ).to(self.device),
             )

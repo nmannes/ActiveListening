@@ -374,6 +374,14 @@ class AudioProcessor:
 
     def _upload_to_s3(self):
         """Upload the recordings directory to S3."""
+        # Skip S3 upload for test markets
+        market_title = getattr(self.session, "market", {}).get("title", "") or ""
+        if "test" in market_title.lower():
+            logger.info(
+                f"[{self.session.session_id}] Test market detected ('{market_title}'), skipping S3 upload"
+            )
+            return
+
         # 16000 Hz * 2 bytes/sample * 60 seconds = 1920000 bytes
         if len(self._pcm_buffer) < 1920000:
             logger.info(

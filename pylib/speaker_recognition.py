@@ -314,7 +314,7 @@ class SpeakerRecognitionSession:
         audio_samples_dir = Path(__file__).parent.parent / "audio-samples"
         entities_with_samples = [
             entity for entity in self.market_entities
-            if (audio_samples_dir / f"{entity}.wav").exists()
+            if (audio_samples_dir / f"{entity.replace(' ', '-').lower()}.wav").exists()
         ]
         if entities_with_samples:
             logger.info(f"Audio samples found for: {entities_with_samples} — attempting audio-based identification")
@@ -437,11 +437,15 @@ class SpeakerRecognitionSession:
             best_name, scores = await identifier.identify_file(wav_path)
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
 
-            if best_name and best_name in entities_with_samples:
-                self.set_profile_label(speaker_id, best_name)
+            matched_entity = next(
+                (e for e in entities_with_samples if e.replace(" ", "-").lower() == best_name),
+                None,
+            )
+            if best_name and matched_entity:
+                self.set_profile_label(speaker_id, matched_entity)
                 if hasattr(self.listening_session, "trade_processor"):
                     self.listening_session.trade_processor.add_trading_speaker(speaker_id)
-                    logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {best_name} (added to trading whitelist)")
+                    logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
                 matched_any = True
 
         return matched_any
