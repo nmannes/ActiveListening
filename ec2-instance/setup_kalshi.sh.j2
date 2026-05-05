@@ -23,11 +23,7 @@ sudo apt-get install -y python3-pip git build-essential libssl-dev zlib1g-dev \
 STACK_NAME="${AWS::StackName}"
 REGION="${AWS::Region}"
 
-if [ -z "$STACK_NAME" ]; then
-    echo "Warning: AWS_STACK_NAME not found, falling back to basic shutdown timer."
-    sudo shutdown -h +${ShutdownMinutes}
-fi
-
+sudo shutdown -h +${ShutdownMinutes}
 
 echo "[1/5] Installing Bun..."
 curl -fsSL https://bun.sh/install | bash
