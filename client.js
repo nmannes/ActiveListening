@@ -57,31 +57,6 @@ Options:
   process.exit(0);
 }
 
-// ── Remote IP discovery ──────────────────────────────────────────────
-let REMOTE_IP_ADDRESS = args.ip;
-
-if (args.local) {
-  logger.info("Local mode: forcing connection to localhost");
-  REMOTE_IP_ADDRESS = "localhost";
-} else if (!REMOTE_IP_ADDRESS) {
-  try {
-    logger.info("Discovery: Attempting to find running Kalshi worker...");
-    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    }).trim();
-    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
-  } catch (e) {
-    logger.warn(
-      "Discovery: No running worker found via discover_instance.sh. Falling back to localhost.",
-    );
-    REMOTE_IP_ADDRESS = "localhost";
-  }
-}
-
-const formattedIP = net.isIPv6(REMOTE_IP_ADDRESS) ? `[${REMOTE_IP_ADDRESS}]` : REMOTE_IP_ADDRESS;
-const REMOTE_URL = args.server || `ws://${formattedIP}:8090`;
-
 // ── Parse market data ────────────────────────────────────────────────
 let market = null;
 if (args.fromFile) {
@@ -106,8 +81,87 @@ if (args.purchasePrice !== undefined) {
   market.purchasePrice = parseFloat(args.purchasePrice);
 }
 if (args.purchaseCount !== undefined) {
-  market.purchaseCount = parseInt(args.purchaseCount, 1);
+  market.purchaseCount = parseInt(args.purchaseCount, 10);
 }
+
+// ── Session ID & Lockfile ────────────────────────────────────────────
+const sessionId = market.slug || args.id || new Date().getUTCSeconds().toString();
+logger = baseLogger.child({ sessionId });
+
+const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
+const LOCK_DIR = path.join(DATA_DIR, "locks");
+if (!fs.existsSync(LOCK_DIR)) {
+  fs.mkdirSync(LOCK_DIR, { recursive: true });
+}
+
+const lockPath = path.join(LOCK_DIR, `${sessionId}.lock`);
+
+try {
+  // Atomic write with 'wx' flag (create and fail if exists)
+  fs.writeFileSync(lockPath, process.pid.toString(), { flag: "wx" });
+  logger.info(`[client] Lockfile created: ${lockPath}`);
+} catch (err) {
+  if (err.code === "EEXIST") {
+    let existingPid;
+    try {
+      existingPid = fs.readFileSync(lockPath, "utf8").trim();
+    } catch (readErr) {
+      logger.error(`[client] Lockfile exists but could not be read: ${readErr.message}`);
+      process.exit(1);
+    }
+
+    // Check if the process is actually running
+    try {
+      process.kill(parseInt(existingPid, 10), 0);
+      // If no error, the process exists
+      logger.error(
+        `[client] Lockfile exists for session "${sessionId}" (PID: ${existingPid}). Another instance is running. Exiting.`,
+      );
+      process.exit(1);
+    } catch (killErr) {
+      if (killErr.code === "ESRCH") {
+        logger.warn(
+          `[client] Stale lockfile found for PID ${existingPid}. Overwriting...`,
+        );
+        fs.writeFileSync(lockPath, process.pid.toString());
+        logger.info(`[client] Lockfile created (stale overwritten): ${lockPath}`);
+      } else {
+        logger.error(
+          `[client] Lockfile exists (PID: ${existingPid}) and status check failed: ${killErr.message}`,
+        );
+        process.exit(1);
+      }
+    }
+  } else {
+    logger.error(`[client] Failed to create lockfile: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+// ── Remote IP discovery ──────────────────────────────────────────────
+let REMOTE_IP_ADDRESS = args.ip;
+
+if (args.local) {
+  logger.info("Local mode: forcing connection to localhost");
+  REMOTE_IP_ADDRESS = "localhost";
+} else if (!REMOTE_IP_ADDRESS) {
+  try {
+    logger.info("Discovery: Attempting to find running Kalshi worker...");
+    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    logger.info(`Discovery: Found worker at ${REMOTE_IP_ADDRESS}`);
+  } catch (e) {
+    logger.warn(
+      "Discovery: No running worker found via discover_instance.sh. Falling back to localhost.",
+    );
+    REMOTE_IP_ADDRESS = "localhost";
+  }
+}
+
+const formattedIP = net.isIPv6(REMOTE_IP_ADDRESS) ? `[${REMOTE_IP_ADDRESS}]` : REMOTE_IP_ADDRESS;
+const REMOTE_URL = args.server || `ws://${formattedIP}:8090`;
 
 let STREAM_URL = args.url || market.mediaStreamURL || market.channelURL;
 if (!STREAM_URL) {
@@ -158,30 +212,6 @@ try {
   console.error(`  Error: ${e.message}`);
   process.exit(1);
 }
-
-// ── Logging ──────────────────────────────────────────────────────────
-const sessionId = market.slug || args.id || new Date().getUTCSeconds();
-logger = baseLogger.child({ sessionId });
-
-// ── Lockfile ────────────────────────────────────────────────────────
-const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
-const LOCK_DIR = path.join(DATA_DIR, "locks");
-if (!fs.existsSync(LOCK_DIR)) {
-  fs.mkdirSync(LOCK_DIR, { recursive: true });
-}
-
-const lockPath = path.join(LOCK_DIR, `${sessionId}.lock`);
-
-if (fs.existsSync(lockPath)) {
-  const pid = fs.readFileSync(lockPath, "utf8");
-  logger.error(
-    `[client] Lockfile exists for session "${sessionId}" (PID: ${pid}). Another instance might be running. Exiting.`,
-  );
-  process.exit(1);
-}
-
-fs.writeFileSync(lockPath, process.pid.toString());
-logger.info(`[client] Lockfile created: ${lockPath}`);
 
 logger.info(`Session ID: ${sessionId}`);
 logger.info(`Provider: ${provider.name}`);
