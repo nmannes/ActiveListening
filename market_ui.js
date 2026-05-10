@@ -152,6 +152,10 @@ app.delete("/api/manual-match/:slug", (req, res) => {
     }
 });
 
+app.get("/signals", (req, res) => {
+    res.sendFile(path.join(DATA_DIR, "signal_vs_no_closeout.html"));
+});
+
 app.listen(PORT, () => {
     console.log(`Market Manager UI running at http://localhost:${PORT}`);
 });

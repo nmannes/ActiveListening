@@ -12,48 +12,116 @@ const { Database } = require("bun:sqlite");
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
 const MARKET_TRACKING_DIR = path.join(DATA_DIR, "market_tracking");
-const SIGNALS_LOG = path.join(DATA_DIR, "signals.log");
 const SCHEDULE_LOG = path.join(DATA_DIR, "schedule_run.log");
+
+const LOG_FILES = [
+  path.join(DATA_DIR, "signals.log"),
+  path.join(DATA_DIR, "app-prod.log")
+];
+const CACHE_DIR = path.join(DATA_DIR, "cache");
+const CACHE_FILES = [
+  path.join(CACHE_DIR, "matched_markets.json"),
+  path.join(CACHE_DIR, "unmatched_markets.json"),
+  path.join(CACHE_DIR, "manual_matches.json")
+];
 
 // ── strip ANSI escape codes ─────────────────────────────────────────────────
 function stripAnsi(s) {
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
-// ── parse signals.log ───────────────────────────────────────────────────────
-function parseSignalsLog() {
-  const rawContent = fs.readFileSync(SIGNALS_LOG, "utf-8");
-  const content = stripAnsi(rawContent);
+// ── parse log files ─────────────────────────────────────────────────────────
+function parseLogFiles() {
   const signals = [];
   
-  // Format 1: [2026-05-04 21:36:10.941 -0400] INFO: [session] SIGNAL: word -> target
-  const re1 = /\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) ([+-]\d{4})\].*?\[(\S+?)\] SIGNAL:\s+(.+?)\s+→\s+(\S+)/g;
-  let m;
-  while ((m = re1.exec(content)) !== null) {
-    signals.push({
-      timestamp: m[1],
-      tz: m[2],
-      session: m[3].toLowerCase().replace(/[\[\]]/g, ""),
-      word: m[4].trim().toLowerCase(),
-      target: m[5].trim(),
-      speaker: "?"
-    });
-  }
+  for (const logFile of LOG_FILES) {
+    if (!fs.existsSync(logFile)) continue;
+    
+    const rawContent = fs.readFileSync(logFile, "utf-8");
+    const lines = rawContent.split("\n");
+    
+    for (const line of lines) {
+      if (!line.trim()) continue;
 
-  // Format 2: [2026-05-04 21:36:10.941] [session][SIGNAL] Detected for speaker 3: "word"
-  const re2 = /\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s*(?:[+-]\d{4})?\s*\]\s*\[(\S+?)\]\[SIGNAL\] Detected for speaker (\d+): "(.*?)"/g;
-  while ((m = re2.exec(content)) !== null) {
-    signals.push({
-      timestamp: m[1],
-      tz: "-0400",
-      session: m[2].toLowerCase().replace(/[\[\]]/g, ""),
-      speaker: m[3],
-      word: m[4].trim().toLowerCase(),
-      target: "undefined"
-    });
+      // Try JSON (Pino)
+      if (line.trim().startsWith("{")) {
+        try {
+          const j = JSON.parse(line);
+          if (j.msg && j.msg.includes("SIGNAL: ")) {
+            const signalPart = j.msg.split("SIGNAL: ")[1];
+            const parts = signalPart.split(" → ");
+            const word = parts[0].trim().toLowerCase();
+            const target = parts[1] ? parts[1].trim() : "undefined";
+            
+            const date = new Date(j.time);
+            const timestamp = date.toISOString().replace("T", " ").replace("Z", "").slice(0, 23);
+            
+            signals.push({
+              timestamp,
+              tz: "-0400",
+              session: (j.sessionId || "unknown").toLowerCase(),
+              word,
+              target,
+              speaker: "?"
+            });
+          }
+          continue;
+        } catch (e) {}
+      }
+
+      const content = stripAnsi(line);
+      
+      const re1 = /\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}) ([+-]\d{4})\].*?\[(\S+?)\] SIGNAL:\s+(.+?)\s+→\s+(\S+)/;
+      const m1 = content.match(re1);
+      if (m1) {
+        signals.push({
+          timestamp: m1[1],
+          tz: m1[2],
+          session: m1[3].toLowerCase().replace(/[\[\]]/g, ""),
+          word: m1[4].trim().toLowerCase(),
+          target: m1[5].trim(),
+          speaker: "?"
+        });
+        continue;
+      }
+
+      const re2 = /\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})\s*(?:[+-]\d{4})?\s*\]\s*\[(\S+?)\]\[SIGNAL\] Detected for speaker (\d+): "(.*?)"/;
+      const m2 = content.match(re2);
+      if (m2) {
+        signals.push({
+          timestamp: m2[1],
+          tz: "-0400",
+          session: m2[2].toLowerCase().replace(/[\[\]]/g, ""),
+          speaker: m2[3],
+          word: m2[4].trim().toLowerCase(),
+          target: "undefined"
+        });
+        continue;
+      }
+    }
   }
   
   return signals;
+}
+
+// ── load market titles ──────────────────────────────────────────────────────
+function loadMarketTitles() {
+  const slugToTitle = new Map();
+  for (const file of CACHE_FILES) {
+    if (!fs.existsSync(file)) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(file, "utf-8"));
+      for (const entry of data) {
+        const market = entry.market || entry;
+        if (market.slug && market.title) {
+          slugToTitle.set(market.slug.toLowerCase(), market.title);
+        }
+      }
+    } catch (e) {
+      console.error(`Error loading cache file ${file}: ${e.message}`);
+    }
+  }
+  return slugToTitle;
 }
 
 // ── fuzzy match a keyword to a ticker suffix ────────────────────────────────
@@ -259,8 +327,9 @@ function formatDeltaHuman(ms) {
 
 // ── main ────────────────────────────────────────────────────────────────────
 function main() {
-  const signals = parseSignalsLog();
-  console.log(`Parsed ${signals.length} signals from signals.log\n`);
+  const slugToTitle = loadMarketTitles();
+  const signals = parseLogFiles();
+  console.log(`Parsed ${signals.length} signals from log files\n`);
 
   const mediaSources = parseMediaSources();
   console.log(`Loaded ${mediaSources.size} media source mappings from schedule_run.log\n`);
@@ -366,6 +435,7 @@ function main() {
 
     results.push({
       session,
+      title: slugToTitle.get(session.toLowerCase()) || session,
       mediaSource: mediaSources.get(session) || (session === 'remote' ? 'REMOTE' : session.split('-')[0]),
       word: sig.word,
       target: sig.target,
@@ -392,7 +462,7 @@ function main() {
 
   // Print table
   const col = {
-    session: 38,
+    title: 45,
     word: 22,
     ticker_suffix: 6,
     signal: 23,
@@ -403,7 +473,7 @@ function main() {
 
   console.log(
     [
-      "Session".padEnd(col.session),
+      "Event Title".padEnd(col.title),
       "Word".padEnd(col.word),
       "Sfx".padEnd(col.ticker_suffix),
       "Signal Time".padEnd(col.signal),
@@ -412,14 +482,14 @@ function main() {
       "Status".padEnd(col.status),
     ].join(" | ")
   );
-  console.log("-".repeat(155));
+  console.log("-".repeat(165));
 
   for (const r of results) {
     const suffix = r.ticker.split("-").pop();
     try {
       console.log(
         [
-          r.session.padEnd(col.session),
+          (r.title.length > col.title ? r.title.slice(0, col.title - 3) + "..." : r.title).padEnd(col.title),
           r.word.padEnd(col.word),
           suffix.padEnd(col.ticker_suffix),
           r.signalTs.padEnd(col.signal),
@@ -501,7 +571,9 @@ function main() {
   .after { color: #f85149; }
   .delta { text-align: right; font-variant-numeric: tabular-nums; }
   .delta-val { font-weight: 600; }
-  .session { color: #8b949e; }
+  .session-info { color: #8b949e; display: flex; flex-direction: column; gap: 2px; }
+  .source-id { font-size: 10px; color: #484f58; text-transform: uppercase; }
+  .event-title { color: #c9d1d9; font-weight: 500; white-space: normal; max-width: 400px; line-height: 1.2; }
   .word { color: #d2a8ff; font-weight: 600; }
   .sfx { color: #79c0ff; }
   .filter-bar { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
@@ -561,7 +633,7 @@ function main() {
 <thead>
   <tr>
     <th></th>
-    <th data-col="1">Media Source</th>
+    <th data-col="1">Event / Source</th>
     <th data-col="2">Word</th>
     <th data-col="3">Suffix</th>
     <th data-col="4">Signal Time</th>
@@ -592,7 +664,10 @@ function main() {
                 data-vol='${volData}' data-signal="${r.signalIso}" data-closeout="${r.closeoutTs}"
                 data-human="${escH(humanDelta)}">
   <td class="thumb-cell"><span class="thumb-icon">📈</span></td>
-  <td class="session" title="${escH(r.session)}">${escH(r.mediaSource)}</td>
+  <td class="session-info" title="${escH(r.session)}">
+    <div class="source-id">${escH(r.mediaSource)}</div>
+    <div class="event-title">${escH(r.title)}</div>
+  </td>
   <td class="word">${escH(r.word)}</td>
   <td class="sfx">${escH(suffix)}</td>
   <td data-time="${new Date(r.signalIso).getTime()}">${escH(r.signalTs)}</td>

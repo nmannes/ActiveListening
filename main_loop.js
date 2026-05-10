@@ -52,12 +52,20 @@ async function start() {
         console.error("Initial scheduling failed, but continuing loop...");
     }
 
+    // 3a. Initial Timing Analysis Run
+    try {
+        await runScript("signal_vs_no_closeout.js");
+    } catch (e) {
+        console.error("Initial timing analysis failed, but continuing loop...");
+    }
+
     // 4. Setup Intervals
     setInterval(async () => {
         try {
             await runScript("schedule_matches.js");
+            await runScript("signal_vs_no_closeout.js");
         } catch (e) {
-            console.error("Scheduled matching run failed:", e);
+            console.error("Scheduled matching/analysis run failed:", e);
         }
     }, SCHEDULER_INTERVAL_MS);
 
@@ -66,12 +74,13 @@ async function start() {
             await runScript("e2e_discovery.js");
             // Always follow discovery with scheduling to pick up new matches
             await runScript("schedule_matches.js");
+            await runScript("signal_vs_no_closeout.js");
         } catch (e) {
             console.error("Scheduled discovery run failed:", e);
         }
     }, DISCOVERY_INTERVAL_MS);
 
-    console.log("Main loop active. Scheduling runs every 15m, Discovery every 60m.");
+    console.log("Main loop active. Scheduling/Analysis every 15m, Discovery every 60m.");
 }
 
 start().catch(err => {
