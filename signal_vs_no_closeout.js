@@ -58,7 +58,7 @@ function parseLogFiles() {
             
             signals.push({
               timestamp,
-              tz: "-0400",
+              tz: "+0000", // JSON logs are already in UTC
               session: (j.sessionId || "unknown").toLowerCase(),
               word,
               target,
@@ -90,7 +90,7 @@ function parseLogFiles() {
       if (m2) {
         signals.push({
           timestamp: m2[1],
-          tz: "-0400",
+          tz: "+0000", // Log timestamps in this format are already in UTC (usually from server.py)
           session: m2[2].toLowerCase().replace(/[\[\]]/g, ""),
           speaker: m2[3],
           word: m2[4].trim().toLowerCase(),
@@ -201,19 +201,22 @@ function getNoLiquidity(db, ticker, closeoutTs) {
     
     const series = [];
     if (startTs) {
-      series.push({ t: startTs.replace(' ', 'T') + 'Z', v: currentTotal });
+      const t = startTs.includes('T') ? startTs : startTs.replace(' ', 'T');
+      series.push({ t: t.endsWith('Z') ? t : t + 'Z', v: currentTotal });
     }
     
     let runningTotal = currentTotal;
     for (const d of deltas) {
       runningTotal += d.delta;
       if (runningTotal < 0) runningTotal = 0;
-      series.push({ t: d.ts.replace(' ', 'T') + 'Z', v: runningTotal });
+      const t = d.ts.includes('T') ? d.ts : d.ts.replace(' ', 'T');
+      series.push({ t: t.endsWith('Z') ? t : t + 'Z', v: runningTotal });
     }
     
     // Always add a final point at closeout to ensure a line is drawn
     if (closeoutTs) {
-      series.push({ t: closeoutTs.replace(' ', 'T') + 'Z', v: runningTotal });
+      const t = closeoutTs.includes('T') ? closeoutTs : closeoutTs.replace(' ', 'T');
+      series.push({ t: t.endsWith('Z') ? t : t + 'Z', v: runningTotal });
     }
     
     // 3. Downsample if too many points
@@ -249,9 +252,12 @@ function findNoCloseout(db, ticker) {
     if (runningTotal === 0 && initialRow) return initialRow.ts;
 
     for (const d of deltas) {
-      if (d.side === 'no') runningTotal += d.delta;
-      if (runningTotal <= 0) return d.ts;
+      if (d.side === 'no') {
+        runningTotal += d.delta;
+        if (d.price === 1) return d.ts;
+      }
       if (d.side === 'yes' && d.price === 99) return d.ts;
+      if (runningTotal <= 0) return d.ts;
     }
     return null;
   } catch (e) {
@@ -287,7 +293,8 @@ function parseMediaSources() {
     const session = m[1].toLowerCase();
     const url = m[2];
     let name = "Other";
-    if (url.includes("youtube.com")) name = "YouTube TV";
+    if (session.includes("ftn")) name = "CBS";
+    else if (url.includes("youtube.com")) name = "YouTube TV";
     else if (url.includes("amazon.com")) name = "Amazon Prime";
     else if (url.includes("espn.com")) name = "ESPN";
     else if (url.includes("live-video.net")) name = "IVS";
@@ -379,6 +386,7 @@ function main() {
 
   // Deduplicate: only take first signal per (session, word)
   const seen = new Set();
+  const now = new Date();
 
   for (const sig of signals) {
     const key = `${sig.session}|${sig.word}`;
@@ -417,19 +425,19 @@ function main() {
     const closeoutTs = findNoCloseout(db, matchedTicker);
     if (!closeoutTs) {
       stats.noCloseout.add(`${session}:${sig.word}`);
-      continue;
+      // Don't continue; we want to see live signals too
     }
 
     const signalTime = parseSignalTs(sig.timestamp, sig.tz);
-    const closeoutTime = parseDbTs(closeoutTs);
-    const deltaMs = closeoutTime.getTime() - signalTime.getTime();
+    const closeoutTime = closeoutTs ? parseDbTs(closeoutTs) : null;
+    const deltaMs = closeoutTime ? closeoutTime.getTime() - signalTime.getTime() : null;
 
-    if (Math.abs(deltaMs) > 60000) continue;
+    if (deltaMs !== null && Math.abs(deltaMs) > 24 * 3600000) continue; // 24 hours max for a match
 
     // Get market start for duration calculation
     const startTs = getMarketStartTime(db, matchedTicker);
     let sessionDurationMs = null;
-    if (startTs) {
+    if (startTs && closeoutTime) {
       sessionDurationMs = closeoutTime.getTime() - parseDbTs(startTs).getTime();
     }
 
@@ -442,11 +450,11 @@ function main() {
       ticker: matchedTicker,
       signalTs: sig.timestamp,
       signalIso: signalTime.toISOString(),
-      closeoutTs: closeoutTs,
+      closeoutTs: closeoutTs || (now - signalTime > 24 * 3600000 ? "EXPIRED" : "LIVE"),
       deltaMs,
       sessionDurationMs,
-      status: deltaMs > 0 ? "BEFORE" : "AFTER",
-      volume: getNoLiquidity(db, matchedTicker, closeoutTs)
+      status: deltaMs === null ? (now - signalTime > 24 * 3600000 ? "EXPIRED" : "LIVE") : (deltaMs > 0 ? "BEFORE" : "AFTER"),
+      volume: getNoLiquidity(db, matchedTicker, closeoutTs || undefined)
     });
     stats.matched++;
   }
@@ -547,6 +555,7 @@ function main() {
 <meta charset="utf-8">
 <title>Signal vs NO Closeout</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -569,6 +578,8 @@ function main() {
   tr:hover td { background: #1c2128; cursor: pointer; }
   .before { color: #3fb950; font-weight: 700; }
   .after { color: #f85149; }
+  .live { color: #58a6ff; font-style: italic; }
+  .expired { color: #484f58; }
   .delta { text-align: right; font-variant-numeric: tabular-nums; }
   .delta-val { font-weight: 600; }
   .session-info { color: #8b949e; display: flex; flex-direction: column; gap: 2px; }
@@ -626,6 +637,8 @@ function main() {
     <option value="all">All</option>
     <option value="BEFORE">BEFORE only</option>
     <option value="AFTER">AFTER only</option>
+    <option value="LIVE">LIVE only</option>
+    <option value="EXPIRED">EXPIRED only</option>
   </select>
 </div>
 
@@ -649,17 +662,20 @@ function main() {
 
   for (const r of results) {
     const suffix = r.ticker.split("-").pop();
-    const cs = (r.deltaMs / 10).toFixed(0);
-    const csSign = r.deltaMs >= 0 ? "+" : "";
-    const cls = r.status === "BEFORE" ? "before" : "after";
+    const cs = r.deltaMs !== null ? (r.deltaMs / 10).toFixed(0) : "...";
+    const csSign = r.deltaMs !== null ? (r.deltaMs >= 0 ? "+" : "") : "";
+    const cls = r.status.toLowerCase();
     
     // Session Duration
     const durationHuman = r.sessionDurationMs !== null ? formatDeltaHuman(r.sessionDurationMs).replace('+', '') : '-';
     
     // Serialize volume data for the row
     const volData = JSON.stringify(r.volume);
-    const humanDelta = formatDeltaHuman(r.deltaMs);
+    const humanDelta = r.deltaMs !== null ? formatDeltaHuman(r.deltaMs) : (r.status === "EXPIRED" ? "EXPIRED" : "LIVE");
     
+    const closeoutStr = r.status === "LIVE" || r.status === "EXPIRED" ? r.status : r.closeoutTs.slice(0, 26);
+    const closeoutTimeAttr = r.status === "LIVE" || r.status === "EXPIRED" ? Date.now() : new Date(r.closeoutTs).getTime();
+
     html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}" 
                 data-vol='${volData}' data-signal="${r.signalIso}" data-closeout="${r.closeoutTs}"
                 data-human="${escH(humanDelta)}">
@@ -671,10 +687,10 @@ function main() {
   <td class="word">${escH(r.word)}</td>
   <td class="sfx">${escH(suffix)}</td>
   <td data-time="${new Date(r.signalIso).getTime()}">${escH(r.signalTs)}</td>
-  <td data-time="${new Date(r.closeoutTs).getTime()}">${escH(r.closeoutTs.slice(0, 26))}</td>
+  <td data-time="${closeoutTimeAttr}">${escH(closeoutStr)}</td>
   <td style="color: #8b949e">${durationHuman}</td>
   <td class="delta"><span class="delta-val ${cls}">${csSign}${cs}</span></td>
-  <td class="delta ${cls}">${formatDeltaHuman(r.deltaMs)}</td>
+  <td class="delta ${cls}">${humanDelta}</td>
   <td class="${cls}">${r.status}</td>
 </tr>\n`;
   }
@@ -755,10 +771,9 @@ for (const row of rows) {
     myChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: vol.map(d => d.t),
         datasets: [{
           label: 'Total NO Shares',
-          data: vol.map(d => d.v),
+          data: vol.map(d => ({ x: d.t, y: d.v })),
           borderColor: '#d2a8ff',
           backgroundColor: 'rgba(210, 168, 255, 0.1)',
           fill: true,
@@ -777,8 +792,8 @@ for (const row of rows) {
             annotations: {
               signalLine: {
                 type: 'line',
-                xMin: vol.findIndex(d => new Date(d.t).getTime() >= sigTime),
-                xMax: vol.findIndex(d => new Date(d.t).getTime() >= sigTime),
+                xMin: sigTime,
+                xMax: sigTime,
                 borderColor: '#3fb950',
                 borderWidth: 2,
                 label: {
@@ -792,8 +807,8 @@ for (const row of rows) {
               },
               closeLine: {
                 type: 'line',
-                xMin: vol.findIndex(d => new Date(d.t).getTime() >= cloTime),
-                xMax: vol.findIndex(d => new Date(d.t).getTime() >= cloTime),
+                xMin: cloTime,
+                xMax: cloTime,
                 borderColor: '#f85149',
                 borderDash: [5, 5],
                 borderWidth: 1,
@@ -808,8 +823,8 @@ for (const row of rows) {
               },
               zeroLine: zeroTime ? {
                 type: 'line',
-                xMin: vol.findIndex(d => new Date(d.t).getTime() >= zeroTime),
-                xMax: vol.findIndex(d => new Date(d.t).getTime() >= zeroTime),
+                xMin: zeroTime,
+                xMax: zeroTime,
                 borderColor: '#ff7b72',
                 borderWidth: 3,
                 label: {
@@ -825,7 +840,19 @@ for (const row of rows) {
           }
         },
         scales: {
-          x: { display: false, type: 'category' },
+          x: { 
+            display: true, 
+            type: 'time',
+            time: {
+              unit: 'minute',
+              stepSize: 5,
+              displayFormats: {
+                minute: 'HH:mm'
+              }
+            },
+            grid: { color: '#30363d', borderDash: [2, 2] },
+            ticks: { color: '#8b949e', font: { size: 9 } }
+          },
           y: { 
             display: true, 
             grid: { color: '#30363d' },
