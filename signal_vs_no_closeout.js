@@ -213,16 +213,10 @@ function getNoLiquidity(db, ticker, closeoutTs) {
       series.push({ t: t.endsWith('Z') ? t : t + 'Z', v: runningTotal });
     }
     
-    // Always add a final point at closeout to ensure a line is drawn
-    if (closeoutTs) {
-      const t = closeoutTs.includes('T') ? closeoutTs : closeoutTs.replace(' ', 'T');
-      series.push({ t: t.endsWith('Z') ? t : t + 'Z', v: runningTotal });
-    }
-    
     // 3. Downsample if too many points
     if (series.length > 400) {
       const step = Math.ceil(series.length / 400);
-      return series.filter((_, i) => i % step === 0 || i === series.length - 1);
+      return series.filter((d, i) => i % step === 0 || i === series.length - 1 || d.v === 0);
     }
     return series;
   } catch (e) {
@@ -254,10 +248,8 @@ function findNoCloseout(db, ticker) {
     for (const d of deltas) {
       if (d.side === 'no') {
         runningTotal += d.delta;
-        if (d.price === 1) return d.ts;
+        if (runningTotal <= 0) return d.ts;
       }
-      if (d.side === 'yes' && d.price === 99) return d.ts;
-      if (runningTotal <= 0) return d.ts;
     }
     return null;
   } catch (e) {
@@ -384,25 +376,27 @@ function main() {
     matched: 0,
   };
 
-  // Deduplicate: only take first signal per (session, word)
-  const seen = new Set();
-  const now = new Date();
-
+  // Group signals by (resolved session, word)
+  const signalGroups = new Map();
   for (const sig of signals) {
-    const key = `${sig.session}|${sig.word}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    // For "remote" sessions, try to match from the target
     let session = sig.session;
     if (session === "remote" && sig.target !== "undefined") {
-      // e.g. target = "KXNBAMENTION-26MAR17CLEMIL-PLAY"
-      // session should be the part before the last dash, lowercased
       const parts = sig.target.split("-");
       if (parts.length >= 3) {
         session = parts.slice(0, -1).join("-").toLowerCase();
       }
     }
+    const key = `${session}|${sig.word}`;
+    if (!signalGroups.has(key)) signalGroups.set(key, []);
+    signalGroups.get(key).push({ ...sig, resolvedSession: session });
+  }
+
+  const seen = new Set(signalGroups.keys());
+  const now = new Date();
+
+  for (const group of signalGroups.values()) {
+    const firstSig = group[0];
+    const session = firstSig.resolvedSession;
 
     const db = getDb(session);
     if (!db) {
@@ -416,57 +410,64 @@ function main() {
       continue;
     }
 
-    const matchedTicker = fuzzyMatchTicker(sig.word, tickers);
+    const matchedTicker = fuzzyMatchTicker(firstSig.word, tickers);
     if (!matchedTicker) {
-      stats.noTicker.add(`${session}:${sig.word}`);
+      stats.noTicker.add(`${session}:${firstSig.word}`);
       continue;
     }
 
     const closeoutTs = findNoCloseout(db, matchedTicker);
+    const closeoutTime = closeoutTs ? parseDbTs(closeoutTs) : null;
+    
     if (!closeoutTs) {
-      stats.noCloseout.add(`${session}:${sig.word}`);
+      stats.noCloseout.add(`${session}:${firstSig.word}`);
       // Don't continue; we want to see live signals too
     }
 
-    const signalTime = parseSignalTs(sig.timestamp, sig.tz);
-    const closeoutTime = closeoutTs ? parseDbTs(closeoutTs) : null;
-    const deltaMs = closeoutTime ? closeoutTime.getTime() - signalTime.getTime() : null;
-
-    if (deltaMs !== null && Math.abs(deltaMs) > 24 * 3600000) continue; // 24 hours max for a match
-
-    // Get market start for duration calculation
     const startTs = getMarketStartTime(db, matchedTicker);
     let sessionDurationMs = null;
     if (startTs && closeoutTime) {
       sessionDurationMs = closeoutTime.getTime() - parseDbTs(startTs).getTime();
     }
 
-    results.push({
-      session,
-      title: slugToTitle.get(session.toLowerCase()) || session,
-      mediaSource: mediaSources.get(session) || (session === 'remote' ? 'REMOTE' : session.split('-')[0]),
-      word: sig.word,
-      target: sig.target,
-      ticker: matchedTicker,
-      signalTs: sig.timestamp,
-      signalIso: signalTime.toISOString(),
-      closeoutTs: closeoutTs || (now - signalTime > 24 * 3600000 ? "EXPIRED" : "LIVE"),
-      deltaMs,
-      sessionDurationMs,
-      status: deltaMs === null ? (now - signalTime > 24 * 3600000 ? "EXPIRED" : "LIVE") : (deltaMs > 0 ? "BEFORE" : "AFTER"),
-      volume: getNoLiquidity(db, matchedTicker, closeoutTs || undefined)
-    });
-    stats.matched++;
+    // Output every unique detection
+    const uniqueSigs = new Map();
+    for (const sig of group) {
+      if (!uniqueSigs.has(sig.timestamp)) {
+        uniqueSigs.set(sig.timestamp, sig);
+      }
+    }
+
+    for (const sig of uniqueSigs.values()) {
+      const signalTime = parseSignalTs(sig.timestamp, sig.tz);
+      const deltaMs = closeoutTime ? closeoutTime.getTime() - signalTime.getTime() : null;
+      
+      if (deltaMs !== null && Math.abs(deltaMs) > 7 * 24 * 3600000) continue; // 7 days max for a match
+      
+      results.push({
+        session,
+        title: slugToTitle.get(session.toLowerCase()) || session,
+        mediaSource: mediaSources.get(session) || (session === 'remote' ? 'REMOTE' : session.split('-')[0]),
+        word: sig.word,
+        target: sig.target,
+        ticker: matchedTicker,
+        signalTs: sig.timestamp,
+        signalIso: signalTime.toISOString(),
+        closeoutTs: closeoutTs || (now - signalTime > 7 * 24 * 3600000 ? "EXPIRED" : "LIVE"),
+        deltaMs: deltaMs,
+        sessionDurationMs,
+        status: deltaMs === null ? (now - signalTime > 7 * 24 * 3600000 ? "EXPIRED" : "LIVE") : (deltaMs > 0 ? "BEFORE" : "AFTER"),
+        volume: getNoLiquidity(db, matchedTicker, closeoutTs || undefined)
+      });
+      stats.matched++;
+    }
   }
 
-  // Sort by session then signal time
+  // Sort by word, then by detection timestamp
   results.sort((a, b) => {
-    if (a.session !== b.session) return a.session.localeCompare(b.session);
-    return a.signalTs.localeCompare(b.signalTs);
+    if (a.word !== b.word) return a.word.localeCompare(b.word);
+    return new Date(a.signalIso).getTime() - new Date(b.signalIso).getTime();
   });
-
-  // Sort results by signal time (ascending)
-  results.sort((a, b) => new Date(a.signalIso).getTime() - new Date(b.signalIso).getTime());
 
   // Print table
   const col = {
@@ -757,17 +758,49 @@ for (const row of rows) {
     move(e);
     row.onmousemove = move;
     
-    row.addEventListener('mouseleave', () => {
-      chartContainer.style.display = 'none';
-      row.onmousemove = null;
-    });
-
-    if (myChart) myChart.destroy();
+    const existingChart = Chart.getChart(ctx);
+    if (existingChart) existingChart.destroy();
     
     // Find closest indices for markers
     const sigTime = new Date(sig).getTime();
     const cloTime = new Date(clo).getTime();
     
+    const annotations = {};
+    if (!isNaN(sigTime)) {
+      annotations.signalLine = {
+        type: 'line',
+        xMin: sigTime,
+        xMax: sigTime,
+        borderColor: '#3fb950',
+        borderWidth: 2,
+        label: {
+          display: true,
+          content: 'SIGNAL',
+          position: 'start',
+          backgroundColor: '#3fb950',
+          color: '#fff',
+          font: { size: 10 }
+        }
+      };
+    }
+    if (zeroTime && !isNaN(zeroTime)) {
+      annotations.zeroLine = {
+        type: 'line',
+        xMin: zeroTime,
+        xMax: zeroTime,
+        borderColor: '#ff7b72',
+        borderWidth: 3,
+        label: {
+          display: true,
+          content: 'ZERO LIQ',
+          position: 'center',
+          backgroundColor: '#ff7b72',
+          color: '#fff',
+          font: { size: 10, weight: 'bold' }
+        }
+      };
+    }
+
     myChart = new Chart(ctx, {
       type: 'line',
       data: {
@@ -789,54 +822,7 @@ for (const row of rows) {
           legend: { display: false },
           tooltip: { enabled: true },
           annotation: {
-            annotations: {
-              signalLine: {
-                type: 'line',
-                xMin: sigTime,
-                xMax: sigTime,
-                borderColor: '#3fb950',
-                borderWidth: 2,
-                label: {
-                  display: true,
-                  content: 'SIGNAL',
-                  position: 'start',
-                  backgroundColor: '#3fb950',
-                  color: '#fff',
-                  font: { size: 10 }
-                }
-              },
-              closeLine: {
-                type: 'line',
-                xMin: cloTime,
-                xMax: cloTime,
-                borderColor: '#f85149',
-                borderDash: [5, 5],
-                borderWidth: 1,
-                label: {
-                  display: true,
-                  content: 'CLOSEOUT',
-                  position: 'end',
-                  backgroundColor: '#f85149',
-                  color: '#fff',
-                  font: { size: 9 }
-                }
-              },
-              zeroLine: zeroTime ? {
-                type: 'line',
-                xMin: zeroTime,
-                xMax: zeroTime,
-                borderColor: '#ff7b72',
-                borderWidth: 3,
-                label: {
-                  display: true,
-                  content: 'ZERO LIQ',
-                  position: 'center',
-                  backgroundColor: '#ff7b72',
-                  color: '#fff',
-                  font: { size: 10, weight: 'bold' }
-                }
-              } : null
-            }
+            annotations: annotations
           }
         },
         scales: {
