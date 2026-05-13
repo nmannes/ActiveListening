@@ -50,6 +50,11 @@ class SpeakerIdentifier:
             if self._ready:
                 return
 
+            if not self.reference_dir.exists():
+                logger.warning(f"Reference dir not found: {self.reference_dir}. Skipping TitaNet load.")
+                self._ready = True
+                return
+
             loop = asyncio.get_running_loop()
 
             logger.info("SpeakerIdentifier: loading TitaNet-Large …")
