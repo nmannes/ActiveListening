@@ -15,11 +15,15 @@ const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(DATA_DIR, "cache");
 const MATCHED_PATH = path.join(CACHE_DIR, "matched_markets.json");
 const UNMATCHED_PATH = path.join(CACHE_DIR, "unmatched_markets.json");
 const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");
+const SPEAKER_LABELS_PATH = path.join(DATA_DIR, "speaker_labels.json");
 
 // Ensure files exist
 [MATCHED_PATH, UNMATCHED_PATH, MANUAL_MATCHES_PATH].forEach(p => {
     if (!fs.existsSync(p)) fs.writeFileSync(p, JSON.stringify([], null, 2));
 });
+if (!fs.existsSync(SPEAKER_LABELS_PATH)) fs.writeFileSync(SPEAKER_LABELS_PATH, JSON.stringify({}, null, 2));
+
+app.use("/speakers_audio", express.static(path.join(DATA_DIR, "speakers.wav")));
 
 function readJsonFile(filePath, defaultValue = []) {
     try {
@@ -152,8 +156,73 @@ app.delete("/api/manual-match/:slug", (req, res) => {
     }
 });
 
+app.get("/api/speakers", (req, res) => {
+    try {
+        const labels = readJsonFile(SPEAKER_LABELS_PATH, {});
+        const speakersDir = path.join(DATA_DIR, "speakers.wav");
+        if (!fs.existsSync(speakersDir)) {
+            return res.json({});
+        }
+
+        const files = fs.readdirSync(speakersDir).filter(f => f.endsWith('.wav'));
+        const grouped = {};
+
+        for (const file of files) {
+            // Expected format: session_name_speaker_1.wav
+            const match = file.match(/^(.*?)_speaker_(.*?)\.wav$/);
+            if (!match) continue;
+
+            const session = match[1];
+            const speakerId = match[2];
+
+            if (session.startsWith("kxmlb") || session.startsWith("kxnba")) {
+                continue;
+            }
+
+            if (!grouped[session]) {
+                grouped[session] = [];
+            }
+
+            grouped[session].push({
+                speaker_id: speakerId,
+                fileUrl: `/speakers_audio/${file}`,
+                label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : ""
+            });
+        }
+
+        res.json(grouped);
+    } catch (e) {
+        console.error(`Error in /api/speakers: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/speakers/label", (req, res) => {
+    try {
+        const { session, speaker_id, label } = req.body;
+        if (!session || !speaker_id) {
+            return res.status(400).json({ error: "Missing session or speaker_id" });
+        }
+
+        let labels = readJsonFile(SPEAKER_LABELS_PATH, {});
+        if (!labels[session]) {
+            labels[session] = {};
+        }
+        labels[session][speaker_id] = label;
+
+        fs.writeFileSync(SPEAKER_LABELS_PATH, JSON.stringify(labels, null, 2));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/signals", (req, res) => {
     res.sendFile(path.join(DATA_DIR, "signal_vs_no_closeout.html"));
+});
+
+app.get("/speakers", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "speakers.html"));
 });
 
 app.listen(PORT, () => {
