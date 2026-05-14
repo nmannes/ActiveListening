@@ -81,6 +81,10 @@ source .venv/bin/activate
 echo "[5/5] Installing dependencies via uv..."
 uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 
+# Fix for youtokentome: install build dependencies manually and disable isolation
+uv pip install Cython setuptools
+uv pip install youtokentome --no-build-isolation
+
 # Install open-clip-torch and other requirements
 uv pip install open-clip-torch --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
