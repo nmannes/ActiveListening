@@ -291,6 +291,12 @@ for (const match of matches) {
   )
     continue;
 
+  const sourceName = bestSource?.name || "";
+  if (sourceName.toUpperCase() === "APPLE TV" || sourceName.toUpperCase() === "MLB.TV") {
+    console.log(`Skipping scheduling for ${market.title} - ${sourceName} not supported for recording`);
+    continue;
+  }
+
   let scheduleStartTime =
     market?.eventStartTime ||
     bestSource?.startTime ||

@@ -206,11 +206,18 @@ app.get("/api/speakers", (req, res) => {
                 grouped[session] = [];
             }
 
+            let duration = 0;
+            try {
+                const stats = fs.statSync(path.join(speakersDir, file));
+                duration = Math.max(0, (stats.size - 44) / 32000);
+            } catch (e) {}
+
             grouped[session].push({
                 speaker_id: speakerId,
                 fileUrl: `/speakers_audio/${file}`,
                 label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : "",
-                targetSpeaker: sessionTargets[session]
+                targetSpeaker: sessionTargets[session],
+                duration: duration
             });
         }
 
