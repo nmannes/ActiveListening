@@ -328,6 +328,8 @@ for (const match of matches) {
       market.mediaStreamURL = streamURL;
       market.eventStartTime = startTime;
       market.alreadyStarted = alreadyStarted;
+      market.bestMediaSource = bestSource;
+      market.mediaSourceCommonName = bestSource?.commonName || "Unknown";
 
       candidates.push(market);
     }
@@ -513,7 +515,8 @@ for (const seq of sequences) {
           ? "REUSE Server"
           : "Client Only"
         : "NEW Server";
-      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Stream: ${market.mediaStreamURL || "NONE"}`;
+      const channelName = market.mediaSourceCommonName || "NONE";
+      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Channel: ${channelName}`;
       sendTelegram(message).catch((e) =>
         console.error(`Failed to send Telegram: ${e.message}`),
       );

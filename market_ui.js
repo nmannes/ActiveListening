@@ -160,12 +160,15 @@ app.get("/api/speakers", (req, res) => {
     try {
         const labels = readJsonFile(SPEAKER_LABELS_PATH, {});
         const speakersDir = path.join(DATA_DIR, "speakers.wav");
+        const s3Dir = path.join(DATA_DIR, "s3");
+        
         if (!fs.existsSync(speakersDir)) {
             return res.json({});
         }
 
         const files = fs.readdirSync(speakersDir).filter(f => f.endsWith('.wav'));
         const grouped = {};
+        const sessionTargets = {}; // Cache for target speakers
 
         for (const file of files) {
             // Expected format: session_name_speaker_1.wav
@@ -179,6 +182,26 @@ app.get("/api/speakers", (req, res) => {
                 continue;
             }
 
+            // Look up target speaker for this session if not cached
+            if (sessionTargets[session] === undefined) {
+                sessionTargets[session] = null;
+                const sessionPath = path.join(s3Dir, session);
+                if (fs.existsSync(sessionPath)) {
+                    const s3Files = fs.readdirSync(sessionPath);
+                    const metaFile = s3Files.find(f => f.endsWith(".json") && f !== "transcript.json");
+                    if (metaFile) {
+                        try {
+                            const meta = JSON.parse(fs.readFileSync(path.join(sessionPath, metaFile), "utf8"));
+                            if (meta.speakerEntities && meta.speakerEntities.length > 0) {
+                                sessionTargets[session] = meta.speakerEntities.join(", ");
+                            }
+                        } catch (e) {
+                            console.error(`Error reading meta for ${session}: ${e.message}`);
+                        }
+                    }
+                }
+            }
+
             if (!grouped[session]) {
                 grouped[session] = [];
             }
@@ -186,7 +209,8 @@ app.get("/api/speakers", (req, res) => {
             grouped[session].push({
                 speaker_id: speakerId,
                 fileUrl: `/speakers_audio/${file}`,
-                label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : ""
+                label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : "",
+                targetSpeaker: sessionTargets[session]
             });
         }
 

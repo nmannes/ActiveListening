@@ -88,6 +88,7 @@ class TradeProcessor:
                     f"Keyword: \"{matched['key']}\"\n"
                     f"Speaker: {speaker_id}\n"
                     f"Ticker: {matched['value']}\n"
+                    f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
                     f"Trading: {self.session.server.config.trade_for_real}"
                 )
 
@@ -130,8 +131,8 @@ class TradeProcessor:
                         f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
                         f"Ticker: {matched['value']}\n"
                         f"Word: {matched['key']}\n"
+                        f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
                         f"Result: {order_result}"
-
                     )
                     asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
