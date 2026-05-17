@@ -47,7 +47,10 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "providers/" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/providers/"
 
-# Sync audio-library/ directory (Voice Samples)
+# Regenerate and sync audio-library/ directory (Voice Samples)
+echo "Regenerating audio library..."
+python3 scripts/build_audio_library.py
+
 rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "audio-library/" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/audio-library/"

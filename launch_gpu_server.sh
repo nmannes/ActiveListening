@@ -404,7 +404,9 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-echo "[4/4] Syncing audio-library to remote instance..."
+echo "[4/4] Generating and syncing audio-library to remote instance..."
+python3 "$LOCAL_DIR/scripts/build_audio_library.py"
+
 rsync -avz -e "ssh -i \"$SSH_KEY_PATH\" -o StrictHostKeyChecking=no" \
     "$LOCAL_DIR/audio-library/" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/kalshi/audio-library/"
