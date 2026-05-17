@@ -47,6 +47,11 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "providers/" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/providers/"
 
+# Sync audio-library/ directory (Voice Samples)
+rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
+    "audio-library/" \
+    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/audio-library/"
+
 
 echo "Code synced."
 

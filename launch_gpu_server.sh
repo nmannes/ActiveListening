@@ -404,4 +404,9 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
+echo "[4/4] Syncing audio-library to remote instance..."
+rsync -avz -e "ssh -i \"$SSH_KEY_PATH\" -o StrictHostKeyChecking=no" \
+    "$LOCAL_DIR/audio-library/" \
+    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/kalshi/audio-library/"
+
 $BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

@@ -30,7 +30,7 @@ class SpeakerIdentifier:
         threshold: float = 0.65,
     ):
         self.reference_dir = reference_dir or (
-            Path(__file__).parent.parent / "audio-samples"
+            Path(__file__).parent.parent / "audio-library"
         )
         self.device = device
         self.threshold = threshold

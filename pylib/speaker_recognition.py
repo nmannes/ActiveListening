@@ -311,7 +311,7 @@ class SpeakerRecognitionSession:
         logger.info(f"Running identity inference for session {self.session_id}")
 
         # Try audio-based identification first if we have reference samples
-        audio_samples_dir = Path(__file__).parent.parent / "audio-samples"
+        audio_samples_dir = Path(__file__).parent.parent / "audio-library"
         entities_with_samples = [
             entity for entity in self.market_entities
             if (audio_samples_dir / f"{entity.replace(' ', '-').lower()}.wav").exists()
