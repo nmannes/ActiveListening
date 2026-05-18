@@ -425,7 +425,11 @@ class SpeakerRecognitionSession:
             return False
 
         matched_any = False
+        logger.debug(f"[{self.session_id}] Iterating over {len(speaker_wavs)} speaker wav files")
         for wav_path in speaker_wavs:
+            wav_path = wav_path.absolute()
+            logger.debug(f"[{self.session_id}] Processing wav path: {wav_path}")
+            
             # Extract speaker ID from filename: "speaker_0.wav" -> "0"
             speaker_id = wav_path.stem.replace("speaker_", "")
 
@@ -434,19 +438,35 @@ class SpeakerRecognitionSession:
                 logger.debug(f"[{self.session_id}] Speaker {speaker_id} already labeled as '{self.profile_labels[speaker_id]}', skipping")
                 continue
 
+            logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
             best_name, scores = await identifier.identify_file(wav_path)
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
+
+            if best_name:
+                logger.debug(f"[{self.session_id}] Best name '{best_name}' identified. Comparing against entities: {entities_with_samples}")
+            else:
+                logger.debug(f"[{self.session_id}] No best name identified for speaker {speaker_id}")
 
             matched_entity = next(
                 (e for e in entities_with_samples if e.replace(" ", "-").lower() == best_name),
                 None,
             )
+            
+            if matched_entity:
+                logger.debug(f"[{self.session_id}] Matched best_name '{best_name}' to entity '{matched_entity}'")
+            else:
+                if best_name:
+                    logger.debug(f"[{self.session_id}] best_name '{best_name}' did not match any entity in {entities_with_samples}")
+
             if best_name and matched_entity:
                 self.set_profile_label(speaker_id, matched_entity)
                 if hasattr(self.listening_session, "trade_processor"):
                     self.listening_session.trade_processor.add_trading_speaker(speaker_id)
                     logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
+                else:
+                    logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
                 matched_any = True
 
+        logger.debug(f"[{self.session_id}] Finished audio identification iteration. matched_any={matched_any}")
         return matched_any
 
