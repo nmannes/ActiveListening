@@ -354,7 +354,7 @@ class TradingServer:
             )
 
             # Load SpeakerIdentifier (TitaNet) for audio-based speaker recognition
-            audio_samples_dir = Path(__file__).parent / "audio-samples"
+            audio_samples_dir = Path(__file__).parent / "audio-library"
             if audio_samples_dir.exists():
                 self.speaker_identifier = SpeakerIdentifier(
                     device=self.config.device,
@@ -362,7 +362,7 @@ class TradingServer:
                 )
                 await self.speaker_identifier.initialize()
             else:
-                logger.info("audio-samples directory not found. Skipping SpeakerIdentifier initialization.")
+                logger.info("audio-library directory not found. Skipping SpeakerIdentifier initialization.")
 
             logger.info("Background resource initialization complete.")
         except Exception as e:
