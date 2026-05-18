@@ -1,8 +1,10 @@
 #!/bin/bash
-# launch_gpu_server.sh — Automates AWS GPU instance for Kalshi transcription
-# Launches G6 instance (L4 GPU), syncs code, runs server, and schedules 30m shutdown.
 
 set -e
+
+git pull || echo "git pull failed, continuing anyway"
+
+
 
 # --- Configuration (Defaults) ---
 BUN="/home/nathan/.bun/bin/bun"
