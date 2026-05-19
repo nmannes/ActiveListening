@@ -51,7 +51,7 @@ rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
 echo "Regenerating audio library..."
 python3 scripts/build_audio_library.py
 
-rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
+rsync -avz --exclude="*.wav" -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
     "audio-library/" \
     "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/audio-library/"
 

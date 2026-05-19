@@ -86,5 +86,18 @@ def main():
         
     logger.info(f"Successfully populated {output_dir} with {len(identity_sources)} reference samples.")
 
+    # Pre-compute embeddings locally so we don't have to sync the .wav files
+    logger.info("Pre-computing TitaNet embeddings for the library...")
+    import asyncio
+    import sys
+    # Add root dir to path so we can import pylib
+    sys.path.append(str(root_dir))
+    from pylib.speaker_identifier import SpeakerIdentifier
+    
+    # Run the initialization on CPU to generate the .embedding files
+    identifier = SpeakerIdentifier(device="cpu", reference_dir=output_dir)
+    asyncio.run(identifier.initialize())
+    logger.info("Embeddings successfully pre-computed.")
+
 if __name__ == "__main__":
     main()
