@@ -25,13 +25,11 @@ class SpeakerIdentifier:
 
     def __init__(
         self,
-        reference_dir: Optional[Path] = None,
+        audio_library_path: Path,
         device: str = "cpu",
         threshold: float = 0.65,
     ):
-        self.reference_dir = reference_dir or (
-            Path(__file__).parent.parent / "audio-library"
-        )
+        self.reference_dir = audio_library_path
         self.device = device
         self.threshold = threshold
 
@@ -70,41 +68,17 @@ class SpeakerIdentifier:
             if not self.reference_dir.exists():
                 logger.warning(f"Reference dir not found: {self.reference_dir}")
             else:
-                # Load pre-computed embeddings first
+                # Load pre-computed embeddings
                 for emb_path in sorted(self.reference_dir.glob("*.embedding")):
                     name = emb_path.stem
                     logger.info(f"  loading pre-computed embedding: {name}")
                     try:
                         emb = await loop.run_in_executor(
-                            None, lambda p=emb_path: torch.load(str(p), map_location=self.device)
+                            None, lambda p=emb_path: torch.load(str(p), map_location=self.device, weights_only=False)
                         )
                         self.references[name] = emb
                     except Exception as e:
                         logger.error(f"  Failed to load pre-computed embedding {emb_path}: {e}")
-
-                # Load any wav files that don't have an embedding yet
-                for wav in sorted(self.reference_dir.glob("*.wav")):
-                    name = wav.stem                      # e.g. "jeff-probst"
-                    if name in self.references:
-                        continue
-                        
-                    logger.info(f"  computing reference embedding from wav: {name}")
-                    audio = await loop.run_in_executor(
-                        None, lambda p=wav: librosa.load(str(p), sr=16000)[0]
-                    )
-                    emb = await self._embed(audio)
-                    if emb is not None:
-                        self.references[name] = emb
-                        
-                        # Save the embedding for future use
-                        emb_path = wav.with_suffix(".embedding")
-                        try:
-                            await loop.run_in_executor(
-                                None, lambda p=emb_path, t=emb: torch.save(t, str(p))
-                            )
-                            logger.info(f"  saved pre-computed embedding to {emb_path}")
-                        except Exception as e:
-                            logger.error(f"  Failed to save embedding to {emb_path}: {e}")
 
             logger.info(
                 f"SpeakerIdentifier ready – {len(self.references)} reference(s) loaded"

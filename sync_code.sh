@@ -30,31 +30,9 @@ FILES_TO_COPY=(
     "prod_private_key.txt"
 )
 
-rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    "${FILES_TO_COPY[@]}" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/"
 
-# Ensure remote pylib/ is writable (fix for permission issues)
-ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "sudo chown -R $REMOTE_USER:$REMOTE_USER $REMOTE_DIR/pylib 2>/dev/null || true"
-
-# Sync pylib/ directory (Python modules)
-rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    "pylib/" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/pylib/"
-
-# Sync providers/ directory (JS providers)
-rsync -avz -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    "providers/" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/providers/"
-
-# Regenerate and sync audio-library/ directory (Voice Samples)
-echo "Regenerating audio library..."
-python3 scripts/build_audio_library.py
-
-rsync -avz --exclude="*.wav" -e "ssh -i $SSH_KEY_PATH -o StrictHostKeyChecking=no" \
-    "audio-library/" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/audio-library/"
-
+# Kill existing python server
+ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "cd kalshi && git pull"
 
 echo "Code synced."
 

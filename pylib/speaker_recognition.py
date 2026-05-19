@@ -257,11 +257,13 @@ class SpeakerRecognitionSession:
         logger.info(f"Running identity inference for session {self.session_id}")
 
         # Try audio-based identification first if we have reference samples
-        audio_samples_dir = Path(__file__).parent.parent / "audio-library"
+        audio_samples_dir = self.listening_session.server.config.audio_library_path
         entities_with_samples = [
             entity for entity in self.market_entities
             if (audio_samples_dir / f"{entity.replace(' ', '-').lower()}.wav").exists()
         ]
+        logger.info(f"Available entities: {entities_with_samples}")
+        logger.info(f"Market entities: {self.market_entities}")
         if entities_with_samples:
             logger.info(f"Audio samples found for: {entities_with_samples} — attempting audio-based identification")
             result = await self._run_audio_identification(entities_with_samples)

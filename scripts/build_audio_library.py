@@ -31,10 +31,16 @@ def slugify(name: str) -> str:
 
 def main():
     root_dir = Path(__file__).parent.parent
+    import argparse
+    import sys
+    sys.path.append(str(root_dir))
+    from server import Config
+
+    config = Config(argparse.Namespace())
+
     labels_file = root_dir / "speaker_labels.json"
     speakers_dir = root_dir / "speakers.wav"
-    output_dir = root_dir / "audio-library"
-    
+    output_dir = config.audio_library_path
     if not labels_file.exists():
         logger.error(f"Labels file not found: {labels_file}")
         return
@@ -95,7 +101,7 @@ def main():
     from pylib.speaker_identifier import SpeakerIdentifier
     
     # Run the initialization on CPU to generate the .embedding files
-    identifier = SpeakerIdentifier(device="cpu", reference_dir=output_dir)
+    identifier = SpeakerIdentifier(audio_library_path=output_dir, device="cpu")
     asyncio.run(identifier.initialize())
     logger.info("Embeddings successfully pre-computed.")
 
