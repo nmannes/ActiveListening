@@ -29,7 +29,7 @@ class SpeakerIdentifier:
         device: str = "cpu",
         threshold: float = 0.65,
     ):
-        self.reference_dir = audio_library_path
+        self.reference_dir = Path(audio_library_path)
         self.device = device
         self.threshold = threshold
 
@@ -48,11 +48,6 @@ class SpeakerIdentifier:
             if self._ready:
                 return
 
-            if not self.reference_dir.exists():
-                logger.warning(f"Reference dir not found: {self.reference_dir}. Skipping TitaNet load.")
-                self._ready = True
-                return
-
             loop = asyncio.get_running_loop()
 
             logger.info("SpeakerIdentifier: loading TitaNet-Large …")
@@ -64,21 +59,56 @@ class SpeakerIdentifier:
             )
             self.model.eval()
 
-            # Load every .embedding and .wav in reference_dir
-            if not self.reference_dir.exists():
-                logger.warning(f"Reference dir not found: {self.reference_dir}")
-            else:
-                # Load pre-computed embeddings
-                for emb_path in sorted(self.reference_dir.glob("*.embedding")):
-                    name = emb_path.stem
-                    logger.info(f"  loading pre-computed embedding: {name}")
-                    try:
-                        emb = await loop.run_in_executor(
-                            None, lambda p=emb_path: torch.load(str(p), map_location=self.device, weights_only=False)
-                        )
-                        self.references[name] = emb
-                    except Exception as e:
-                        logger.error(f"  Failed to load pre-computed embedding {emb_path}: {e}")
+            # Ensure reference dir exists
+            self.reference_dir.mkdir(parents=True, exist_ok=True)
+
+            # Sync pre-computed embeddings from S3 speaker_embeddings folder
+            try:
+                import boto3
+                import os
+
+                bucket = os.environ.get("S3_BUCKET")
+                if not bucket:
+                    raise ValueError("S3_BUCKET not set in environment")
+                s3 = boto3.client("s3")
+
+                logger.info(f"Syncing speaker embeddings from s3://{bucket}/speaker_embeddings/...")
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: s3.list_objects_v2(Bucket=bucket, Prefix="speaker_embeddings/")
+                )
+
+                contents = resp.get("Contents", [])
+                download_count = 0
+                for obj in contents:
+                    key = obj.get("Key", "")
+                    if key == "speaker_embeddings/":
+                        continue
+                    if key.endswith(".embedding"):
+                        filename = os.path.basename(key)
+                        dest_path = self.reference_dir / filename
+                        if not dest_path.exists():
+                            logger.info(f"Downloading missing embedding from S3: {filename}")
+                            await loop.run_in_executor(
+                                None,
+                                lambda k=key, d=dest_path: s3.download_file(bucket, k, str(d))
+                            )
+                            download_count += 1
+                logger.info(f"Downloaded {download_count} speaker embedding(s) from S3.")
+            except Exception as e:
+                logger.error(f"Failed to sync speaker embeddings from S3: {e}")
+
+            # Load pre-computed embeddings
+            for emb_path in sorted(self.reference_dir.glob("*.embedding")):
+                name = emb_path.stem
+                logger.info(f"  loading pre-computed embedding: {name}")
+                try:
+                    emb = await loop.run_in_executor(
+                        None, lambda p=emb_path: torch.load(str(p), map_location=self.device, weights_only=False)
+                    )
+                    self.references[name] = emb
+                except Exception as e:
+                    logger.error(f"  Failed to load pre-computed embedding {emb_path}: {e}")
 
             logger.info(
                 f"SpeakerIdentifier ready – {len(self.references)} reference(s) loaded"

@@ -81,7 +81,7 @@ class Config:
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
         logger.info(f"Environment: {self.env}")
         logger.info(f"Trading enabled: {self.trade_for_real}")
-        self.audio_library_path = Path("~/kalshi/audio-library").expanduser()
+        self.audio_library_path = Path("~/audio-library").expanduser()
 
 
 class ClientSession:
@@ -355,19 +355,15 @@ class TradingServer:
             )
 
             # Load SpeakerIdentifier (TitaNet) for audio-based speaker recognition
-            audio_samples_dir = self.config.audio_library_path
-            if audio_samples_dir.exists():
-                import time
-                start_time = time.time()
-                self.speaker_identifier = SpeakerIdentifier(
-                    audio_library_path=audio_samples_dir,
-                    device=self.config.device
-                )
-                await self.speaker_identifier.initialize()
-                load_time = time.time() - start_time
-                logger.info(f"SpeakerIdentifier initialized in {load_time:.2f} seconds.")
-            else:
-                logger.info("audio-library directory not found. Skipping SpeakerIdentifier initialization.")
+            import time
+            start_time = time.time()
+            self.speaker_identifier = SpeakerIdentifier(
+                audio_library_path=audio_samples_dir,
+                device=self.config.device
+            )
+            await self.speaker_identifier.initialize()
+            load_time = time.time() - start_time
+            logger.info(f"SpeakerIdentifier initialized in {load_time:.2f} seconds.")
 
             logger.info("Background resource initialization complete.")
         except Exception as e:
