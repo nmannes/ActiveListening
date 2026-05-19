@@ -356,11 +356,15 @@ class TradingServer:
             # Load SpeakerIdentifier (TitaNet) for audio-based speaker recognition
             audio_samples_dir = Path(__file__).parent / "audio-library"
             if audio_samples_dir.exists():
+                import time
+                start_time = time.time()
                 self.speaker_identifier = SpeakerIdentifier(
                     device=self.config.device,
                     reference_dir=audio_samples_dir
                 )
                 await self.speaker_identifier.initialize()
+                load_time = time.time() - start_time
+                logger.info(f"SpeakerIdentifier initialized in {load_time:.2f} seconds.")
             else:
                 logger.info("audio-library directory not found. Skipping SpeakerIdentifier initialization.")
 
