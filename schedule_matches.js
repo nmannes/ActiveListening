@@ -174,6 +174,12 @@ function getDuration(market, match) {
   const { mediaSources, ncaaEvent } = match;
   const espnEvent = mediaSources?.find(s => s.type === 'espn')?.metadata;
   const tvEvent = mediaSources?.find(s => s.type === 'tv')?.metadata;
+  const cspanEvent = mediaSources?.find(s => s.type === 'cspan')?.metadata;
+  
+  if (cspanEvent && cspanEvent.duration) {
+    return cspanEvent.duration;
+  }
+
   const title = (market.title || "").toLowerCase();
   const slug = (market.slug || "").toLowerCase();
 
@@ -406,8 +412,10 @@ for (const seq of sequences) {
     const slug = market.slug;
     const newFile = path.join(scheduledDir, `${slug}.json`);
 
+    const marketDuration = getDuration(market, originalMatch);
+
     // Check if we can reuse an existing server window (from previous runs or current sequence)
-    const estimatedEndTime = new Date(startTime.getTime() + 60 * 60 * 1000);
+    const estimatedEndTime = new Date(startTime.getTime() + marketDuration * 60 * 1000);
     let reusableWindow = serverWindows.find(
       (w) => w.start <= startTime && w.end >= estimatedEndTime,
     );
@@ -449,8 +457,6 @@ for (const seq of sequences) {
         );
       }
 
-      const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
-      const marketDuration = getDuration(market, originalMatchForCmd);
       let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
       if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
       if (clientOnly) cmd += " --client-only";
@@ -482,8 +488,6 @@ for (const seq of sequences) {
       }
     }
 
-    const originalMatchForCmd = matches.find((m) => m.market.slug === market.slug);
-    const marketDuration = getDuration(market, originalMatchForCmd);
     let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
     if (!clientOnly) {
       cmd += ` --server-duration ${serverDuration}`;
