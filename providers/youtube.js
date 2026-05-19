@@ -9,6 +9,7 @@ const { spawn } = require("child_process");
 const WebSocket = require("ws");
 
 let ffmpegProc = null;
+let _ytdlpProc = null;
 let _ws = null;
 let _streamUrl = null;
 let _logger = null;
@@ -73,6 +74,63 @@ function setupAudioTranscoder(inputUrl, retryCount = 0) {
   ffmpegProc = ffmpeg;
 }
 
+/**
+ * Pipe yt-dlp audio output directly into ffmpeg for VOD (non-live) videos.
+ * This avoids the DASH URL fragmentation issue with `-g`.
+ */
+function setupPipedTranscoder(youtubeUrl) {
+  if (_isStopped) return;
+  _logger.info(`[youtube] Starting piped yt-dlp -> FFmpeg for ${youtubeUrl}`);
+
+  const ytdlp = spawn("/home/linuxbrew/.linuxbrew/bin/yt-dlp", [
+    "-f", "bestaudio/best",
+    "-o", "-",
+    youtubeUrl,
+  ]);
+
+  const ffmpeg = spawn("ffmpeg", [
+    "-re",
+    "-i", "pipe:0",
+    "-f", "s16le",
+    "-acodec", "pcm_s16le",
+    "-ar", "16000",
+    "-ac", "1",
+    "-flush_packets", "1",
+    "pipe:1",
+  ], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  ytdlp.stdout.pipe(ffmpeg.stdin);
+
+  ytdlp.stderr.on("data", (data) => {
+    _logger.trace(`[youtube-ytdlp] ${data.toString().trim()}`);
+  });
+
+  ytdlp.on("close", (code) => {
+    _logger.info(`[youtube-ytdlp] yt-dlp exited with code ${code}`);
+    // Close ffmpeg's stdin so it finishes processing remaining data
+    ffmpeg.stdin.end();
+  });
+
+  ffmpeg.stdout.on("data", (data) => {
+    if (_ws && _ws.readyState === WebSocket.OPEN) {
+      _ws.send(data);
+    }
+  });
+
+  ffmpeg.stderr.on("data", (data) => {
+    _logger.trace(`[youtube-ffmpeg] ${data.toString().trim()}`);
+  });
+
+  ffmpeg.on("close", (code) => {
+    _logger.info(`[youtube-ffmpeg] FFmpeg exited with code ${code}`);
+  });
+
+  ffmpegProc = ffmpeg;
+  _ytdlpProc = ytdlp;
+}
+
 module.exports = {
   name: "youtube",
   audioOnly: true,
@@ -85,6 +143,27 @@ module.exports = {
 
     _logger.info(`[youtube] Starting YouTube provider for ${_streamUrl}`);
 
+    // Detect if stream is live or VOD
+    const isLive = await new Promise((resolve) => {
+      const ytdlp = spawn("/home/linuxbrew/.linuxbrew/bin/yt-dlp", [
+        "--print", "is_live",
+        "--no-download",
+        _streamUrl,
+      ]);
+      let out = "";
+      ytdlp.stdout.on("data", (d) => (out += d.toString()));
+      ytdlp.on("close", () => resolve(out.trim() === "True"));
+    });
+
+    _logger.info(`[youtube] Stream type: ${isLive ? "LIVE" : "VOD"}`);
+
+    if (!isLive) {
+      // VOD: pipe yt-dlp -> ffmpeg to get the full video audio
+      setupPipedTranscoder(_streamUrl);
+      return;
+    }
+
+    // Live: extract direct URL with yt-dlp -g for low-latency streaming
     const startTime = Date.now();
     const timeoutMs = 5 * 60 * 1000;
 
@@ -145,6 +224,10 @@ module.exports = {
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
       _retryTimeout = null;
+    }
+    if (_ytdlpProc) {
+      _ytdlpProc.kill();
+      _ytdlpProc = null;
     }
     if (ffmpegProc) {
       ffmpegProc.kill();

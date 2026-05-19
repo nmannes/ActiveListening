@@ -273,6 +273,12 @@ function connectWebSocket() {
         logger.info(`SIGNAL: ${msg.keyword} → ${msg.ticker}`);
       } else if (msg.type === "transcript") {
         logger.info(`TRANSCRIPT: ${msg.text}`);
+      } else if (msg.type === "speaker_identified") {
+        const sortedScores = Object.entries(msg.scores)
+          .sort(([, a], [, b]) => b - a)
+          .map(([name, score]) => `  ${name}: ${score}`)
+          .join("\n");
+        logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity}\n${sortedScores}`);
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
         logger.info(`RTT: ${rtt}ms`);

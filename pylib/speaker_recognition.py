@@ -256,17 +256,14 @@ class SpeakerRecognitionSession:
 
         logger.info(f"Running identity inference for session {self.session_id}")
 
-        # Try audio-based identification first if we have reference samples
-        audio_samples_dir = self.listening_session.server.config.audio_library_path
-        entities_with_samples = [
-            entity for entity in self.market_entities
-            if (audio_samples_dir / f"{entity.replace(' ', '-').lower()}.wav").exists()
-        ]
-        logger.info(f"Available entities: {entities_with_samples}")
-        logger.info(f"Market entities: {self.market_entities}")
-        if entities_with_samples:
-            logger.info(f"Audio samples found for: {entities_with_samples} — attempting audio-based identification")
-            result = await self._run_audio_identification(entities_with_samples)
+        # Try audio-based identification first if the identifier has references loaded.
+        # All loaded references (including non-market ones) act as negatives —
+        # we only accept a match if the best-scoring reference is a market entity.
+        identifier = self.listening_session.server.speaker_identifier
+        if identifier and identifier._ready and identifier.references:
+            entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
+            logger.info(f"Audio ID: {len(identifier.references)} references loaded, market entities: {self.market_entities}")
+            result = await self._run_audio_identification(entity_slugs)
             if result:
                 return
 
@@ -340,14 +337,18 @@ class SpeakerRecognitionSession:
         else:
             logger.warning("Identity inference returned no mapping.")
 
-    async def _run_audio_identification(self, entities_with_samples: List[str]) -> bool:
+    async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> bool:
         """
         Use audio-based speaker identification (SpeakerIdentifier + TitaNet) to match
-        diarized speakers against reference .wav samples.
+        diarized speakers against reference embeddings.
 
-        Reads per-speaker WAV files already saved by AudioProcessor
-        (recordings/<session>/audio/speaker_<id>.wav) and compares them
-        against reference samples in audio-samples/.
+        The identifier compares each speaker's audio against ALL loaded references
+        (including non-market ones which act as negatives). We only accept a match
+        when the best-scoring reference slug is one of our market entity slugs.
+
+        Args:
+            entity_slugs: mapping of {slug: entity_name} for market entities,
+                          e.g. {"donald-trump": "Donald Trump"}
 
         Returns True if at least one speaker was successfully identified and mapped.
         """
@@ -391,20 +392,17 @@ class SpeakerRecognitionSession:
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
 
             if best_name:
-                logger.debug(f"[{self.session_id}] Best name '{best_name}' identified. Comparing against entities: {entities_with_samples}")
+                logger.debug(f"[{self.session_id}] Best name '{best_name}' identified. Market slugs: {list(entity_slugs.keys())}")
             else:
                 logger.debug(f"[{self.session_id}] No best name identified for speaker {speaker_id}")
 
-            matched_entity = next(
-                (e for e in entities_with_samples if e.replace(" ", "-").lower() == best_name),
-                None,
-            )
+            # Only accept if the best match is one of our market entities
+            matched_entity = entity_slugs.get(best_name) if best_name else None
             
             if matched_entity:
                 logger.debug(f"[{self.session_id}] Matched best_name '{best_name}' to entity '{matched_entity}'")
-            else:
-                if best_name:
-                    logger.debug(f"[{self.session_id}] best_name '{best_name}' did not match any entity in {entities_with_samples}")
+            elif best_name:
+                logger.debug(f"[{self.session_id}] best_name '{best_name}' is not a market entity — treating as negative match")
 
             if best_name and matched_entity:
                 self.set_profile_label(speaker_id, matched_entity)
@@ -413,6 +411,18 @@ class SpeakerRecognitionSession:
                     logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
+
+                # Notify the client
+                try:
+                    await self.listening_session.websocket.send(json.dumps({
+                        "type": "speaker_identified",
+                        "speaker_id": speaker_id,
+                        "entity": matched_entity,
+                        "scores": scores,
+                    }, indent=2))
+                except Exception as e:
+                    logger.error(f"[{self.session_id}] Failed to send speaker_identified to client: {e}")
+
                 matched_any = True
 
         logger.debug(f"[{self.session_id}] Finished audio identification iteration. matched_any={matched_any}")
