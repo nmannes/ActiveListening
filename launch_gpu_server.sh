@@ -119,7 +119,7 @@ while true; do
     fi
 done
 
-echo "[0/4] Checking for existing $ENV instances in $REGION..."
+echo "[0/5] Checking for existing $ENV instances in $REGION..."
 EXISTING_INSTANCES=$(aws ec2 describe-instances \
     --region "$REGION" \
     --filters "Name=tag:Environment,Values=$ENV" "Name=instance-state-name,Values=running,pending" \
@@ -147,7 +147,7 @@ if [[ "$COUNT" -gt 0 ]]; then
 fi
 
 # --- 1. Get Local IP and Credentials ---
-echo "[1/4] Gathering deployment context..."
+echo "[1/5] Gathering deployment context..."
 MY_IPV4=$(curl -4 -s https://ifconfig.me || true)
 MY_IPV6=$(curl -6 -s https://ifconfig.me || true)
 
@@ -225,7 +225,7 @@ ENV_CONTENT=$(cat "$ENV_FILE" | \
 
 
 # --- 2. Assemble and Launch Stack ---
-echo "[2/4] Assembling and deploying modular CloudFormation stack..."
+echo "[2/5] Assembling and deploying modular CloudFormation stack..."
 STACK_NAME="kalshi-worker-$RUN_ID"
 if [[ "$FORCE" == true ]]; then
     STACK_NAME="${STACK_NAME}-forced"
@@ -372,7 +372,7 @@ rm "$TMP_TEMPLATE"
 
 
 # --- 3. Get Outputs ---
-echo "[3/4] Deployment complete. Fetching details..."
+echo "[3/5] Deployment complete. Fetching details..."
 
 echo "results:\n$DEPLOYMENT_RESULTS"
 
@@ -406,11 +406,14 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-echo "[4/4] Generating and syncing audio-library to remote instance..."
+echo "[4/5] Generating audio-library"
 python3 "$LOCAL_DIR/scripts/build_audio_library.py"
 
-rsync -avz -e "ssh -i \"$SSH_KEY_PATH\" -o StrictHostKeyChecking=no" \
-    "$LOCAL_DIR/audio-library/" \
-    "$REMOTE_USER@$PUBLIC_IP:$REMOTE_DIR/kalshi/audio-library/"
+
+echo "[5/5] Syncing audio-library to worker"
+
+rsync -avz \
+    audio-library/ \
+    $REMOTE_USER@$PUBLIC_IP:"$REMOTE_DIR/kalshi/audio-library"
 
 $BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

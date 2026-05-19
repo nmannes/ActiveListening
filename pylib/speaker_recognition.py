@@ -22,6 +22,7 @@ from pylib.prompt_templates import (
 )
 
 logger = logging.getLogger("remote_server")
+from pylib.telegram import send_telegram
 
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
@@ -411,6 +412,25 @@ class SpeakerRecognitionSession:
                     logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
+
+                # Send Telegram notification
+                try:
+                    market = getattr(self.listening_session, "market", {}) or {}
+                    market_title = market.get("title", "Unknown Market")
+                    channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
+                    msg = (
+                        f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}\n"
+                        f"Speaker ID: {speaker_id}\n"
+                        f"Entity: {matched_entity}\n"
+                        f"Score: {scores.get(best_name, 0.0):.4f}\n"
+                        f"Channel: {channel_name}\n"
+                        f"Session ID: {self.session_id}"
+                    )
+                    asyncio.get_running_loop().run_in_executor(
+                        None, send_telegram, msg, "info"
+                    )
+                except Exception as e:
+                    logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
 
                 # Notify the client
                 try:
