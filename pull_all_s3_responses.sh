@@ -25,6 +25,14 @@ for PREFIX in $PREFIXES; do
     echo "📥 Syncing $PREFIX ($FILE_COUNT files) → $LOCAL_PATH"
     mkdir -p "$LOCAL_PATH"
     aws s3 sync "$S3_PATH" "$LOCAL_PATH"
+
+    if [[ "$PREFIX" == *"sample"* ]]; then
+        S3_AUDIO_PATH="s3://$BUCKET/$PREFIX/audio/"
+        LOCAL_AUDIO_PATH="$LOCAL_DIR/$PREFIX/audio/"
+        echo "🔊 Syncing audio for $PREFIX → $LOCAL_AUDIO_PATH"
+        mkdir -p "$LOCAL_AUDIO_PATH"
+        aws s3 sync "$S3_AUDIO_PATH" "$LOCAL_AUDIO_PATH"
+    fi
 done
 
 echo ""

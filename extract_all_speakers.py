@@ -154,7 +154,10 @@ def main():
         print(f"{s3_dir} directory not found.")
         return
         
-    folders = [d for d in s3_dir.iterdir() if d.is_dir()]
+    folders = [
+        d for d in s3_dir.iterdir() 
+        if d.is_dir() and not any(sport in d.name.lower() for sport in ("mlb", "nhl", "nba"))
+    ]
     
     # Using max_workers defaults to number of processors on the machine
     with ProcessPoolExecutor() as executor:
