@@ -96,14 +96,68 @@ def main():
     logger.info("Pre-computing TitaNet embeddings for the library...")
     import asyncio
     import sys
+    import librosa
+    import torch
     # Add root dir to path so we can import pylib
     sys.path.append(str(root_dir))
     from pylib.speaker_identifier import SpeakerIdentifier
     
-    # Run the initialization on CPU to generate the .embedding files
-    identifier = SpeakerIdentifier(audio_library_path=output_dir, device="cpu")
-    asyncio.run(identifier.initialize())
+    async def compute_embeddings():
+        identifier = SpeakerIdentifier(audio_library_path=output_dir, device="cpu")
+        await identifier.initialize()
+        
+        loop = asyncio.get_running_loop()
+        for wav_path in sorted(output_dir.glob("*.wav")):
+            name = wav_path.stem
+            emb_path = wav_path.with_suffix(".embedding")
+            if emb_path.exists():
+                logger.info(f"Embedding already exists for {name}, skipping.")
+                continue
+                
+            logger.info(f"Computing reference embedding from wav: {name}")
+            try:
+                audio = await loop.run_in_executor(
+                    None, lambda p=wav_path: librosa.load(str(p), sr=16000)[0]
+                )
+                emb = await identifier._embed(audio)
+                if emb is not None:
+                    await loop.run_in_executor(
+                        None, lambda p=emb_path, t=emb: torch.save(t, str(p))
+                    )
+                    logger.info(f"Saved pre-computed embedding to {emb_path}")
+            except Exception as e:
+                logger.error(f"Failed to compute/save embedding for {name}: {e}")
+
+    asyncio.run(compute_embeddings())
     logger.info("Embeddings successfully pre-computed.")
+
+    # Sync pre-computed embeddings to S3 speaker_embeddings folder
+    logger.info("Syncing pre-computed embeddings to S3...")
+    try:
+        import boto3
+        bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
+        s3 = boto3.client("s3")
+        
+        local_files = sorted(output_dir.glob("*.embedding"))
+        
+        resp = s3.list_objects_v2(Bucket=bucket, Prefix="speaker_embeddings/")
+        contents = resp.get("Contents", [])
+        s3_keys = [obj.get("Key", "") for obj in contents if obj.get("Key", "").endswith(".embedding")]
+        
+        logger.info(f"Local embedding count: {len(local_files)} | S3 embedding count: {len(s3_keys)}")
+        if len(local_files) == len(s3_keys):
+            logger.info("Counts match up. Skipping S3 sync upload.")
+        else:
+            upload_count = 0
+            for emb_path in local_files:
+                filename = emb_path.name
+                key = f"speaker_embeddings/{filename}"
+                logger.info(f"Uploading {filename} to s3://{bucket}/{key}...")
+                s3.upload_file(str(emb_path), bucket, key)
+                upload_count += 1
+            logger.info(f"Successfully synced {upload_count} embedding(s) to S3.")
+    except Exception as e:
+        logger.error(f"Failed to sync embeddings to S3: {e}")
 
 if __name__ == "__main__":
     main()
