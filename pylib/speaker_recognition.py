@@ -224,10 +224,6 @@ class SpeakerRecognitionSession:
         self.identification_history = []
         self.is_stable = False
 
-        # Instantiated recognizers for this session
-        self.audio_recognizer = AudioSpeakerRecognizer(
-            listening_session=self.listening_session
-        )
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
         )
