@@ -26,7 +26,8 @@ for PREFIX in $PREFIXES; do
     mkdir -p "$LOCAL_PATH"
     aws s3 sync "$S3_PATH" "$LOCAL_PATH"
 
-    if [[ "$PREFIX" == *"sample"* ]]; then
+    PREFIX_LOWER=$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')
+    if [[ "$PREFIX_LOWER" != *"mlb"* && "$PREFIX_LOWER" != *"nhl"* && "$PREFIX_LOWER" != *"nba"* ]]; then
         S3_AUDIO_PATH="s3://$BUCKET/$PREFIX/audio/"
         LOCAL_AUDIO_PATH="$LOCAL_DIR/$PREFIX/audio/"
         echo "🔊 Syncing audio for $PREFIX → $LOCAL_AUDIO_PATH"
