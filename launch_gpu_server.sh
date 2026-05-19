@@ -119,6 +119,9 @@ while true; do
     fi
 done
 
+echo "Generating local audio-library..."
+python3 "$LOCAL_DIR/scripts/build_audio_library.py"
+
 echo "[0/5] Checking for existing $ENV instances in $REGION..."
 EXISTING_INSTANCES=$(aws ec2 describe-instances \
     --region "$REGION" \
@@ -222,6 +225,11 @@ ENV_CONTENT=$(cat "$ENV_FILE" | \
     sed "s/^KALSHI_ENV=.*/KALSHI_ENV=$ENV/" | \
     sed "s|^KALSHI_PRIVATE_KEY_PATH=.*|KALSHI_PRIVATE_KEY_PATH=$REMOTE_DIR/private_key.txt|" | \
     sed "s|^KALSHI_BASE_DOMAIN=.*|KALSHI_BASE_DOMAIN=$DOMAIN|")
+
+# Append SSH_PASSWORD from the environment
+if [[ -n "$SSH_PASSWORD" ]]; then
+    ENV_CONTENT="${ENV_CONTENT}"$'\n'"SSH_PASSWORD=${SSH_PASSWORD}"
+fi
 
 
 # --- 2. Assemble and Launch Stack ---
@@ -405,15 +413,5 @@ echo ""
 echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
-
-echo "[4/5] Generating audio-library"
-python3 "$LOCAL_DIR/scripts/build_audio_library.py"
-
-
-echo "[5/5] Syncing audio-library to worker"
-
-rsync -avz \
-    audio-library/ \
-    $REMOTE_USER@$PUBLIC_IP:"$REMOTE_DIR/kalshi/audio-library"
 
 $BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info

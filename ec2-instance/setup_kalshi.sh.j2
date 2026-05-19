@@ -7,6 +7,8 @@ mkdir -p "$HOME_DIR/logs" "$HOME_DIR/debug"
 exec > >(tee -a "$HOME_DIR/logs/setup_trace.log") 2>&1
 echo "Starting setup_kalshi.sh at $(date)"
 
+set -a && source .env && set +a
+
 # Function to log errors before exiting
 error_handler() {
     echo "ERROR: setup_kalshi.sh failed at line $1"
@@ -51,7 +53,6 @@ wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.de
 sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
 rm google-chrome-stable_current_amd64.deb
 
-GITLAB_TOKEN=$(grep GITLAB_TOKEN .env | cut -d'=' -f2)
 if [ -z "$GITLAB_TOKEN" ]; then
     echo "ERROR: GITLAB_TOKEN not found in .env"
     exit 1
@@ -72,6 +73,18 @@ fi
 
 cd kalshi
 cp ../.env .
+
+# install tailscale
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --authkey $TAILSCALE_TOKEN
+sleep 5
+
+# install sshpass and sync audio-library from clyde
+sudo apt-get install -y sshpass
+mkdir -p audio-library
+export SSHPASS="$SSH_PASSWORD"
+sshpass -e rsync -avz -e "ssh -o StrictHostKeyChecking=no" nathan@clyde:/home/nathan/kalshi/audio-library/ audio-library/
+
 
 # Create virtualenv via uv
 uv venv .venv --python 3.10.19
