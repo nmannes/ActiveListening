@@ -358,7 +358,7 @@ class TradingServer:
             import time
             start_time = time.time()
             self.speaker_identifier = SpeakerIdentifier(
-                audio_library_path=audio_samples_dir,
+                audio_library_path=self.config.audio_library_path,
                 device=self.config.device
             )
             await self.speaker_identifier.initialize()
