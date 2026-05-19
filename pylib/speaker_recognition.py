@@ -35,56 +35,6 @@ class BaseSpeakerRecognizer(ABC):
         """
         pass
 
-
-class AudioSpeakerRecognizer(BaseSpeakerRecognizer):
-    """Audio-based speaker recognition using NeMo TitaNet. Currently disabled."""
-    def __init__(self, listening_session, device: str = "cpu"):
-        # import torch
-        # import numpy as np
-        # import nemo.collections.asr.models as nemo_asr
-
-        self.listening_session = listening_session
-        self.device = device
-        self.reference_embeddings = {}
-        self.audio_samples_dir = Path(__file__).parent.parent / "audio-samples"
-        logger.info(
-            f"SpeakerRecognizer initialized (audio disabled). Reference dir: {self.audio_samples_dir}"
-        )
-
-        # # Using TitaNet-L for high accuracy speaker verification
-        # self.model = nemo_asr.EncDecSpeakerLabelModel.from_pretrained(
-        #     model_name="titanet_large"
-        # ).to(device)
-        # self.model.eval()
-
-    # def _get_embedding(self, audio_data):
-    #     import torch
-    #     import numpy as np
-    #     audio_tensor = torch.from_numpy(audio_data).to(self.device).unsqueeze(0)
-    #     audio_len = torch.tensor([audio_tensor.shape[1]]).to(self.device)
-    #     with torch.no_grad():
-    #         _, embedding = self.model.forward(
-    #             input_signal=audio_tensor, input_signal_length=audio_len
-    #         )
-    #     return embedding
-
-    # def load_reference(self, profile_name: str):
-    #     if profile_name in self.reference_embeddings:
-    #         return
-    #     wav_path = self.audio_samples_dir / f"{profile_name}.wav"
-    #     if not wav_path.exists():
-    #         logger.error(f"Reference wav not found for profile '{profile_name}' at {wav_path}")
-    #         return
-    #     logger.info(f"Loading reference embedding for '{profile_name}'...")
-    #     import librosa
-    #     audio, _ = librosa.load(str(wav_path), sr=16000)
-    #     self.reference_embeddings[profile_name] = self._get_embedding(audio)
-
-    async def verify_speaker(self, pcm_data: bytes, profile_name: str) -> float:
-        # Audio verification disabled — use transcript-based inference instead
-        return 0.0
-
-
 class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
     def __init__(self, listening_session, region_name="us-east-1", model_id="us.amazon.nova-lite-v1:0"):
         self.listening_session = listening_session
