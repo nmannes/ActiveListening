@@ -31,16 +31,10 @@ def slugify(name: str) -> str:
 
 def main():
     root_dir = Path(__file__).parent.parent
-    import argparse
-    import sys
-    sys.path.append(str(root_dir))
-    from server import Config
-
-    config = Config(argparse.Namespace())
-
     labels_file = root_dir / "speaker_labels.json"
     speakers_dir = root_dir / "speakers.wav"
-    output_dir = config.audio_library_path
+    output_dir = Path("~/audio-library").expanduser()
+
     if not labels_file.exists():
         logger.error(f"Labels file not found: {labels_file}")
         return
@@ -51,6 +45,47 @@ def main():
         
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Early check: Skip if there are no new matches/identities locally and all synced to S3
+    try:
+        with open(labels_file, "r") as f:
+            labels_data = json.load(f)
+        
+        # Calculate expected unique identities that have audio files
+        expected_slugs = set()
+        for session_id, speaker_map in labels_data.items():
+            for speaker_id, identity in speaker_map.items():
+                if not identity:
+                    continue
+                slug = slugify(identity)
+                wav_filename = f"{session_id}_speaker_{speaker_id}.wav"
+                wav_path = speakers_dir / wav_filename
+                if wav_path.exists():
+                    expected_slugs.add(slug)
+
+        local_files = sorted(output_dir.glob("*.embedding"))
+
+        import boto3
+        bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
+        s3 = boto3.client("s3")
+        resp = s3.list_objects_v2(Bucket=bucket, Prefix="speaker_embeddings/")
+        contents = resp.get("Contents", [])
+        s3_keys = [obj.get("Key", "") for obj in contents if obj.get("Key", "").endswith(".embedding")]
+
+        logger.info(f"Expected: {len(expected_slugs)} | Local embedding count: {len(local_files)} | S3 embedding count: {len(s3_keys)}")
+        if len(expected_slugs) == len(local_files) == len(s3_keys):
+            logger.info("Counts match up. Skipping local speaker library build and S3 sync.")
+            return
+    except Exception as e:
+        logger.warning(f"Failed early check (proceeding with full build/sync): {e}")
+
+    import argparse
+    import sys
+    sys.path.append(str(root_dir))
+    from server import Config
+
+    config = Config(argparse.Namespace())
+    output_dir = config.audio_library_path
     
     with open(labels_file, "r") as f:
         labels_data = json.load(f)
