@@ -15,6 +15,20 @@ for PREFIX in $PREFIXES; do
     S3_PATH="s3://$BUCKET/$PREFIX/deepgram_responses/"
     LOCAL_PATH="$LOCAL_DIR/$PREFIX/deepgram_responses/"
 
+    # Check if we have already synced this prefix locally
+    PREFIX_LOWER=$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')
+    ALREADY_SYNCED=0
+    if [ -d "$LOCAL_PATH" ] && [ "$(ls -A "$LOCAL_PATH" 2>/dev/null)" ]; then
+        if [[ "$PREFIX_LOWER" == *"mlb"* || "$PREFIX_LOWER" == *"nhl"* || "$PREFIX_LOWER" == *"nba"* ]] || { [ -d "$LOCAL_DIR/$PREFIX/audio" ] && [ "$(ls -A "$LOCAL_DIR/$PREFIX/audio" 2>/dev/null)" ]; }; then
+            ALREADY_SYNCED=1
+        fi
+    fi
+
+    if [ "$ALREADY_SYNCED" -eq 1 ]; then
+        echo "⏩ SKIP: Already synced $PREFIX"
+        continue
+    fi
+
     # Check if deepgram_responses exists for this prefix
     FILE_COUNT=$(aws s3 ls "$S3_PATH" 2>/dev/null | wc -l)
     if [ "$FILE_COUNT" -eq 0 ]; then
