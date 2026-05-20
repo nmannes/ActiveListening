@@ -224,17 +224,11 @@ function getNoLiquidity(db, ticker, closeoutTs) {
   }
 }
 
-// ── find most significant market change within ±30s of signal time ────────
-function findMarketChange(db, ticker, signalIso) {
+// ── get NO ask OHLC candles over full market lifetime ──────────────────────
+function getNoAskSeries(db, ticker) {
   try {
-    const sigMs = new Date(signalIso).getTime();
-    const windowMs = 30 * 1000;
-    const windowStart = new Date(sigMs - windowMs).toISOString();
-    const windowEnd = new Date(sigMs + windowMs).toISOString();
-
-    // Get all snapshots up to window end (need full history to reconstruct book)
-    const snapshots = db.query("SELECT ts, no, seq FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
-    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
+    const snapshots = db.query("SELECT ts, no, seq FROM snapshots WHERE ticker = ? ORDER BY ts ASC").all(ticker);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? ORDER BY ts ASC").all(ticker);
 
     const events = [];
     for (const s of snapshots) events.push({ type: 'snapshot', ts: s.ts, no: s.no, seq: s.seq });
@@ -250,8 +244,7 @@ function findMarketChange(db, ticker, signalIso) {
     });
 
     const book = new Map();
-    let prevTotalQty = 0;
-    let bestChange = null; // { ts, absChange, price, totalQty }
+    const raw = [];
 
     for (const e of events) {
       if (e.type === 'snapshot') {
@@ -260,36 +253,263 @@ function findMarketChange(db, ticker, signalIso) {
           const levels = JSON.parse(e.no || "[]");
           for (const [p, q] of levels) book.set(p, q);
         } catch {}
-      } else {
-        if (e.side === 'no') {
-          const cur = book.get(e.price) || 0;
-          const upd = cur + e.delta;
-          if (upd <= 0) book.delete(e.price);
-          else book.set(e.price, upd);
+      } else if (e.side === 'no') {
+        const cur = book.get(e.price) || 0;
+        const upd = cur + e.delta;
+        if (upd <= 0) book.delete(e.price);
+        else book.set(e.price, upd);
+      }
+
+      let bestAsk = null;
+      for (const [p, q] of book.entries()) {
+        if (q > 0 && (bestAsk === null || p < bestAsk)) bestAsk = p;
+      }
+      const t = e.ts.includes('T') ? e.ts : e.ts.replace(' ', 'T');
+      raw.push({ t: new Date(t.endsWith('Z') ? t : t + 'Z').getTime(), v: bestAsk });
+    }
+
+    if (raw.length === 0) return [];
+
+    // Aggregate into OHLC candles (30s buckets)
+    const BUCKET_MS = 30000;
+    const firstTime = raw[0].t;
+    const lastTime = raw[raw.length - 1].t;
+    const firstBucket = Math.floor(firstTime / BUCKET_MS) * BUCKET_MS;
+
+    const candles = [];
+    let prevClose = null;
+    // Seed prevClose from first non-null raw price
+    for (const pt of raw) { if (pt.v !== null) { prevClose = pt.v; break; } }
+    let ri = 0;
+
+    for (let bucketStart = firstBucket; bucketStart <= lastTime + BUCKET_MS; bucketStart += BUCKET_MS) {
+      const bucketEnd = bucketStart + BUCKET_MS;
+      const prices = [];
+
+      while (ri < raw.length && raw[ri].t < bucketStart) {
+        if (raw[ri].v !== null) prevClose = raw[ri].v;
+        ri++;
+      }
+
+      while (ri < raw.length && raw[ri].t < bucketEnd) {
+        prices.push(raw[ri].v);
+        ri++;
+      }
+
+      const open = prevClose;
+      const close = prices.length > 0 ? prices[prices.length - 1] : prevClose;
+      let high = null;
+      let low = null;
+
+      for (const p of prices) {
+        if (p !== null) {
+          high = high === null ? p : Math.max(high, p);
+          low = low === null ? p : Math.min(low, p);
         }
+      }
+
+      // Fill null open/close from first/last non-null price in bucket
+      let o = open, c = close;
+      if (o === null) {
+        for (const p of prices) { if (p !== null) { o = p; break; } }
+      }
+      if (c === null) {
+        for (let i = prices.length - 1; i >= 0; i--) { if (prices[i] !== null) { c = prices[i]; break; } }
+      }
+
+      if (o !== null) { high = high === null ? o : Math.max(high, o); low = low === null ? o : Math.min(low, o); }
+      if (c !== null) { high = high === null ? c : Math.max(high, c); low = low === null ? c : Math.min(low, c); }
+
+      if (high !== null) {
+        candles.push({ x: bucketStart, o: o, h: high, l: low, c: c });
+      }
+
+      prevClose = close;
+      if (ri >= raw.length) break;
+    }
+
+    // Deduplicate consecutive identical candles
+    const deduped = [candles[0]];
+    for (let i = 1; i < candles.length; i++) {
+      const prev = deduped[deduped.length - 1];
+      const cur = candles[i];
+      if (cur.o !== prev.o || cur.h !== prev.h || cur.l !== prev.l || cur.c !== prev.c) {
+        deduped.push(cur);
+      }
+    }
+
+    if (deduped.length > 400) {
+      const step = Math.ceil(deduped.length / 400);
+      return deduped.filter((_, i) => i % step === 0 || i === deduped.length - 1);
+    }
+    return deduped;
+  } catch (e) {
+    return [];
+  }
+}
+
+// ── get YES best bid OHLC candles over full market lifetime ───────────────
+function getYesBidSeries(db, ticker) {
+  try {
+    const snapshots = db.query("SELECT ts, yes, seq FROM snapshots WHERE ticker = ? ORDER BY ts ASC").all(ticker);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? ORDER BY ts ASC").all(ticker);
+
+    const events = [];
+    for (const s of snapshots) events.push({ type: 'snapshot', ts: s.ts, yes: s.yes, seq: s.seq });
+    for (const d of deltas) events.push({ type: 'delta', ts: d.ts, side: d.side, price: d.price, delta: d.delta, seq: d.seq });
+
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime();
+      const tb = new Date(b.ts).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq;
+      if (a.type !== b.type) return a.type === 'snapshot' ? -1 : 1;
+      return 0;
+    });
+
+    const book = new Map();
+    const raw = [];
+
+    for (const e of events) {
+      if (e.type === 'snapshot') {
+        book.clear();
+        try { for (const [p, q] of JSON.parse(e.yes || "[]")) book.set(p, q); } catch {}
+      } else if (e.side === 'yes') {
+        const cur = book.get(e.price) || 0;
+        const upd = cur + e.delta;
+        if (upd <= 0) book.delete(e.price);
+        else book.set(e.price, upd);
+      }
+
+      let bestBid = null;
+      for (const [p, q] of book.entries()) {
+        if (q > 0 && (bestBid === null || p > bestBid)) bestBid = p;
+      }
+      const t = e.ts.includes('T') ? e.ts : e.ts.replace(' ', 'T');
+      raw.push({ t: new Date(t.endsWith('Z') ? t : t + 'Z').getTime(), v: bestBid });
+    }
+
+    if (raw.length === 0) return [];
+
+    const BUCKET_MS = 30000;
+    const firstBucket = Math.floor(raw[0].t / BUCKET_MS) * BUCKET_MS;
+    const lastTime = raw[raw.length - 1].t;
+
+    const candles = [];
+    let prevClose = null;
+    for (const pt of raw) { if (pt.v !== null) { prevClose = pt.v; break; } }
+    let ri = 0;
+
+    for (let bucketStart = firstBucket; bucketStart <= lastTime + BUCKET_MS; bucketStart += BUCKET_MS) {
+      const bucketEnd = bucketStart + BUCKET_MS;
+      const prices = [];
+
+      while (ri < raw.length && raw[ri].t < bucketStart) {
+        if (raw[ri].v !== null) prevClose = raw[ri].v;
+        ri++;
+      }
+      while (ri < raw.length && raw[ri].t < bucketEnd) {
+        prices.push(raw[ri].v);
+        ri++;
+      }
+
+      const close = prices.length > 0 ? prices[prices.length - 1] : prevClose;
+      let high = null, low = null;
+      for (const p of prices) {
+        if (p !== null) { high = high === null ? p : Math.max(high, p); low = low === null ? p : Math.min(low, p); }
+      }
+      let o = prevClose, c = close;
+      if (o === null) { for (const p of prices) { if (p !== null) { o = p; break; } } }
+      if (c === null) { for (let i = prices.length-1; i >= 0; i--) { if (prices[i] !== null) { c = prices[i]; break; } } }
+      if (o !== null) { high = high === null ? o : Math.max(high, o); low = low === null ? o : Math.min(low, o); }
+      if (c !== null) { high = high === null ? c : Math.max(high, c); low = low === null ? c : Math.min(low, c); }
+
+      if (high !== null) candles.push({ x: bucketStart, o: o, h: high, l: low, c: c });
+      prevClose = close;
+      if (ri >= raw.length) break;
+    }
+
+    const deduped = [candles[0]];
+    for (let i = 1; i < candles.length; i++) {
+      const prev = deduped[deduped.length - 1];
+      const cur = candles[i];
+      if (cur.o !== prev.o || cur.h !== prev.h || cur.l !== prev.l || cur.c !== prev.c) deduped.push(cur);
+    }
+    if (deduped.length > 400) {
+      const step = Math.ceil(deduped.length / 400);
+      return deduped.filter((_, i) => i % step === 0 || i === deduped.length - 1);
+    }
+    return deduped;
+  } catch (e) {
+    return [];
+  }
+}
+
+// ── find most significant market change within ±30s of signal ─────────────
+// Scans both YES and NO sides. Returns { ts, absChange, price, totalQty, side }
+function findMarketChange(db, ticker, signalIso) {
+  try {
+    const sigMs = new Date(signalIso).getTime();
+    const windowMs = 30 * 1000;
+    const windowEnd = new Date(sigMs + windowMs).toISOString();
+
+    const snapshots = db.query("SELECT ts, yes, no, seq FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
+
+    const events = [];
+    for (const s of snapshots) events.push({ type: 'snapshot', ts: s.ts, yes: s.yes, no: s.no, seq: s.seq });
+    for (const d of deltas) events.push({ type: 'delta', ts: d.ts, side: d.side, price: d.price, delta: d.delta, seq: d.seq });
+
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime();
+      const tb = new Date(b.ts).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq;
+      if (a.type !== b.type) return a.type === 'snapshot' ? -1 : 1;
+      return 0;
+    });
+
+    const noBook = new Map();
+    const yesBook = new Map();
+    let prevTotalQty = 0;
+    let bestChange = null;
+
+    for (const e of events) {
+      if (e.type === 'snapshot') {
+        noBook.clear(); yesBook.clear();
+        try { for (const [p, q] of JSON.parse(e.no || "[]")) noBook.set(p, q); } catch {}
+        try { for (const [p, q] of JSON.parse(e.yes || "[]")) yesBook.set(p, q); } catch {}
+      } else {
+        const book = e.side === 'yes' ? yesBook : noBook;
+        const cur = book.get(e.price) || 0;
+        const upd = cur + e.delta;
+        if (upd <= 0) book.delete(e.price);
+        else book.set(e.price, upd);
       }
 
       const eMs = new Date(e.ts).getTime();
 
-      // Only score events inside the ±30s window
-      if (eMs >= sigMs - windowMs && eMs <= sigMs + windowMs && e.type === 'delta' && e.side === 'no') {
+      if (eMs >= sigMs - windowMs && eMs <= sigMs + windowMs && e.type === 'delta') {
+        // Compute total quantity across both books
         let totalQty = 0;
-        let bestPrice = null;
-        for (const [p, q] of book.entries()) {
-          if (q > 0) {
-            totalQty += q;
-            if (bestPrice === null || p < bestPrice) bestPrice = p;
-          }
+        let bestNoAsk = null, bestYesBid = null;
+        for (const [p, q] of noBook.entries()) {
+          if (q > 0) { totalQty += q; if (bestNoAsk === null || p < bestNoAsk) bestNoAsk = p; }
+        }
+        for (const [p, q] of yesBook.entries()) {
+          if (q > 0) { totalQty += q; if (bestYesBid === null || p > bestYesBid) bestYesBid = p; }
         }
         const absChange = Math.abs(totalQty - prevTotalQty);
         if (!bestChange || absChange > bestChange.absChange) {
-          bestChange = { ts: e.ts, absChange, price: bestPrice, totalQty };
+          const side = e.side;
+          const price = side === 'yes' ? bestYesBid : bestNoAsk;
+          bestChange = { ts: e.ts, absChange, price, totalQty, side };
         }
         prevTotalQty = totalQty;
       } else {
-        // Update running total for events outside window
         let totalQty = 0;
-        for (const [, q] of book.entries()) { if (q > 0) totalQty += q; }
+        for (const [, q] of noBook.entries()) { if (q > 0) totalQty += q; }
+        for (const [, q] of yesBook.entries()) { if (q > 0) totalQty += q; }
         prevTotalQty = totalQty;
       }
     }
@@ -297,6 +517,31 @@ function findMarketChange(db, ticker, signalIso) {
   } catch (e) {
     return null;
   }
+}
+
+// ── get best YES bid at specific ISO timestamp ──────────────────────────────
+function getYesPriceAt(db, ticker, ts) {
+  try {
+    const snapshots = db.query("SELECT ts, yes, seq FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, ts);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, ts);
+    const events = [];
+    for (const s of snapshots) events.push({ type: 'snapshot', ts: s.ts, yes: s.yes, seq: s.seq });
+    for (const d of deltas) events.push({ type: 'delta', ts: d.ts, side: d.side, price: d.price, delta: d.delta, seq: d.seq });
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime(), tb = new Date(b.ts).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.seq !== undefined && b.seq !== undefined) return a.seq - b.seq;
+      return a.type === 'snapshot' ? -1 : 1;
+    });
+    const book = new Map();
+    for (const e of events) {
+      if (e.type === 'snapshot') { book.clear(); try { for (const [p,q] of JSON.parse(e.yes||'[]')) book.set(p,q); } catch {} }
+      else if (e.side === 'yes') { const cur = book.get(e.price)||0; const upd = cur+e.delta; if (upd<=0) book.delete(e.price); else book.set(e.price, upd); }
+    }
+    let best = null;
+    for (const [p,q] of book.entries()) { if (q>0 && (best===null || p>best)) best = p; }
+    return best;
+  } catch { return null; }
 }
 
 // ── get best NO price at specific ISO timestamp ─────────────────────────────
@@ -435,10 +680,11 @@ function main() {
   const mediaSources = parseMediaSources();
   console.log(`Loaded ${mediaSources.size} media source mappings from schedule_run.log\n`);
 
-  const formatPriceChange = (s, c) => {
+  const formatPriceChange = (s, c, side) => {
     if (s === null || s === undefined) return "n/a";
     const cStr = c !== null && c !== undefined ? `${c}c` : "PENDING";
-    return `${s}c -> ${cStr}`;
+    const label = side === 'yes' ? '(Y)' : side === 'no' ? '(N)' : '';
+    return `${s}c${label} → ${cStr}`;
   };
 
   // DB cache
@@ -554,10 +800,16 @@ function main() {
       let windowStartPrice = null;
       let windowEndPrice = null;
 
+      let changeSide = "—";
       if (db && matchedTicker) {
         signalPrice = getNoPriceAt(db, matchedTicker, signalIso);
         if (mktChange) {
           changePrice = mktChange.price;
+          changeSide = mktChange.side || "no";
+          // If change was on YES side, also get YES signal price for context
+          if (changeSide === 'yes') {
+            signalPrice = getYesPriceAt(db, matchedTicker, signalIso);
+          }
         }
         const thirtySecMs = 30 * 1000;
         windowStartPrice = getNoPriceAt(db, matchedTicker, new Date(signalTime.getTime() - thirtySecMs).toISOString());
@@ -577,14 +829,19 @@ function main() {
         mktChangeQty: mktChange ? mktChange.absChange : 0,
         deltaMs: deltaMs,
         status: status,
-        volume: (db && matchedTicker) ? getNoLiquidity(db, matchedTicker, mktChangeTs || undefined) : [],
+        changeSide,
+        noAskSeries: (db && matchedTicker) ? getNoAskSeries(db, matchedTicker) : [],
+        yesBidSeries: (db && matchedTicker) ? getYesBidSeries(db, matchedTicker) : [],
         signalPrice,
         changePrice,
         windowStartPrice,
-        windowEndPrice
+        windowEndPrice,
+        deltaCount: 0
       });
       if (db && matchedTicker) {
         stats.matched++;
+        const dc = db.query("SELECT COUNT(*) as c FROM deltas WHERE ticker = ?").get(matchedTicker);
+        results[results.length - 1].deltaCount = dc ? dc.c : 0;
       }
     }
   }
@@ -602,6 +859,7 @@ function main() {
     price_change: 14,
     window_change: 15,
     qty_change: 8,
+    book_delta: 8,
     delta: 12,
     status: 10,
   };
@@ -616,11 +874,12 @@ function main() {
       "Price Chg".padEnd(col.price_change),
       "Window (±30s)".padEnd(col.window_change),
       "Qty Δ".padEnd(col.qty_change),
+      "Book Δ".padEnd(col.book_delta),
       "Delta".padEnd(col.delta),
       "Status".padEnd(col.status),
     ].join(" | ")
   );
-  console.log("-".repeat(195));
+  console.log("-".repeat(205));
 
   for (const r of results) {
     const suffix = r.ticker ? r.ticker.split("-").pop() : "???";
@@ -632,9 +891,10 @@ function main() {
           suffix.padEnd(col.ticker_suffix),
           r.signalTs.padEnd(col.signal),
           (r.mktChangeTs === "—" ? "—" : r.mktChangeTs.slice(0, 26)).padEnd(col.mkt_change),
-          formatPriceChange(r.signalPrice, r.changePrice).padEnd(col.price_change),
+          formatPriceChange(r.signalPrice, r.changePrice, r.changeSide).padEnd(col.price_change),
           formatPriceChange(r.windowStartPrice, r.windowEndPrice).padEnd(col.window_change),
           String(r.mktChangeQty).padEnd(col.qty_change),
+          String(r.deltaCount).padEnd(col.book_delta),
           formatDelta(r.deltaMs).padEnd(col.delta),
           r.status.padEnd(col.status),
         ].join(" | ")
@@ -691,7 +951,8 @@ function main() {
 <title>Signal vs Market Change</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
@@ -750,8 +1011,13 @@ function main() {
 
 <div id="chart-container">
   <div class="chart-header">
-    <div class="chart-title" id="chart-title">Market Liquidity</div>
-    <div id="chart-subtitle" style="color: #8b949e">Total NO Shares</div>
+    <div>
+      <div class="chart-title" id="chart-title">Market Liquidity</div>
+      <div id="chart-subtitle" style="color: #8b949e">NO Best Ask — full market lifetime</div>
+    </div>
+    <div>
+      <button id="chart-toggle-no" style="background:#f85149;color:#fff;border:none;border-radius:4px 0 0 4px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:700">NO</button><button id="chart-toggle-yes" style="background:#161b22;color:#8b949e;border:1px solid #30363d;border-radius:0 4px 4px 0;padding:4px 10px;font-size:11px;cursor:pointer">YES</button>
+    </div>
   </div>
   <canvas id="volChart"></canvas>
 </div>
@@ -787,9 +1053,10 @@ function main() {
     <th data-col="6">Price Chg</th>
     <th data-col="7">Window (±30s)</th>
     <th data-col="8">Qty Δ</th>
-    <th data-col="9">Delta (cs)</th>
-    <th data-col="10">Human</th>
-    <th data-col="11">Status</th>
+    <th data-col="9">Book Δ</th>
+    <th data-col="10">Delta (cs)</th>
+    <th data-col="11">Human</th>
+    <th data-col="12">Status</th>
   </tr>
 </thead>
 <tbody id="tbody">
@@ -801,8 +1068,9 @@ function main() {
     const csSign = r.deltaMs !== null ? (r.deltaMs >= 0 ? "+" : "") : "";
     const cls = r.status.toLowerCase();
     
-    // Serialize volume data for the row
-    const volData = JSON.stringify(r.volume);
+    // Serialize NO ask and YES bid data for the row
+    const noAskData = JSON.stringify(r.noAskSeries);
+    const yesBidData = JSON.stringify(r.yesBidSeries);
     const humanDelta = r.status === "NO_CHANGE" ? "—" : formatDeltaHuman(r.deltaMs);
     
     const mktChangeStr = r.mktChangeTs === "—" ? "—" : r.mktChangeTs.slice(0, 26);
@@ -810,13 +1078,13 @@ function main() {
     
     // Sorting values
     const deltaSortVal = r.deltaMs !== null ? r.deltaMs : 999999999999;
-    const priceChangeStr = formatPriceChange(r.signalPrice, r.changePrice);
+    const priceChangeStr = formatPriceChange(r.signalPrice, r.changePrice, r.changeSide);
     const priceDiff = (r.signalPrice !== null && r.changePrice !== null) ? (r.signalPrice - r.changePrice) : -999;
     const windowChangeStr = formatPriceChange(r.windowStartPrice, r.windowEndPrice);
     const windowDiff = (r.windowStartPrice !== null && r.windowEndPrice !== null) ? (r.windowStartPrice - r.windowEndPrice) : -999;
 
-    html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}" 
-                data-vol='${volData}' data-signal="${r.signalIso}" data-closeout="${r.mktChangeTs}"
+    html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}"
+                data-noask='${noAskData}' data-yes='${yesBidData}' data-signal="${r.signalIso}" data-closeout="${r.mktChangeTs}"
                 data-human="${escH(humanDelta)}">
   <td class="thumb-cell"><span class="thumb-icon">📈</span></td>
   <td class="session-info" title="${escH(r.session)}">
@@ -830,6 +1098,7 @@ function main() {
   <td data-time="${priceDiff}" style="color: #c9d1d9">${escH(priceChangeStr)}</td>
   <td data-time="${windowDiff}" style="color: #c9d1d9">${escH(windowChangeStr)}</td>
   <td data-time="${r.mktChangeQty}" style="color: #d2a8ff">${r.mktChangeQty || '—'}</td>
+  <td data-time="${r.deltaCount}" style="color: ${r.deltaCount === 0 ? '#484f58' : r.deltaCount < 10 ? '#d29922' : r.deltaCount < 100 ? '#c9d1d9' : '#3fb950'}">${r.deltaCount}</td>
   <td class="delta" data-time="${deltaSortVal}"><span class="delta-val ${cls}">${csSign}${cs}</span></td>
   <td class="delta ${cls}" data-time="${deltaSortVal}">${humanDelta}</td>
   <td class="${cls}">${r.status}</td>
@@ -865,138 +1134,115 @@ function applyFilters() {
 filter.addEventListener('input', applyFilters);
 statusFilter.addEventListener('change', applyFilters);
 
-// Tooltip Chart Logic
-for (const row of rows) {
-  row.addEventListener('mouseenter', (e) => {
-    const vol = JSON.parse(row.dataset.vol || '[]');
-    if (vol.length === 0) {
-      chartContainer.style.display = 'none';
-      return;
-    }
-    
-    const sig = row.dataset.signal;
-    const clo = row.dataset.closeout;
-    const word = row.dataset.word;
-    const human = row.dataset.human;
-    const status = row.dataset.status;
-    
-    // Find when liquidity drops to 0
-    const zeroPoint = vol.find(d => d.v === 0);
-    const zeroTs = zeroPoint ? zeroPoint.t : null;
-    const zeroTime = zeroTs ? new Date(zeroTs).getTime() : null;
-    
-    chartTitle.innerText = "NO Liquidity: " + word;
-    const sub = document.getElementById('chart-subtitle');
-    sub.innerText = "Lead/Lag: " + human;
-    sub.style.color = status === 'BEFORE' ? '#3fb950' : '#f85149';
-    
-    chartContainer.style.display = 'block';
-    
-    // Position modal near mouse
-    const move = (ev) => {
-      // Offset more to the right/down to avoid flicker
-      chartContainer.style.left = (ev.clientX + 30) + 'px';
-      chartContainer.style.top = (ev.clientY - 250) + 'px';
-    };
-    move(e);
-    row.onmousemove = move;
-    
-    const existingChart = Chart.getChart(ctx);
-    if (existingChart) existingChart.destroy();
-    
-    // Find closest indices for markers
-    const sigTime = new Date(sig).getTime();
-    const cloTime = new Date(clo).getTime();
-    
-    const annotations = {};
-    if (!isNaN(sigTime)) {
-      annotations.signalLine = {
-        type: 'line',
-        xMin: sigTime,
-        xMax: sigTime,
-        borderColor: '#3fb950',
-        borderWidth: 2,
-        label: {
-          display: true,
-          content: 'SIGNAL',
-          position: 'start',
-          backgroundColor: '#3fb950',
-          color: '#fff',
-          font: { size: 10 }
-        }
-      };
-    }
-    if (zeroTime && !isNaN(zeroTime)) {
-      annotations.zeroLine = {
-        type: 'line',
-        xMin: zeroTime,
-        xMax: zeroTime,
-        borderColor: '#ff7b72',
-        borderWidth: 3,
-        label: {
-          display: true,
-          content: 'ZERO LIQ',
-          position: 'center',
-          backgroundColor: '#ff7b72',
-          color: '#fff',
-          font: { size: 10, weight: 'bold' }
-        }
-      };
-    }
+	// Chart state
+	let currentSide = 'no';
+	let currentRow = null;
+	const toggleNo = document.getElementById('chart-toggle-no');
+	const toggleYes = document.getElementById('chart-toggle-yes');
 
-    myChart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        datasets: [{
-          label: 'Total NO Shares',
-          data: vol.map(d => ({ x: d.t, y: d.v })),
-          borderColor: '#d2a8ff',
-          backgroundColor: 'rgba(210, 168, 255, 0.1)',
-          fill: true,
-          pointRadius: 0,
-          borderWidth: 2,
-          tension: 0.1
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { 
-          legend: { display: false },
-          tooltip: { enabled: true },
-          annotation: {
-            annotations: annotations
-          }
-        },
-        scales: {
-          x: { 
-            display: true, 
-            type: 'time',
-            time: {
-              unit: 'minute',
-              stepSize: 5,
-              displayFormats: {
-                minute: 'HH:mm'
-              }
-            },
-            grid: { color: '#30363d', borderDash: [2, 2] },
-            ticks: { color: '#8b949e', font: { size: 9 } }
-          },
-          y: { 
-            display: true, 
-            grid: { color: '#30363d' },
-            ticks: { color: '#8b949e', font: { size: 9 } }
-          }
-        }
-      }
-    });
-  });
-  
-  row.addEventListener('mouseleave', () => {
-    chartContainer.style.display = 'none';
-    row.onmousemove = null;
-  });
-}
+	function buildAnnotations(sigTime) {
+	  const annotations = {};
+	  if (!isNaN(sigTime)) {
+	    const ws = sigTime - 120000;
+	    const we = sigTime + 120000;
+	    annotations.signalLine = {
+	      type: 'line', xMin: sigTime, xMax: sigTime,
+	      borderColor: '#3fb950', borderWidth: 2,
+	      label: { display: true, content: 'SIGNAL', position: 'start',
+	               backgroundColor: '#3fb950', color: '#fff', font: { size: 10 } }
+	    };
+	    annotations.windowBox = {
+	      type: 'box', xMin: ws, xMax: we,
+	      backgroundColor: 'rgba(88, 166, 255, 0.06)',
+	      borderColor: 'rgba(88, 166, 255, 0.2)', borderWidth: 0,
+	      label: { display: true, content: '±2m window', position: 'start',
+	               color: '#58a6ff', font: { size: 9 } }
+	    };
+	  }
+	  return annotations;
+	}
+
+	function drawChart() {
+	  if (!currentRow) return;
+	  const existingChart = Chart.getChart(ctx);
+	  if (existingChart) existingChart.destroy();
+
+	  const side = currentSide;
+	  const attr = side === 'no' ? 'noask' : 'yes';
+	  const data = JSON.parse(currentRow.dataset[attr] || '[]');
+	  if (data.length === 0) { chartContainer.style.display = 'none'; return; }
+
+	  const sigTime = new Date(currentRow.dataset.signal).getTime();
+	  const windowStart = sigTime - 120000;
+	  const windowEnd = sigTime + 120000;
+	  const times = data.map(d => d.x);
+	  const xMin = Math.min(...times, windowStart);
+	  const xMax = Math.max(...times, windowEnd);
+
+	  const isNo = side === 'no';
+	  const label = isNo ? 'NO Best Ask' : 'YES Best Bid';
+	  const color = isNo ? '#f85149' : '#3fb950';
+
+	  chartTitle.innerText = label + ': ' + currentRow.dataset.word;
+	  const sub = document.getElementById('chart-subtitle');
+	  sub.innerText = 'Lead/Lag: ' + currentRow.dataset.human;
+	  sub.style.color = currentRow.dataset.status === 'BEFORE' ? '#3fb950' : '#f85149';
+
+	  toggleNo.style.background = isNo ? '#f85149' : '#161b22';
+	  toggleNo.style.color = '#fff';
+	  toggleNo.style.fontWeight = isNo ? '700' : '400';
+	  toggleYes.style.background = isNo ? '#161b22' : '#3fb950';
+	  toggleYes.style.color = '#fff';
+	  toggleYes.style.fontWeight = isNo ? '400' : '700';
+
+	  myChart = new Chart(ctx, {
+	    type: 'candlestick',
+	    data: { datasets: [{ label: label, data: data, borderColor: color, backgroundColor: color }] },
+	    options: {
+	      responsive: true, maintainAspectRatio: false,
+	      plugins: { legend: { display: false }, tooltip: { enabled: true },
+	                 annotation: { annotations: buildAnnotations(sigTime) } },
+	      elements: { candlestick: { upColor: '#3fb950', upBorderColor: '#3fb950',
+	                                 downColor: '#f85149', downBorderColor: '#f85149',
+	                                 borderWidth: 0.5, bodyWidth: 12 } },
+	      scales: {
+	        x: { display: true, type: 'time', min: xMin, max: xMax,
+	             time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+	             grid: { color: '#30363d', borderDash: [2, 2] },
+	             ticks: { color: '#8b949e', font: { size: 9 } } },
+	        y: { display: true, min: 1, max: 99, grid: { color: '#30363d' },
+	             ticks: { color: '#8b949e', font: { size: 9 },
+	                      callback: (v) => v !== null ? v + 'c' : '' },
+	             title: { display: true, text: isNo ? 'NO Ask (cents)' : 'YES Bid (cents)',
+	                      color: '#8b949e', font: { size: 10 } } }
+	      }
+	    }
+	  });
+	}
+
+	toggleNo.addEventListener('click', () => { currentSide = 'no'; drawChart(); });
+	toggleYes.addEventListener('click', () => { currentSide = 'yes'; drawChart(); });
+
+	// Tooltip Chart Logic
+	for (const row of rows) {
+	  row.addEventListener('mouseenter', (e) => {
+	    currentRow = row;
+	    chartContainer.style.display = 'block';
+	    const move = (ev) => {
+	      chartContainer.style.left = (ev.clientX + 30) + 'px';
+	      chartContainer.style.top = (ev.clientY - 250) + 'px';
+	    };
+	    move(e);
+	    row.onmousemove = move;
+	    drawChart();
+	  });
+
+	  row.addEventListener('mouseleave', () => {
+	    chartContainer.style.display = 'none';
+	    row.onmousemove = null;
+	    currentRow = null;
+	  });
+	}
 
 function sortColumn(th, asc) {
   const col = parseInt(th.dataset.col);
