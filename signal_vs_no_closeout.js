@@ -224,38 +224,138 @@ function getNoLiquidity(db, ticker, closeoutTs) {
   }
 }
 
-// ── find NO closeout time (first time price hits 1/99 or liq hits 0) ────────
-function findNoCloseout(db, ticker) {
+// ── find most significant market change within ±30s of signal time ────────
+function findMarketChange(db, ticker, signalIso) {
   try {
-    // 1. Get initial NO total
-    const initialRow = db.query("SELECT no FROM snapshots WHERE ticker = ? ORDER BY ts ASC LIMIT 1").get(ticker);
-    let runningTotal = 0;
-    if (initialRow) {
-      const levels = JSON.parse(initialRow.no || "[]");
-      for (const [p, q] of levels) runningTotal += q;
-    }
+    const sigMs = new Date(signalIso).getTime();
+    const windowMs = 30 * 1000;
+    const windowStart = new Date(sigMs - windowMs).toISOString();
+    const windowEnd = new Date(sigMs + windowMs).toISOString();
 
-    // 2. Scan deltas for the moment it hits 0
-    const deltas = db.query(`
-      SELECT ts, delta, price, side 
-      FROM deltas 
-      WHERE ticker = ? 
-      ORDER BY ts ASC
-    `).all(ticker);
+    // Get all snapshots up to window end (need full history to reconstruct book)
+    const snapshots = db.query("SELECT ts, no, seq FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, windowEnd);
 
-    if (runningTotal === 0 && initialRow) return initialRow.ts;
+    const events = [];
+    for (const s of snapshots) events.push({ type: 'snapshot', ts: s.ts, no: s.no, seq: s.seq });
+    for (const d of deltas) events.push({ type: 'delta', ts: d.ts, side: d.side, price: d.price, delta: d.delta, seq: d.seq });
 
-    for (const d of deltas) {
-      if (d.side === 'no') {
-        runningTotal += d.delta;
-        if (runningTotal <= 0) return d.ts;
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime();
+      const tb = new Date(b.ts).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq;
+      if (a.type !== b.type) return a.type === 'snapshot' ? -1 : 1;
+      return 0;
+    });
+
+    const book = new Map();
+    let prevTotalQty = 0;
+    let bestChange = null; // { ts, absChange, price, totalQty }
+
+    for (const e of events) {
+      if (e.type === 'snapshot') {
+        book.clear();
+        try {
+          const levels = JSON.parse(e.no || "[]");
+          for (const [p, q] of levels) book.set(p, q);
+        } catch {}
+      } else {
+        if (e.side === 'no') {
+          const cur = book.get(e.price) || 0;
+          const upd = cur + e.delta;
+          if (upd <= 0) book.delete(e.price);
+          else book.set(e.price, upd);
+        }
+      }
+
+      const eMs = new Date(e.ts).getTime();
+
+      // Only score events inside the ±30s window
+      if (eMs >= sigMs - windowMs && eMs <= sigMs + windowMs && e.type === 'delta' && e.side === 'no') {
+        let totalQty = 0;
+        let bestPrice = null;
+        for (const [p, q] of book.entries()) {
+          if (q > 0) {
+            totalQty += q;
+            if (bestPrice === null || p < bestPrice) bestPrice = p;
+          }
+        }
+        const absChange = Math.abs(totalQty - prevTotalQty);
+        if (!bestChange || absChange > bestChange.absChange) {
+          bestChange = { ts: e.ts, absChange, price: bestPrice, totalQty };
+        }
+        prevTotalQty = totalQty;
+      } else {
+        // Update running total for events outside window
+        let totalQty = 0;
+        for (const [, q] of book.entries()) { if (q > 0) totalQty += q; }
+        prevTotalQty = totalQty;
       }
     }
-    return null;
+    return bestChange;
   } catch (e) {
     return null;
   }
 }
+
+// ── get best NO price at specific ISO timestamp ─────────────────────────────
+function getNoPriceAt(db, ticker, ts) {
+  try {
+    const snapshots = db.query("SELECT ts, no, seq FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, ts);
+    const deltas = db.query("SELECT ts, side, price, delta, seq FROM deltas WHERE ticker = ? AND ts <= ? ORDER BY ts ASC").all(ticker, ts);
+
+    const events = [];
+    for (const s of snapshots) {
+      events.push({ type: 'snapshot', ts: s.ts, no: s.no, seq: s.seq });
+    }
+    for (const d of deltas) {
+      events.push({ type: 'delta', ts: d.ts, side: d.side, price: d.price, delta: d.delta, seq: d.seq });
+    }
+
+    events.sort((a, b) => {
+      const ta = new Date(a.ts).getTime();
+      const tb = new Date(b.ts).getTime();
+      if (ta !== tb) return ta - tb;
+      if (a.seq !== undefined && b.seq !== undefined && a.seq !== b.seq) return a.seq - b.seq;
+      if (a.type !== b.type) return a.type === 'snapshot' ? -1 : 1;
+      return 0;
+    });
+
+    const book = new Map();
+    for (const e of events) {
+      if (e.type === 'snapshot') {
+        book.clear();
+        try {
+          const levels = JSON.parse(e.no || "[]");
+          for (const [p, q] of levels) {
+            book.set(p, q);
+          }
+        } catch {}
+      } else {
+        if (e.side === 'no') {
+          const cur = book.get(e.price) || 0;
+          const upd = cur + e.delta;
+          if (upd <= 0) book.delete(e.price);
+          else book.set(e.price, upd);
+        }
+      }
+    }
+
+    let bestPrice = null;
+    for (const [p, q] of book.entries()) {
+      if (q > 0) {
+        if (bestPrice === null || p < bestPrice) {
+          bestPrice = p;
+        }
+      }
+    }
+    return bestPrice;
+  } catch (e) {
+    return null;
+  }
+}
+
 
 // ── parse ISO timestamp from DB ─────────────────────────────────────────────
 function parseDbTs(ts) {
@@ -310,12 +410,14 @@ function getMarketStartTime(db, ticker) {
 
 // ── format ms delta in hundredths of a second ──────────────────────────────
 function formatDelta(ms) {
+  if (ms === null || ms === undefined) return "n/a";
   const cs = ms / 10; // centiseconds (hundredths of a second)
   const sign = cs < 0 ? "-" : "+";
   return `${sign}${Math.abs(cs).toFixed(0)}`;
 }
 
 function formatDeltaHuman(ms) {
+  if (ms === null || ms === undefined) return "n/a";
   const abs = Math.abs(ms);
   const sign = ms < 0 ? "-" : "+";
   if (abs < 1000) return `${sign}${abs.toFixed(0)}ms`;
@@ -332,6 +434,12 @@ function main() {
 
   const mediaSources = parseMediaSources();
   console.log(`Loaded ${mediaSources.size} media source mappings from schedule_run.log\n`);
+
+  const formatPriceChange = (s, c) => {
+    if (s === null || s === undefined) return "n/a";
+    const cStr = c !== null && c !== undefined ? `${c}c` : "PENDING";
+    return `${s}c -> ${cStr}`;
+  };
 
   // DB cache
   const dbCache = new Map();
@@ -372,7 +480,6 @@ function main() {
   const stats = {
     noDb: 0,
     noTicker: new Set(),
-    noCloseout: new Set(),
     matched: 0,
   };
 
@@ -399,35 +506,19 @@ function main() {
     const session = firstSig.resolvedSession;
 
     const db = getDb(session);
-    if (!db) {
-      stats.noDb++;
-      continue;
+    let tickers = [];
+    let matchedTicker = null;
+    if (db) {
+      tickers = getTickers(db, session);
+      if (tickers.length > 0) {
+        matchedTicker = fuzzyMatchTicker(firstSig.word, tickers);
+      }
     }
 
-    const tickers = getTickers(db, session);
-    if (tickers.length === 0) {
+    if (!db || tickers.length === 0) {
       stats.noDb++;
-      continue;
-    }
-
-    const matchedTicker = fuzzyMatchTicker(firstSig.word, tickers);
-    if (!matchedTicker) {
+    } else if (!matchedTicker) {
       stats.noTicker.add(`${session}:${firstSig.word}`);
-      continue;
-    }
-
-    const closeoutTs = findNoCloseout(db, matchedTicker);
-    const closeoutTime = closeoutTs ? parseDbTs(closeoutTs) : null;
-    
-    if (!closeoutTs) {
-      stats.noCloseout.add(`${session}:${firstSig.word}`);
-      // Don't continue; we want to see live signals too
-    }
-
-    const startTs = getMarketStartTime(db, matchedTicker);
-    let sessionDurationMs = null;
-    if (startTs && closeoutTime) {
-      sessionDurationMs = closeoutTime.getTime() - parseDbTs(startTs).getTime();
     }
 
     // Output every unique detection
@@ -440,26 +531,61 @@ function main() {
 
     for (const sig of uniqueSigs.values()) {
       const signalTime = parseSignalTs(sig.timestamp, sig.tz);
-      const deltaMs = closeoutTime ? closeoutTime.getTime() - signalTime.getTime() : null;
-      
-      if (deltaMs !== null && Math.abs(deltaMs) > 7 * 24 * 3600000) continue; // 7 days max for a match
-      
+      const signalIso = signalTime.toISOString();
+
+      // Find most significant market change within ±30s of this signal
+      const mktChange = (db && matchedTicker) ? findMarketChange(db, matchedTicker, signalIso) : null;
+      const mktChangeTs = mktChange ? mktChange.ts : null;
+      const mktChangeTime = mktChangeTs ? parseDbTs(mktChangeTs) : null;
+
+      let deltaMs = null;
+      let status = "NO_CHANGE";
+      let mktChangeVal = "—";
+
+      if (mktChangeTime) {
+        deltaMs = mktChangeTime.getTime() - signalTime.getTime();
+        status = deltaMs > 0 ? "BEFORE" : "AFTER";
+        mktChangeVal = mktChangeTs;
+      }
+
+      // Price at signal time and at market change time
+      let signalPrice = null;
+      let changePrice = null;
+      let windowStartPrice = null;
+      let windowEndPrice = null;
+
+      if (db && matchedTicker) {
+        signalPrice = getNoPriceAt(db, matchedTicker, signalIso);
+        if (mktChange) {
+          changePrice = mktChange.price;
+        }
+        const thirtySecMs = 30 * 1000;
+        windowStartPrice = getNoPriceAt(db, matchedTicker, new Date(signalTime.getTime() - thirtySecMs).toISOString());
+        windowEndPrice = getNoPriceAt(db, matchedTicker, new Date(signalTime.getTime() + thirtySecMs).toISOString());
+      }
+
       results.push({
         session,
         title: slugToTitle.get(session.toLowerCase()) || session,
         mediaSource: mediaSources.get(session) || (session === 'remote' ? 'REMOTE' : session.split('-')[0]),
         word: sig.word,
         target: sig.target,
-        ticker: matchedTicker,
+        ticker: matchedTicker || "",
         signalTs: sig.timestamp,
-        signalIso: signalTime.toISOString(),
-        closeoutTs: closeoutTs || (now - signalTime > 7 * 24 * 3600000 ? "EXPIRED" : "LIVE"),
+        signalIso: signalIso,
+        mktChangeTs: mktChangeVal,
+        mktChangeQty: mktChange ? mktChange.absChange : 0,
         deltaMs: deltaMs,
-        sessionDurationMs,
-        status: deltaMs === null ? (now - signalTime > 7 * 24 * 3600000 ? "EXPIRED" : "LIVE") : (deltaMs > 0 ? "BEFORE" : "AFTER"),
-        volume: getNoLiquidity(db, matchedTicker, closeoutTs || undefined)
+        status: status,
+        volume: (db && matchedTicker) ? getNoLiquidity(db, matchedTicker, mktChangeTs || undefined) : [],
+        signalPrice,
+        changePrice,
+        windowStartPrice,
+        windowEndPrice
       });
-      stats.matched++;
+      if (db && matchedTicker) {
+        stats.matched++;
+      }
     }
   }
 
@@ -471,13 +597,16 @@ function main() {
 
   // Print table
   const col = {
-    title: 45,
-    word: 22,
-    ticker_suffix: 6,
+    title: 35,
+    word: 15,
+    ticker_suffix: 5,
     signal: 23,
-    closeout: 28,
+    mkt_change: 28,
+    price_change: 14,
+    window_change: 15,
+    qty_change: 8,
     delta: 12,
-    status: 7,
+    status: 10,
   };
 
   console.log(
@@ -486,15 +615,18 @@ function main() {
       "Word".padEnd(col.word),
       "Sfx".padEnd(col.ticker_suffix),
       "Signal Time".padEnd(col.signal),
-      "NO Closeout".padEnd(col.closeout),
+      "Market Change".padEnd(col.mkt_change),
+      "Price Chg".padEnd(col.price_change),
+      "Window (±30s)".padEnd(col.window_change),
+      "Qty Δ".padEnd(col.qty_change),
       "Delta".padEnd(col.delta),
       "Status".padEnd(col.status),
     ].join(" | ")
   );
-  console.log("-".repeat(165));
+  console.log("-".repeat(195));
 
   for (const r of results) {
-    const suffix = r.ticker.split("-").pop();
+    const suffix = r.ticker ? r.ticker.split("-").pop() : "???";
     try {
       console.log(
         [
@@ -502,7 +634,10 @@ function main() {
           r.word.padEnd(col.word),
           suffix.padEnd(col.ticker_suffix),
           r.signalTs.padEnd(col.signal),
-          r.closeoutTs.slice(0, 26).padEnd(col.closeout),
+          (r.mktChangeTs === "—" ? "—" : r.mktChangeTs.slice(0, 26)).padEnd(col.mkt_change),
+          formatPriceChange(r.signalPrice, r.changePrice).padEnd(col.price_change),
+          formatPriceChange(r.windowStartPrice, r.windowEndPrice).padEnd(col.window_change),
+          String(r.mktChangeQty).padEnd(col.qty_change),
           formatDelta(r.deltaMs).padEnd(col.delta),
           r.status.padEnd(col.status),
         ].join(" | ")
@@ -513,37 +648,39 @@ function main() {
   }
 
   // Summary
-  console.log("-".repeat(155));
-  const wins = results.filter((r) => r.status === "BEFORE").length;
-  const losses = results.length - wins;
-  const winDeltas = results
+  console.log("-".repeat(195));
+  const before = results.filter((r) => r.status === "BEFORE").length;
+  const after = results.filter((r) => r.status === "AFTER").length;
+  const noChange = results.filter((r) => r.status === "NO_CHANGE").length;
+  const resolvedCount = before + after;
+
+  const beforeDeltas = results
     .filter((r) => r.status === "BEFORE")
     .map((r) => r.deltaMs);
-  const avgWinMs = winDeltas.length
-    ? winDeltas.reduce((a, b) => a + b, 0) / winDeltas.length
+  const avgBeforeMs = beforeDeltas.length
+    ? beforeDeltas.reduce((a, b) => a + b, 0) / beforeDeltas.length
     : 0;
-  const medianWinMs = winDeltas.length
-    ? winDeltas.sort((a, b) => a - b)[Math.floor(winDeltas.length / 2)]
+  const medianBeforeMs = beforeDeltas.length
+    ? beforeDeltas.sort((a, b) => a - b)[Math.floor(beforeDeltas.length / 2)]
     : 0;
 
   console.log(`\nTotal unique (session, word) pairs: ${seen.size}`);
-  console.log(`Matched to market + closeout:       ${stats.matched}`);
+  console.log(`Total signals processed:            ${results.length}`);
+  console.log(`Matched to market:                  ${stats.matched}`);
   console.log(
-    `  BEFORE closeout (WIN):            ${wins} (${results.length ? ((wins / results.length) * 100).toFixed(1) : 0}%)`
+    `  BEFORE mkt change (WIN):          ${before} (${resolvedCount ? ((before / resolvedCount) * 100).toFixed(1) : 0}%)`
   );
-  console.log(`  AFTER closeout (LATE):            ${losses}`);
+  console.log(`  AFTER mkt change (LATE):          ${after}`);
+  console.log(`  NO CHANGE in ±30s:                ${noChange}`);
   console.log(`  No DB found:                      ${stats.noDb}`);
   console.log(
     `  No ticker match:                  ${stats.noTicker.size}`
   );
   console.log(
-    `  No closeout found:                ${stats.noCloseout.size}`
+    `\nAvg lead time (wins):               ${formatDeltaHuman(avgBeforeMs)}`
   );
   console.log(
-    `\nAvg lead time (wins):               ${formatDeltaHuman(avgWinMs)}`
-  );
-  console.log(
-    `Median lead time (wins):            ${formatDeltaHuman(medianWinMs)}`
+    `Median lead time (wins):            ${formatDeltaHuman(medianBeforeMs)}`
   );
 
   // ── Write HTML table ──────────────────────────────────────────────────────
@@ -554,7 +691,7 @@ function main() {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Signal vs NO Closeout</title>
+<title>Signal vs Market Change</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
@@ -579,8 +716,7 @@ function main() {
   tr:hover td { background: #1c2128; cursor: pointer; }
   .before { color: #3fb950; font-weight: 700; }
   .after { color: #f85149; }
-  .live { color: #58a6ff; font-style: italic; }
-  .expired { color: #484f58; }
+  .no_change { color: #484f58; }
   .delta { text-align: right; font-variant-numeric: tabular-nums; }
   .delta-val { font-weight: 600; }
   .session-info { color: #8b949e; display: flex; flex-direction: column; gap: 2px; }
@@ -612,8 +748,8 @@ function main() {
 </style>
 </head>
 <body>
-<h1>Signal vs NO Closeout — Timing Analysis</h1>
-<p class="subtitle">Delta shown in hundredths of a second (centiseconds). Hover rows to see NO Liquidity graph.</p>
+<h1>Signal vs Market Change — Timing Analysis</h1>
+<p class="subtitle">Finds the most significant NO-side market change within ±30s of each signal. Delta = market_change_time − signal_time.</p>
 
 <div id="chart-container">
   <div class="chart-header">
@@ -624,12 +760,12 @@ function main() {
 </div>
 
 <div class="stats">
-  <div class="stat"><div class="label">Total Matched</div><div class="value blue">${stats.matched}</div></div>
-  <div class="stat"><div class="label">Before (WIN)</div><div class="value green">${wins} (${results.length ? ((wins / results.length) * 100).toFixed(1) : 0}%)</div></div>
-  <div class="stat"><div class="label">After (LATE)</div><div class="value red">${losses}</div></div>
-  <div class="stat"><div class="label">Avg Lead (wins)</div><div class="value green">${formatDelta(avgWinMs)} cs</div></div>
-  <div class="stat"><div class="label">Median Lead (wins)</div><div class="value green">${formatDelta(medianWinMs)} cs</div></div>
-  <div class="stat"><div class="label">No Ticker Match</div><div class="value">${stats.noTicker.size}</div></div>
+  <div class="stat"><div class="label">Total Signals</div><div class="value blue">${results.length}</div></div>
+  <div class="stat"><div class="label">Before (WIN)</div><div class="value green">${before} (${resolvedCount ? ((before / resolvedCount) * 100).toFixed(1) : 0}%)</div></div>
+  <div class="stat"><div class="label">After (LATE)</div><div class="value red">${after}</div></div>
+  <div class="stat"><div class="label">No Change</div><div class="value" style="color: #8b949e">${noChange}</div></div>
+  <div class="stat"><div class="label">Avg Lead (wins)</div><div class="value green">${formatDelta(avgBeforeMs)} cs</div></div>
+  <div class="stat"><div class="label">Median Lead (wins)</div><div class="value green">${formatDelta(medianBeforeMs)} cs</div></div>
 </div>
 
 <div class="filter-bar">
@@ -638,8 +774,7 @@ function main() {
     <option value="all">All</option>
     <option value="BEFORE">BEFORE only</option>
     <option value="AFTER">AFTER only</option>
-    <option value="LIVE">LIVE only</option>
-    <option value="EXPIRED">EXPIRED only</option>
+    <option value="NO_CHANGE">NO_CHANGE only</option>
   </select>
 </div>
 
@@ -651,34 +786,40 @@ function main() {
     <th data-col="2">Word</th>
     <th data-col="3">Suffix</th>
     <th data-col="4">Signal Time</th>
-    <th data-col="5">NO Closeout (UTC)</th>
-    <th data-col="6">Market Duration</th>
-    <th data-col="7">Delta (cs)</th>
-    <th data-col="8">Human</th>
-    <th data-col="9">Status</th>
+    <th data-col="5">Market Change (UTC)</th>
+    <th data-col="6">Price Chg</th>
+    <th data-col="7">Window (±30s)</th>
+    <th data-col="8">Qty Δ</th>
+    <th data-col="9">Delta (cs)</th>
+    <th data-col="10">Human</th>
+    <th data-col="11">Status</th>
   </tr>
 </thead>
 <tbody id="tbody">
 `;
 
   for (const r of results) {
-    const suffix = r.ticker.split("-").pop();
+    const suffix = r.ticker ? r.ticker.split("-").pop() : "???";
     const cs = r.deltaMs !== null ? (r.deltaMs / 10).toFixed(0) : "...";
     const csSign = r.deltaMs !== null ? (r.deltaMs >= 0 ? "+" : "") : "";
     const cls = r.status.toLowerCase();
     
-    // Session Duration
-    const durationHuman = r.sessionDurationMs !== null ? formatDeltaHuman(r.sessionDurationMs).replace('+', '') : '-';
-    
     // Serialize volume data for the row
     const volData = JSON.stringify(r.volume);
-    const humanDelta = r.deltaMs !== null ? formatDeltaHuman(r.deltaMs) : (r.status === "EXPIRED" ? "EXPIRED" : "LIVE");
+    const humanDelta = r.status === "NO_CHANGE" ? "—" : formatDeltaHuman(r.deltaMs);
     
-    const closeoutStr = r.status === "LIVE" || r.status === "EXPIRED" ? r.status : r.closeoutTs.slice(0, 26);
-    const closeoutTimeAttr = r.status === "LIVE" || r.status === "EXPIRED" ? Date.now() : new Date(r.closeoutTs).getTime();
+    const mktChangeStr = r.mktChangeTs === "—" ? "—" : r.mktChangeTs.slice(0, 26);
+    const mktChangeTimeAttr = r.mktChangeTs === "—" ? 999999999999 : new Date(r.mktChangeTs).getTime();
+    
+    // Sorting values
+    const deltaSortVal = r.deltaMs !== null ? r.deltaMs : 999999999999;
+    const priceChangeStr = formatPriceChange(r.signalPrice, r.changePrice);
+    const priceDiff = (r.signalPrice !== null && r.changePrice !== null) ? (r.signalPrice - r.changePrice) : -999;
+    const windowChangeStr = formatPriceChange(r.windowStartPrice, r.windowEndPrice);
+    const windowDiff = (r.windowStartPrice !== null && r.windowEndPrice !== null) ? (r.windowStartPrice - r.windowEndPrice) : -999;
 
     html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}" 
-                data-vol='${volData}' data-signal="${r.signalIso}" data-closeout="${r.closeoutTs}"
+                data-vol='${volData}' data-signal="${r.signalIso}" data-closeout="${r.mktChangeTs}"
                 data-human="${escH(humanDelta)}">
   <td class="thumb-cell"><span class="thumb-icon">📈</span></td>
   <td class="session-info" title="${escH(r.session)}">
@@ -688,10 +829,12 @@ function main() {
   <td class="word">${escH(r.word)}</td>
   <td class="sfx">${escH(suffix)}</td>
   <td data-time="${new Date(r.signalIso).getTime()}">${escH(r.signalTs)}</td>
-  <td data-time="${closeoutTimeAttr}">${escH(closeoutStr)}</td>
-  <td style="color: #8b949e">${durationHuman}</td>
-  <td class="delta"><span class="delta-val ${cls}">${csSign}${cs}</span></td>
-  <td class="delta ${cls}">${humanDelta}</td>
+  <td data-time="${mktChangeTimeAttr}">${escH(mktChangeStr)}</td>
+  <td data-time="${priceDiff}" style="color: #c9d1d9">${escH(priceChangeStr)}</td>
+  <td data-time="${windowDiff}" style="color: #c9d1d9">${escH(windowChangeStr)}</td>
+  <td data-time="${r.mktChangeQty}" style="color: #d2a8ff">${r.mktChangeQty || '—'}</td>
+  <td class="delta" data-time="${deltaSortVal}"><span class="delta-val ${cls}">${csSign}${cs}</span></td>
+  <td class="delta ${cls}" data-time="${deltaSortVal}">${humanDelta}</td>
   <td class="${cls}">${r.status}</td>
 </tr>\n`;
   }
@@ -729,7 +872,10 @@ statusFilter.addEventListener('change', applyFilters);
 for (const row of rows) {
   row.addEventListener('mouseenter', (e) => {
     const vol = JSON.parse(row.dataset.vol || '[]');
-    if (vol.length === 0) return;
+    if (vol.length === 0) {
+      chartContainer.style.display = 'none';
+      return;
+    }
     
     const sig = row.dataset.signal;
     const clo = row.dataset.closeout;
