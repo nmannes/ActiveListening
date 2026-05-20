@@ -589,11 +589,8 @@ function main() {
     }
   }
 
-  // Sort by word, then by detection timestamp
-  results.sort((a, b) => {
-    if (a.word !== b.word) return a.word.localeCompare(b.word);
-    return new Date(a.signalIso).getTime() - new Date(b.signalIso).getTime();
-  });
+  // Sort by signal time descending
+  results.sort((a, b) => new Date(b.signalIso).getTime() - new Date(a.signalIso).getTime());
 
   // Print table
   const col = {
@@ -1001,29 +998,33 @@ for (const row of rows) {
   });
 }
 
-// Column sorting
+function sortColumn(th, asc) {
+  const col = parseInt(th.dataset.col);
+  if (isNaN(col)) return;
+  th.dataset.sort = asc ? 'asc' : 'desc';
+  rows.sort((a, b) => {
+    const at = a.children[col].dataset.time;
+    const bt = b.children[col].dataset.time;
+    if (at && bt) return asc ? at - bt : bt - at;
+    const ac = a.children[col].textContent.trim();
+    const bc = b.children[col].textContent.trim();
+    const an = parseFloat(ac.replace(/[^-0-9.]/g, '')), bn = parseFloat(bc.replace(/[^-0-9.]/g, ''));
+    if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+    return asc ? ac.localeCompare(bc) : bc.localeCompare(ac);
+  });
+  for (const r of rows) tbody.appendChild(r);
+}
+
+// Column sorting click handlers
 document.querySelectorAll('th').forEach(th => {
   th.addEventListener('click', () => {
-    const col = parseInt(th.dataset.col);
-    if (isNaN(col)) return;
-    // ... sorting logic ...
-    const sortAsc = th.dataset.sort !== 'asc';
-    th.dataset.sort = sortAsc ? 'asc' : 'desc';
-    
-    rows.sort((a, b) => {
-      const at = a.children[col].dataset.time;
-      const bt = b.children[col].dataset.time;
-      if (at && bt) return sortAsc ? at - bt : bt - at;
-
-      const ac = a.children[col].textContent.trim();
-      const bc = b.children[col].textContent.trim();
-      const an = parseFloat(ac.replace(/[^-0.9.]/g, '')), bn = parseFloat(bc.replace(/[^-0.9.]/g, ''));
-      if (!isNaN(an) && !isNaN(bn)) return sortAsc ? an - bn : bn - an;
-      return sortAsc ? ac.localeCompare(bc) : bc.localeCompare(ac);
-    });
-    for (const r of rows) tbody.appendChild(r);
+    const asc = th.dataset.sort !== 'asc';
+    sortColumn(th, asc);
   });
 });
+
+// Default sort by signal time descending on page load
+sortColumn(document.querySelector('th[data-col="4"]'), false);
 </script>
 </body>
 </html>`;
