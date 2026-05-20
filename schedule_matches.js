@@ -209,6 +209,15 @@ function getDuration(market, match) {
   if (title.includes("mlb") || slug.includes("mlb") || title.includes("baseball")) {
     return 180;
   }
+  if (
+    title.includes("nhl") ||
+    slug.includes("nhl") ||
+    title.includes("hockey") ||
+    market.clipProfile === "hockey" ||
+    (mediaSources && mediaSources.some(s => s.metadata?.league === 'nhl'))
+  ) {
+    return 120;
+  }
 
   if (title.includes("nan fireside chat") || slug.includes("nan-fireside") || slug.includes("fireside-chat")) {
     return 30;
