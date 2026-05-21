@@ -3,6 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const bodyParser = require("body-parser");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
+const { execSync } = require("child_process");
 
 const app = express();
 const PORT = 3000;
@@ -16,12 +17,16 @@ const MATCHED_PATH = path.join(CACHE_DIR, "matched_markets.json");
 const UNMATCHED_PATH = path.join(CACHE_DIR, "unmatched_markets.json");
 const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");
 const SPEAKER_LABELS_PATH = path.join(DATA_DIR, "speaker_labels.json");
+const DATA_ENTRIES_PATH = path.join(CACHE_DIR, "data_entries.json");
+const SAMPLES_DIR = path.join(DATA_DIR, "sample-scheduling");
 
 // Ensure files exist
 [MATCHED_PATH, UNMATCHED_PATH, MANUAL_MATCHES_PATH].forEach(p => {
     if (!fs.existsSync(p)) fs.writeFileSync(p, JSON.stringify([], null, 2));
 });
 if (!fs.existsSync(SPEAKER_LABELS_PATH)) fs.writeFileSync(SPEAKER_LABELS_PATH, JSON.stringify({}, null, 2));
+if (!fs.existsSync(DATA_ENTRIES_PATH)) fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify([], null, 2));
+if (!fs.existsSync(SAMPLES_DIR)) fs.mkdirSync(SAMPLES_DIR, { recursive: true });
 
 app.use("/speakers_audio", express.static(path.join(DATA_DIR, "speakers.wav")));
 
@@ -61,7 +66,7 @@ app.get("/api/markets", (req, res) => {
             if (m.mediaSources && m.mediaSources.length > 0) {
                 const bestSource = m.mediaSources[0];
                 let name = bestSource.name;
-                
+
                 // Try to get a prettier name from CHANNEL_MAPPINGS if it's a URL we recognize
                 for (const [mappedName, url] of Object.entries(CHANNEL_MAPPINGS)) {
                     if (url === bestSource.url) {
@@ -69,7 +74,7 @@ app.get("/api/markets", (req, res) => {
                         break;
                     }
                 }
-                
+
                 return { url: bestSource.url, name: name };
             }
 
@@ -161,7 +166,7 @@ app.get("/api/speakers", (req, res) => {
         const labels = readJsonFile(SPEAKER_LABELS_PATH, {});
         const speakersDir = path.join(DATA_DIR, "speakers.wav");
         const s3Dir = path.join(DATA_DIR, "s3");
-        
+
         if (!fs.existsSync(speakersDir)) {
             return res.json({});
         }
@@ -210,7 +215,7 @@ app.get("/api/speakers", (req, res) => {
             try {
                 const stats = fs.statSync(path.join(speakersDir, file));
                 duration = Math.max(0, (stats.size - 44) / 32000);
-            } catch (e) {}
+            } catch (e) { }
 
             grouped[session].push({
                 speaker_id: speakerId,
@@ -254,6 +259,105 @@ app.get("/signals", (req, res) => {
 
 app.get("/speakers", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "speakers.html"));
+});
+
+app.get("/data-entry", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "data-entry.html"));
+});
+
+app.get("/api/data-entry", (req, res) => {
+    res.json(readJsonFile(DATA_ENTRIES_PATH, []));
+});
+
+app.post("/api/data-entry", (req, res) => {
+    try {
+        const { slug, youtube, speaker, speakerName } = req.body;
+        if (!slug || !youtube) {
+            return res.status(400).json({ error: "Missing slug or youtube" });
+        }
+        const entries = readJsonFile(DATA_ENTRIES_PATH, []);
+        entries.push({ slug, youtube, speaker: speaker || "", speakerName: speakerName || "" });
+        fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify(entries, null, 2));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete("/api/data-entry/:index", (req, res) => {
+    try {
+        const index = parseInt(req.params.index);
+        const entries = readJsonFile(DATA_ENTRIES_PATH, []);
+        if (index < 0 || index >= entries.length) {
+            return res.status(404).json({ error: "Index out of range" });
+        }
+        entries.splice(index, 1);
+        fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify(entries, null, 2));
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/data-entry/generate-samples", (req, res) => {
+    try {
+        const entries = readJsonFile(DATA_ENTRIES_PATH, []);
+        if (!entries.length) {
+            return res.status(400).json({ error: "No entries to generate from." });
+        }
+
+        if (!fs.existsSync(SAMPLES_DIR)) {
+            fs.mkdirSync(SAMPLES_DIR, { recursive: true });
+        }
+
+        const createdFiles = [];
+        for (const entry of entries) {
+            const sample = {
+                mediaStreamURL: entry.youtube,
+                slug: entry.slug,
+                title: entry.slug,
+                eventStartTime: null,
+                keywords: {},
+                clipProfile: null,
+                audioOnly: true,
+                speakerEntities: []
+            };
+            if (entry.speakerName) {
+                sample.speakerEntities = [entry.speakerName];
+            }
+
+            const filePath = path.join(SAMPLES_DIR, `${entry.slug}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(sample, null, 2));
+            createdFiles.push(filePath);
+        }
+
+
+        const at = (cmd, when = "now") =>
+            execSync(`echo ${JSON.stringify(cmd)} | at ${when}`, { encoding: "utf8" }).trim();
+
+        const jobs = [
+            { type: "server", job: at("timeout 11m python server.py --local") },
+            ...createdFiles.map(f => ({
+                type: "client",
+                slug: path.basename(f, ".json"),
+                job: at(`timeout 10m bun run client.js --fromFile ${f} --local`, "now + 1 minute")
+            })),
+            {
+                type: "identity",
+                job: at(
+                    "sh /home/nathan/kalshi/pull_s3_responses.sh && python /home/nathan/kalshi/extract_all_speakers.py",
+                    "now + 13 minutes"
+                )
+            }
+        ];
+
+
+
+        at("")
+        res.json({ success: true, created: createdFiles, count: createdFiles.length, jobs });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.listen(PORT, () => {
