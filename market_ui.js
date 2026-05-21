@@ -313,14 +313,12 @@ app.post("/api/data-entry/generate-samples", (req, res) => {
         const createdFiles = [];
         for (const entry of entries) {
             const sample = {
+                ...entry,
                 mediaStreamURL: entry.youtube,
-                slug: entry.slug,
-                title: entry.slug,
                 eventStartTime: null,
                 keywords: {},
                 clipProfile: null,
                 audioOnly: true,
-                speakerEntities: []
             };
             if (entry.speakerName) {
                 sample.speakerEntities = [entry.speakerName];
