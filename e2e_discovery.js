@@ -217,7 +217,7 @@ const { HEADLESS } = require("./lib/args");
       return null;
     }
 
-    const freshMarkets = marketsResults || [];
+const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
 
     // Write to cache
@@ -231,11 +231,17 @@ const { HEADLESS } = require("./lib/args");
       { name: "youtube_upcoming.json", data: normalizeSchedule(youtubeUpcoming, "youtube_upcoming") },
     ];
 
+    // Batch log messages and send as a single Telegram message
+    const logMessages = [];
     for (const item of cacheWrites) {
       const filePath = path.join(cacheDir, item.name);
       fs.writeFileSync(filePath, JSON.stringify(item.data, null, 2));
-      logger.info(`Saved ${item.data.length} records to ${item.name} (normalized)`);
+      const msg = `Saved ${item.data.length} records to ${item.name} (normalized)`;
+      logger.info(msg);
+      logMessages.push(msg);
     }
+    // Send all log messages in one Telegram message (debug channel)
+    sendTelegram(logMessages.join('\n'), "info").catch(e => logger.warn(`Telegram batch send failed: ${e.message}`));
 
     // Also save a unified schedule for easy debugging/matching
     const allNormalized = [
@@ -270,9 +276,6 @@ const { HEADLESS } = require("./lib/args");
 
     logger.info(`E2E Discovery complete.`);
     logger.info(`- Saved market and schedule data to cache.`);
-    logger.info(
-      `- Saved ${earningsWithSource.length} earnings calls with sources to ${earningsWithSourcePath}`,
-    );
   } catch (err) {
     logger.error(`Fatal execution error: ${err.message}`);
   } finally {

@@ -5,6 +5,7 @@ const { sendTelegram } = require("./lib/telegram");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
+const { getHostScheduleTime } = require("./lib/host_schedules");
 const _ = require("lodash");
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
@@ -321,6 +322,7 @@ for (const match of matches) {
   let scheduleStartTime =
     market?.eventStartTime ||
     bestSource?.startTime ||
+    getHostScheduleTime(market, now) ||
     null;
 
   if (streamURL) {
