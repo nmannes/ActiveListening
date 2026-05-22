@@ -6,6 +6,8 @@ const logger = require("./lib/logger");
 const path = require("path");
 const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
 const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
+const { scrapeFoxNewsSchedule } = require("./lib/scrapers/foxnews_schedule");
+const { scrapeAllYoutubeUpcoming } = require("./lib/scrapers/youtube_upcoming_multi");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());
@@ -78,12 +80,14 @@ const { HEADLESS } = require("./lib/args");
 
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule] = await Promise.all([
+    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule, foxnewsSchedule, youtubeUpcoming] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
       findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3),
       scrapeCspanSchedule(browser),
+      scrapeFoxNewsSchedule(browser),
+      scrapeAllYoutubeUpcoming(browser),
     ]);
 
 
@@ -138,6 +142,18 @@ const { HEADLESS } = require("./lib/args");
           normalized.channel = item.channel;
           normalized.linkURL = CHANNEL_MAPPINGS[item.channel] || item.url;
           normalized.description = item.sponsor || "";
+        } else if (type === "foxnews") {
+          normalized.title = item.title;
+          normalized.startTime = item.startTime;
+          normalized.channel = item.channel || "Fox News";
+          normalized.linkURL = item.showUrl || "";
+          normalized.description = [item.hosts, item.description].filter(Boolean).join(" | ");
+        } else if (type === "youtube_upcoming") {
+          normalized.title = item.title;
+          normalized.startTime = item.scheduledISO;
+          normalized.channel = item.channel || "YouTube";
+          normalized.linkURL = item.url || "";
+          normalized.description = item.scheduledText || "";
         }
 
         return normalized;
@@ -211,6 +227,8 @@ const { HEADLESS } = require("./lib/args");
       { name: "espn_matchups.json", data: normalizeSchedule(espnSchedule, "espn") },
       { name: "amazon_nba_search_results.json", data: normalizeSchedule(amazonResults, "amazon") },
       { name: "cspan_schedule.json", data: normalizeSchedule(cspanSchedule, "cspan") },
+      { name: "foxnews_schedule.json", data: normalizeSchedule(foxnewsSchedule, "foxnews") },
+      { name: "youtube_upcoming.json", data: normalizeSchedule(youtubeUpcoming, "youtube_upcoming") },
     ];
 
     for (const item of cacheWrites) {
@@ -225,6 +243,8 @@ const { HEADLESS } = require("./lib/args");
       ...normalizeSchedule(espnResults, "espn"),
       ...normalizeSchedule(amazonResults, "amazon"),
       ...normalizeSchedule(cspanSchedule, "cspan"),
+      ...normalizeSchedule(foxnewsSchedule, "foxnews"),
+      ...normalizeSchedule(youtubeUpcoming, "youtube_upcoming"),
     ];
     fs.writeFileSync(path.join(cacheDir, "unified_schedule.json"), JSON.stringify(allNormalized, null, 2));
     logger.info(`Saved ${allNormalized.length} records to unified_schedule.json`);
