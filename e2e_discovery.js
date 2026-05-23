@@ -123,11 +123,24 @@ const { HEADLESS } = require("./lib/args");
         } else if (type === "espn") {
           normalized.title = `${item.awayTeam} vs. ${item.homeTeam} ${item.league || ""}`.trim().toLowerCase();
           normalized.startTime = item.startTime;
-          normalized.channel = item.tvChannels && item.tvChannels.length > 0 ? item.tvChannels[0].name : "ESPN";
-          
-          const yttvLink = CHANNEL_MAPPINGS[normalized.channel];
-          const watchLink = item.tvChannels?.find(ch => ch.link && ch.link.includes("/watch/player/"))?.link;
-          normalized.linkURL = yttvLink || watchLink || item.gameLink;
+
+          const tvChannels = item.tvChannels || [];
+          // Find the first channel that has a CHANNEL_MAPPINGS entry, skipping MLB.TV
+          const mappedChannel = tvChannels.find((ch) => {
+            const name = ch.name;
+            if (name.toUpperCase() === "MLB.TV") return false;
+            return !!CHANNEL_MAPPINGS[name];
+          });
+          if (mappedChannel) {
+            normalized.channel = mappedChannel.name;
+            normalized.linkURL = CHANNEL_MAPPINGS[mappedChannel.name];
+          } else {
+            // Fall back to first non-MLB.TV channel, or last resort the ESPN watch link
+            const fallback = tvChannels.find((ch) => ch.name.toUpperCase() !== "MLB.TV");
+            normalized.channel = fallback ? fallback.name : "ESPN";
+            const watchLink = tvChannels.find((ch) => ch.link && ch.link.includes("/watch/player/"))?.link;
+            normalized.linkURL = watchLink || item.gameLink;
+          }
 
           normalized.description = `${item.league || "sports"} game`;
         } else if (type === "amazon") {
