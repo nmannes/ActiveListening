@@ -99,6 +99,7 @@ async function runBrowserCapture() {
     executablePath: browserPath,
     defaultViewport: null,
     headless: HEADLESS,
+    protocolTimeout: 300000,
     args: [
       "--start-maximized",
       "--autoplay-policy=no-user-gesture-required",

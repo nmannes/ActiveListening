@@ -5,6 +5,7 @@ const { sendTelegram } = require("./lib/telegram");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
+const { getHostScheduleTime } = require("./lib/host_schedules");
 const _ = require("lodash");
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
@@ -111,6 +112,8 @@ const tvScheduleFile = path.join(CACHE_DIR, "latest_tv_schedule.json");
 const espnMatchupsFile = path.join(CACHE_DIR, "espn_matchups.json");
 const amazonScheduleFile = path.join(CACHE_DIR, "amazon_nba_search_results.json");
 const cspanScheduleFile = path.join(CACHE_DIR, "cspan_schedule.json");
+const foxnewsScheduleFile = path.join(CACHE_DIR, "foxnews_schedule.json");
+const youtubeUpcomingFile = path.join(CACHE_DIR, "youtube_upcoming.json");
 
 if (!fs.existsSync(marketsFile)) {
   console.error(`Markets file ${marketsFile} not found. Run discovery first.`);
@@ -122,6 +125,8 @@ const tvSchedule = fs.existsSync(tvScheduleFile) ? JSON.parse(fs.readFileSync(tv
 const espnSchedule = fs.existsSync(espnMatchupsFile) ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8")) : [];
 const amazonSchedule = fs.existsSync(amazonScheduleFile) ? JSON.parse(fs.readFileSync(amazonScheduleFile, "utf8")) : [];
 const cspanSchedule = fs.existsSync(cspanScheduleFile) ? JSON.parse(fs.readFileSync(cspanScheduleFile, "utf8")) : [];
+const foxnewsSchedule = fs.existsSync(foxnewsScheduleFile) ? JSON.parse(fs.readFileSync(foxnewsScheduleFile, "utf8")) : [];
+const youtubeUpcoming = fs.existsSync(youtubeUpcomingFile) ? JSON.parse(fs.readFileSync(youtubeUpcomingFile, "utf8")) : [];
 
 const configuredMarkets = rawMarkets.map((m) => applyWordConfigurations(m));
 const allResults = matchDiscoveryEvents(
@@ -130,6 +135,8 @@ const allResults = matchDiscoveryEvents(
   espnSchedule,
   amazonSchedule,
   cspanSchedule,
+  foxnewsSchedule,
+  youtubeUpcoming,
 );
 
 const matchedMatches = allResults.filter(
@@ -315,6 +322,7 @@ for (const match of matches) {
   let scheduleStartTime =
     market?.eventStartTime ||
     bestSource?.startTime ||
+    getHostScheduleTime(market, now) ||
     null;
 
   if (streamURL) {

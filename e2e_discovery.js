@@ -6,6 +6,8 @@ const logger = require("./lib/logger");
 const path = require("path");
 const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
 const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
+const { scrapeFoxNewsSchedule } = require("./lib/scrapers/foxnews_schedule");
+const { scrapeAllYoutubeUpcoming } = require("./lib/scrapers/youtube_upcoming_multi");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 puppeteer.use(StealthPlugin());
@@ -78,12 +80,14 @@ const { HEADLESS } = require("./lib/args");
 
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule] = await Promise.all([
+    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule, foxnewsSchedule, youtubeUpcoming] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
       findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3),
       scrapeCspanSchedule(browser),
+      scrapeFoxNewsSchedule(browser),
+      scrapeAllYoutubeUpcoming(browser),
     ]);
 
 
@@ -119,11 +123,24 @@ const { HEADLESS } = require("./lib/args");
         } else if (type === "espn") {
           normalized.title = `${item.awayTeam} vs. ${item.homeTeam} ${item.league || ""}`.trim().toLowerCase();
           normalized.startTime = item.startTime;
-          normalized.channel = item.tvChannels && item.tvChannels.length > 0 ? item.tvChannels[0].name : "ESPN";
-          
-          const yttvLink = CHANNEL_MAPPINGS[normalized.channel];
-          const watchLink = item.tvChannels?.find(ch => ch.link && ch.link.includes("/watch/player/"))?.link;
-          normalized.linkURL = yttvLink || watchLink || item.gameLink;
+
+          const tvChannels = item.tvChannels || [];
+          // Find the first channel that has a CHANNEL_MAPPINGS entry, skipping MLB.TV
+          const mappedChannel = tvChannels.find((ch) => {
+            const name = ch.name;
+            if (name.toUpperCase() === "MLB.TV") return false;
+            return !!CHANNEL_MAPPINGS[name];
+          });
+          if (mappedChannel) {
+            normalized.channel = mappedChannel.name;
+            normalized.linkURL = CHANNEL_MAPPINGS[mappedChannel.name];
+          } else {
+            // Fall back to first non-MLB.TV channel, or last resort the ESPN watch link
+            const fallback = tvChannels.find((ch) => ch.name.toUpperCase() !== "MLB.TV");
+            normalized.channel = fallback ? fallback.name : "ESPN";
+            const watchLink = tvChannels.find((ch) => ch.link && ch.link.includes("/watch/player/"))?.link;
+            normalized.linkURL = watchLink || item.gameLink;
+          }
 
           normalized.description = `${item.league || "sports"} game`;
         } else if (type === "amazon") {
@@ -138,6 +155,18 @@ const { HEADLESS } = require("./lib/args");
           normalized.channel = item.channel;
           normalized.linkURL = CHANNEL_MAPPINGS[item.channel] || item.url;
           normalized.description = item.sponsor || "";
+        } else if (type === "foxnews") {
+          normalized.title = item.title;
+          normalized.startTime = item.startTime;
+          normalized.channel = item.channel || "Fox News";
+          normalized.linkURL = item.showUrl || "";
+          normalized.description = [item.hosts, item.description].filter(Boolean).join(" | ");
+        } else if (type === "youtube_upcoming") {
+          normalized.title = item.title;
+          normalized.startTime = item.scheduledISO;
+          normalized.channel = item.channel || "YouTube";
+          normalized.linkURL = item.url || "";
+          normalized.description = item.scheduledText || "";
         }
 
         return normalized;
@@ -201,7 +230,7 @@ const { HEADLESS } = require("./lib/args");
       return null;
     }
 
-    const freshMarkets = marketsResults || [];
+const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
 
     // Write to cache
@@ -211,13 +240,21 @@ const { HEADLESS } = require("./lib/args");
       { name: "espn_matchups.json", data: normalizeSchedule(espnSchedule, "espn") },
       { name: "amazon_nba_search_results.json", data: normalizeSchedule(amazonResults, "amazon") },
       { name: "cspan_schedule.json", data: normalizeSchedule(cspanSchedule, "cspan") },
+      { name: "foxnews_schedule.json", data: normalizeSchedule(foxnewsSchedule, "foxnews") },
+      { name: "youtube_upcoming.json", data: normalizeSchedule(youtubeUpcoming, "youtube_upcoming") },
     ];
 
+    // Batch log messages and send as a single Telegram message
+    const logMessages = [];
     for (const item of cacheWrites) {
       const filePath = path.join(cacheDir, item.name);
       fs.writeFileSync(filePath, JSON.stringify(item.data, null, 2));
-      logger.info(`Saved ${item.data.length} records to ${item.name} (normalized)`);
+      const msg = `Saved ${item.data.length} records to ${item.name} (normalized)`;
+      logger.info(msg);
+      logMessages.push(msg);
     }
+    // Send all log messages in one Telegram message (debug channel)
+    sendTelegram(logMessages.join('\n'), "info").catch(e => logger.warn(`Telegram batch send failed: ${e.message}`));
 
     // Also save a unified schedule for easy debugging/matching
     const allNormalized = [
@@ -225,6 +262,8 @@ const { HEADLESS } = require("./lib/args");
       ...normalizeSchedule(espnResults, "espn"),
       ...normalizeSchedule(amazonResults, "amazon"),
       ...normalizeSchedule(cspanSchedule, "cspan"),
+      ...normalizeSchedule(foxnewsSchedule, "foxnews"),
+      ...normalizeSchedule(youtubeUpcoming, "youtube_upcoming"),
     ];
     fs.writeFileSync(path.join(cacheDir, "unified_schedule.json"), JSON.stringify(allNormalized, null, 2));
     logger.info(`Saved ${allNormalized.length} records to unified_schedule.json`);
@@ -250,9 +289,6 @@ const { HEADLESS } = require("./lib/args");
 
     logger.info(`E2E Discovery complete.`);
     logger.info(`- Saved market and schedule data to cache.`);
-    logger.info(
-      `- Saved ${earningsWithSource.length} earnings calls with sources to ${earningsWithSourcePath}`,
-    );
   } catch (err) {
     logger.error(`Fatal execution error: ${err.message}`);
   } finally {

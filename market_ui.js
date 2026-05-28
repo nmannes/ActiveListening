@@ -28,7 +28,18 @@ if (!fs.existsSync(SPEAKER_LABELS_PATH)) fs.writeFileSync(SPEAKER_LABELS_PATH, J
 if (!fs.existsSync(DATA_ENTRIES_PATH)) fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify([], null, 2));
 if (!fs.existsSync(SAMPLES_DIR)) fs.mkdirSync(SAMPLES_DIR, { recursive: true });
 
-app.use("/speakers_audio", express.static(path.join(DATA_DIR, "speakers.wav")));
+app.get("/speakers_audio/:session/:file", (req, res) => {
+    const { session, file } = req.params;
+    // Validate to prevent path traversal
+    if (!/^[\w.-]+$/.test(session) || !/^speaker_\d+\.wav$/.test(file)) {
+        return res.status(400).json({ error: "Invalid path" });
+    }
+    const filePath = path.join(DATA_DIR, "s3", session, "audio", file);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "File not found" });
+    }
+    res.sendFile(filePath);
+});
 
 function readJsonFile(filePath, defaultValue = []) {
     try {
@@ -164,66 +175,66 @@ app.delete("/api/manual-match/:slug", (req, res) => {
 app.get("/api/speakers", (req, res) => {
     try {
         const labels = readJsonFile(SPEAKER_LABELS_PATH, {});
-        const speakersDir = path.join(DATA_DIR, "speakers.wav");
         const s3Dir = path.join(DATA_DIR, "s3");
 
-        if (!fs.existsSync(speakersDir)) {
+        if (!fs.existsSync(s3Dir)) {
             return res.json({});
         }
 
-        const files = fs.readdirSync(speakersDir).filter(f => f.endsWith('.wav'));
         const grouped = {};
-        const sessionTargets = {}; // Cache for target speakers
 
-        for (const file of files) {
-            // Expected format: session_name_speaker_1.wav
-            const match = file.match(/^(.*?)_speaker_(.*?)\.wav$/);
-            if (!match) continue;
+        const sessions = fs.readdirSync(s3Dir, { withFileTypes: true })
+            .filter(d => d.isDirectory())
+            .map(d => d.name)
+            .sort();
 
-            const session = match[1];
-            const speakerId = match[2];
-
+        for (const session of sessions) {
             if (session.startsWith("kxmlb") || session.startsWith("kxnba")) {
                 continue;
             }
 
-            // Look up target speaker for this session if not cached
-            if (sessionTargets[session] === undefined) {
-                sessionTargets[session] = null;
-                const sessionPath = path.join(s3Dir, session);
-                if (fs.existsSync(sessionPath)) {
-                    const s3Files = fs.readdirSync(sessionPath);
-                    const metaFile = s3Files.find(f => f.endsWith(".json") && f !== "transcript.json");
-                    if (metaFile) {
-                        try {
-                            const meta = JSON.parse(fs.readFileSync(path.join(sessionPath, metaFile), "utf8"));
-                            if (meta.speakerEntities && meta.speakerEntities.length > 0) {
-                                sessionTargets[session] = meta.speakerEntities.join(", ");
-                            }
-                        } catch (e) {
-                            console.error(`Error reading meta for ${session}: ${e.message}`);
-                        }
+            const audioDir = path.join(s3Dir, session, "audio");
+            if (!fs.existsSync(audioDir)) continue;
+
+            const audioFiles = fs.readdirSync(audioDir)
+                .filter(f => /^speaker_\d+\.wav$/.test(f));
+
+            if (audioFiles.length === 0) continue;
+
+            // Look up target speaker for this session
+            let targetSpeaker = null;
+            try {
+                const sessionFiles = fs.readdirSync(path.join(s3Dir, session));
+                const metaFile = sessionFiles.find(f => f.endsWith(".json") && f !== "transcript.json");
+                if (metaFile) {
+                    const meta = JSON.parse(fs.readFileSync(path.join(s3Dir, session, metaFile), "utf8"));
+                    if (meta.speakerEntities && meta.speakerEntities.length > 0) {
+                        targetSpeaker = meta.speakerEntities.join(", ");
                     }
                 }
+            } catch (e) {
+                console.error(`Error reading meta for ${session}: ${e.message}`);
             }
 
-            if (!grouped[session]) {
-                grouped[session] = [];
+            grouped[session] = [];
+
+            for (const file of audioFiles) {
+                const speakerId = file.match(/^speaker_(\d+)\.wav$/)[1];
+
+                let duration = 0;
+                try {
+                    const stats = fs.statSync(path.join(audioDir, file));
+                    duration = Math.max(0, (stats.size - 44) / 32000);
+                } catch (e) { }
+
+                grouped[session].push({
+                    speaker_id: speakerId,
+                    fileUrl: `/speakers_audio/${session}/${file}`,
+                    label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : "",
+                    targetSpeaker: targetSpeaker,
+                    duration: duration
+                });
             }
-
-            let duration = 0;
-            try {
-                const stats = fs.statSync(path.join(speakersDir, file));
-                duration = Math.max(0, (stats.size - 44) / 32000);
-            } catch (e) { }
-
-            grouped[session].push({
-                speaker_id: speakerId,
-                fileUrl: `/speakers_audio/${file}`,
-                label: (labels[session] && labels[session][speakerId]) ? labels[session][speakerId] : "",
-                targetSpeaker: sessionTargets[session],
-                duration: duration
-            });
         }
 
         res.json(grouped);

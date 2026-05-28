@@ -152,7 +152,7 @@ def main():
             logger.info(f"Computing reference embedding from wav: {name}")
             try:
                 audio = await loop.run_in_executor(
-                    None, lambda p=wav_path: librosa.load(str(p), sr=16000)[0]
+                    None, lambda p=wav_path: librosa.load(str(p), sr=16000, duration=60)[0]
                 )
                 emb = await identifier._embed(audio)
                 if emb is not None:

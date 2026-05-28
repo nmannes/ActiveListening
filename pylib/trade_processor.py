@@ -224,6 +224,8 @@ class TradeProcessor:
                 f"[{self.session.session_id}][TRADE] Error placing order. error: {e}, result: {order_result}"
             )
 
+        return order_result
+
 
 class DiarizedTradeProcessor(TradeProcessor):
     async def process_tokens(self, tokens: list[dict], speaker_id: str = None):
