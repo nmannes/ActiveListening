@@ -124,6 +124,19 @@ function loadMarketTitles() {
   return slugToTitle;
 }
 
+// ── load resolution cache ───────────────────────────────────────────────────
+const RESOLUTIONS_PATH = path.join(CACHE_DIR, "resolutions.json");
+function loadResolutions() {
+  if (fs.existsSync(RESOLUTIONS_PATH)) {
+    try {
+      return JSON.parse(fs.readFileSync(RESOLUTIONS_PATH, "utf8"));
+    } catch (e) {
+      console.error(`Error loading resolutions: ${e.message}`);
+    }
+  }
+  return {};
+}
+
 // ── fuzzy match a keyword to a ticker suffix ────────────────────────────────
 // Ticker suffixes are typically 4 uppercase chars from the beginning of the keyword.
 // e.g. "crowd" → "CROW", "injury" → "INJU", "triple double" → "TRIP"
@@ -674,6 +687,7 @@ function formatDeltaHuman(ms) {
 // ── main ────────────────────────────────────────────────────────────────────
 function main() {
   const slugToTitle = loadMarketTitles();
+  const resolutions = loadResolutions();
   const signals = parseLogFiles();
   console.log(`Parsed ${signals.length} signals from log files\n`);
 
@@ -816,6 +830,17 @@ function main() {
         windowEndPrice = getNoPriceAt(db, matchedTicker, new Date(signalTime.getTime() + thirtySecMs).toISOString());
       }
 
+      // Resolution status from Kalshi
+      let resolution = "PENDING";
+      let resolutionResult = null;
+      if (matchedTicker && resolutions[matchedTicker]) {
+        const res = resolutions[matchedTicker];
+        if (res.status === "settled" && res.result) {
+          resolution = res.result.toUpperCase();
+          resolutionResult = res.result;
+        }
+      }
+
       results.push({
         session,
         title: slugToTitle.get(session.toLowerCase()) || session,
@@ -823,6 +848,7 @@ function main() {
         word: sig.word,
         target: sig.target,
         ticker: matchedTicker || "",
+        suffix: matchedTicker ? matchedTicker.split("-").pop() : "???",
         signalTs: sig.timestamp,
         signalIso: signalIso,
         mktChangeTs: mktChangeVal,
@@ -836,7 +862,9 @@ function main() {
         changePrice,
         windowStartPrice,
         windowEndPrice,
-        deltaCount: 0
+        deltaCount: 0,
+        resolution,
+        resolutionResult,
       });
       if (db && matchedTicker) {
         stats.matched++;
@@ -882,13 +910,12 @@ function main() {
   console.log("-".repeat(205));
 
   for (const r of results) {
-    const suffix = r.ticker ? r.ticker.split("-").pop() : "???";
     try {
       console.log(
         [
           (r.title.length > col.title ? r.title.slice(0, col.title - 3) + "..." : r.title).padEnd(col.title),
           r.word.padEnd(col.word),
-          suffix.padEnd(col.ticker_suffix),
+          r.suffix.padEnd(col.ticker_suffix),
           r.signalTs.padEnd(col.signal),
           (r.mktChangeTs === "—" ? "—" : r.mktChangeTs.slice(0, 26)).padEnd(col.mkt_change),
           formatPriceChange(r.signalPrice, r.changePrice, r.changeSide).padEnd(col.price_change),
@@ -921,6 +948,11 @@ function main() {
     ? beforeDeltas.sort((a, b) => a - b)[Math.floor(beforeDeltas.length / 2)]
     : 0;
 
+  const resolvedYes = results.filter(r => r.resolution === "YES").length;
+  const resolvedNo = results.filter(r => r.resolution === "NO").length;
+  const resolvedPending = results.filter(r => r.resolution === "PENDING").length;
+  const resolvedTotal = resolvedYes + resolvedNo;
+
   console.log(`\nTotal unique (session, word) pairs: ${seen.size}`);
   console.log(`Total signals processed:            ${results.length}`);
   console.log(`Matched to market:                  ${stats.matched}`);
@@ -939,6 +971,9 @@ function main() {
   console.log(
     `Median lead time (wins):            ${formatDeltaHuman(medianBeforeMs)}`
   );
+  console.log(`\nResolved YES:                      ${resolvedYes}`);
+  console.log(`Resolved NO:                       ${resolvedNo}`);
+  console.log(`Pending resolution:                ${resolvedPending}`);
 
   // ── Write HTML table ──────────────────────────────────────────────────────
   const htmlPath = path.join(DATA_DIR, "signal_vs_no_closeout.html");
@@ -975,6 +1010,11 @@ function main() {
   .before { color: #3fb950; font-weight: 700; }
   .after { color: #f85149; }
   .no_change { color: #484f58; }
+  .resolved-yes { color: #3fb950; font-weight: 700; }
+  .resolved-no { color: #f85149; font-weight: 700; }
+  .resolved-pending { color: #484f58; }
+  .event-title a { color: #c9d1d9; text-decoration: none; }
+  .event-title a:hover { color: #58a6ff; text-decoration: underline; }
   .delta { text-align: right; font-variant-numeric: tabular-nums; }
   .delta-val { font-weight: 600; }
   .session-info { color: #8b949e; display: flex; flex-direction: column; gap: 2px; }
@@ -1029,6 +1069,9 @@ function main() {
   <div class="stat"><div class="label">No Change</div><div class="value" style="color: #8b949e">${noChange}</div></div>
   <div class="stat"><div class="label">Avg Lead (wins)</div><div class="value green">${formatDelta(avgBeforeMs)} cs</div></div>
   <div class="stat"><div class="label">Median Lead (wins)</div><div class="value green">${formatDelta(medianBeforeMs)} cs</div></div>
+  <div class="stat"><div class="label">Resolved YES</div><div class="value green">${resolvedYes}</div></div>
+  <div class="stat"><div class="label">Resolved NO</div><div class="value red">${resolvedNo}</div></div>
+  <div class="stat"><div class="label">Pending</div><div class="value" style="color: #8b949e">${resolvedPending}</div></div>
 </div>
 
 <div class="filter-bar">
@@ -1038,6 +1081,12 @@ function main() {
     <option value="BEFORE">BEFORE only</option>
     <option value="AFTER">AFTER only</option>
     <option value="NO_CHANGE">NO_CHANGE only</option>
+  </select>
+  <select id="resolutionFilter">
+    <option value="all">All resolutions</option>
+    <option value="YES">YES only</option>
+    <option value="NO">NO only</option>
+    <option value="PENDING">PENDING only</option>
   </select>
 </div>
 
@@ -1057,6 +1106,7 @@ function main() {
     <th data-col="10">Delta (cs)</th>
     <th data-col="11">Human</th>
     <th data-col="12">Status</th>
+    <th data-col="13">Resolved</th>
   </tr>
 </thead>
 <tbody id="tbody">
@@ -1083,13 +1133,15 @@ function main() {
     const windowChangeStr = formatPriceChange(r.windowStartPrice, r.windowEndPrice);
     const windowDiff = (r.windowStartPrice !== null && r.windowEndPrice !== null) ? (r.windowStartPrice - r.windowEndPrice) : -999;
 
-    html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}"
+    const resCls = r.resolution === "YES" ? "resolved-yes" : r.resolution === "NO" ? "resolved-no" : "resolved-pending";
+
+    html += `<tr data-session="${escH(r.session)}" data-word="${escH(r.word)}" data-status="${r.status}" data-resolution="${r.resolution}"
                 data-noask='${noAskData}' data-yes='${yesBidData}' data-signal="${r.signalIso}" data-closeout="${r.mktChangeTs}"
                 data-human="${escH(humanDelta)}">
   <td class="thumb-cell"><span class="thumb-icon">📈</span></td>
   <td class="session-info" title="${escH(r.session)}">
     <div class="source-id">${escH(r.mediaSource)}</div>
-    <div class="event-title">${escH(r.title)}</div>
+    <div class="event-title"><a href="/session/${escH(r.session)}">${escH(r.title)}</a></div>
   </td>
   <td class="word">${escH(r.word)}</td>
   <td class="sfx">${escH(suffix)}</td>
@@ -1102,6 +1154,7 @@ function main() {
   <td class="delta" data-time="${deltaSortVal}"><span class="delta-val ${cls}">${csSign}${cs}</span></td>
   <td class="delta ${cls}" data-time="${deltaSortVal}">${humanDelta}</td>
   <td class="${cls}">${r.status}</td>
+  <td class="${resCls}">${r.resolution}</td>
 </tr>\n`;
   }
 
@@ -1113,6 +1166,7 @@ const tbody = document.getElementById('tbody');
 const rows = [...tbody.querySelectorAll('tr')];
 const filter = document.getElementById('filter');
 const statusFilter = document.getElementById('statusFilter');
+const resolutionFilter = document.getElementById('resolutionFilter');
 const chartContainer = document.getElementById('chart-container');
 const chartTitle = document.getElementById('chart-title');
 const ctx = document.getElementById('volChart').getContext('2d');
@@ -1122,17 +1176,21 @@ let myChart = null;
 function applyFilters() {
   const q = filter.value.toLowerCase();
   const sf = statusFilter.value;
+  const rf = resolutionFilter.value;
   for (const row of rows) {
     const session = row.dataset.session;
     const word = row.dataset.word;
     const status = row.dataset.status;
+    const resolution = row.dataset.resolution;
     const textMatch = !q || session.includes(q) || word.includes(q);
     const statusMatch = sf === 'all' || status === sf;
-    row.style.display = textMatch && statusMatch ? '' : 'none';
+    const resMatch = rf === 'all' || resolution === rf;
+    row.style.display = textMatch && statusMatch && resMatch ? '' : 'none';
   }
 }
 filter.addEventListener('input', applyFilters);
 statusFilter.addEventListener('change', applyFilters);
+resolutionFilter.addEventListener('change', applyFilters);
 
 	// Chart state
 	let currentSide = 'no';

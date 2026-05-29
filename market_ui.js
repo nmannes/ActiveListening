@@ -4,6 +4,14 @@ const path = require("path");
 const bodyParser = require("body-parser");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const { execSync } = require("child_process");
+const {
+  parseLogFiles, loadMarketTitles, loadResolutions,
+  fuzzyMatchTicker, openDb, getTickers,
+  getNoAskSeries, getYesBidSeries, findMarketChange,
+  getYesPriceAt, getNoPriceAt,
+  parseSignalTs, parseMediaSources,
+  formatDelta, formatDeltaHuman, formatPriceChange,
+} = require("./lib/signal_analysis");
 
 const app = express();
 const PORT = 3000;
@@ -362,6 +370,172 @@ app.post("/api/data-entry/generate-samples", (req, res) => {
 
         res.json({ success: true, created: createdFiles, count: createdFiles.length, jobs });
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── Session detail page ─────────────────────────────────────────────────────
+app.get("/session/:slug", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "session-detail.html"));
+});
+
+// ── Session detail API ──────────────────────────────────────────────────────
+app.get("/api/session/:slug", (req, res) => {
+    try {
+        const slug = req.params.slug.toLowerCase();
+
+        // Load metadata
+        const slugToTitle = loadMarketTitles();
+        const resolutions = loadResolutions();
+        const mediaSources = parseMediaSources();
+
+        // Parse signals for this session only
+        const signals = parseLogFiles(slug);
+
+        // Open session DB
+        const db = openDb(slug);
+        const tickers = db ? getTickers(db) : [];
+
+        // Deduplicate signals by timestamp
+        const seen = new Set();
+        const uniqueSignals = [];
+        for (const sig of signals) {
+            if (!seen.has(sig.timestamp)) {
+                seen.add(sig.timestamp);
+                uniqueSignals.push(sig);
+            }
+        }
+
+        // Analyze each signal
+        const tickerSet = new Set();
+        const results = [];
+        for (const sig of uniqueSignals) {
+            // Resolve ticker
+            let matchedTicker = null;
+            if (tickers.length > 0) {
+                matchedTicker = fuzzyMatchTicker(sig.word, tickers);
+            }
+            if (matchedTicker) tickerSet.add(matchedTicker);
+
+            const signalTime = parseSignalTs(sig.timestamp, sig.tz);
+            const signalIso = signalTime.toISOString();
+
+            // Market change analysis
+            const mktChange = (db && matchedTicker) ? findMarketChange(db, matchedTicker, signalIso) : null;
+            const mktChangeTs = mktChange ? mktChange.ts : null;
+            const mktChangeTime = mktChangeTs ? new Date(mktChangeTs) : null;
+
+            let deltaMs = null;
+            let status = "NO_CHANGE";
+            if (mktChangeTime) {
+                deltaMs = mktChangeTime.getTime() - signalTime.getTime();
+                status = deltaMs > 0 ? "BEFORE" : "AFTER";
+            }
+
+            let signalPrice = null;
+            let changePrice = null;
+            let changeSide = "—";
+            if (db && matchedTicker) {
+                signalPrice = getNoPriceAt(db, matchedTicker, signalIso);
+                if (mktChange) {
+                    changePrice = mktChange.price;
+                    changeSide = mktChange.side || "no";
+                    if (changeSide === 'yes') {
+                        signalPrice = getYesPriceAt(db, matchedTicker, signalIso);
+                    }
+                }
+            }
+
+            // Resolution
+            let resolution = "PENDING";
+            let resolutionResult = null;
+            if (matchedTicker && resolutions[matchedTicker]) {
+                const r = resolutions[matchedTicker];
+                if (r.status === "settled" && r.result) {
+                    resolution = r.result.toUpperCase();
+                    resolutionResult = r.result;
+                }
+            }
+
+            const suffix = matchedTicker ? matchedTicker.split("-").pop() : "???";
+
+            results.push({
+                session: slug,
+                word: sig.word,
+                ticker: matchedTicker || null,
+                suffix,
+                signalTs: sig.timestamp,
+                signalIso,
+                mktChangeTs: mktChangeTs || null,
+                mktChangeQty: mktChange ? mktChange.absChange : 0,
+                deltaMs,
+                deltaHuman: formatDeltaHuman(deltaMs),
+                deltaCs: deltaMs !== null ? (deltaMs / 10).toFixed(0) : null,
+                status,
+                changeSide,
+                changePrice,
+                signalPrice,
+                resolution,
+                resolutionResult,
+                noAskSeries: (db && matchedTicker) ? getNoAskSeries(db, matchedTicker) : [],
+                yesBidSeries: (db && matchedTicker) ? getYesBidSeries(db, matchedTicker) : [],
+            });
+        }
+
+        // Sort by signal time
+        results.sort((a, b) => new Date(b.signalIso).getTime() - new Date(a.signalIso).getTime());
+
+        // Summary stats
+        const beforeCount = results.filter(r => r.status === "BEFORE").length;
+        const afterCount = results.filter(r => r.status === "AFTER").length;
+        const noChangeCount = results.filter(r => r.status === "NO_CHANGE").length;
+        const resolvedYes = results.filter(r => r.resolution === "YES").length;
+        const resolvedNo = results.filter(r => r.resolution === "NO").length;
+        const resolvedPending = results.filter(r => r.resolution === "PENDING").length;
+
+        const beforeDeltas = results.filter(r => r.status === "BEFORE" && r.deltaMs !== null).map(r => r.deltaMs);
+        const avgLeadMs = beforeDeltas.length ? beforeDeltas.reduce((a, b) => a + b, 0) / beforeDeltas.length : 0;
+        const medianLeadMs = beforeDeltas.length ? [...beforeDeltas].sort((a, b) => a - b)[Math.floor(beforeDeltas.length / 2)] : 0;
+
+        // Per-ticker summaries
+        const tickerSummaries = [];
+        for (const ticker of tickerSet) {
+            const tickerResults = results.filter(r => r.ticker === ticker);
+            const tickerRes = resolutions[ticker];
+            let tickerResolution = "PENDING";
+            if (tickerRes && tickerRes.status === "settled" && tickerRes.result) {
+                tickerResolution = tickerRes.result.toUpperCase();
+            }
+            tickerSummaries.push({
+                ticker,
+                suffix: ticker.split("-").pop(),
+                resolution: tickerResolution,
+                signalCount: tickerResults.length,
+                noAskSeries: (db ? getNoAskSeries(db, ticker) : []),
+                yesBidSeries: (db ? getYesBidSeries(db, ticker) : []),
+            });
+        }
+
+        if (db) db.close();
+
+        res.json({
+            slug,
+            title: slugToTitle.get(slug) || slug,
+            mediaSource: mediaSources.get(slug) || slug.split("-")[0],
+            tickers: [...tickerSet],
+            stats: {
+                totalSignals: results.length,
+                uniqueWords: new Set(results.map(r => r.word)).size,
+                beforeCount, afterCount, noChangeCount,
+                resolvedYes, resolvedNo, resolvedPending,
+                avgLeadMs, avgLeadHuman: formatDeltaHuman(avgLeadMs),
+                medianLeadMs, medianLeadHuman: formatDeltaHuman(medianLeadMs),
+            },
+            signals: results,
+            tickerSummaries,
+        });
+    } catch (e) {
+        console.error(`Error in /api/session/:slug: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });

@@ -124,7 +124,8 @@ const rawMarkets = JSON.parse(fs.readFileSync(marketsFile, "utf8"));
 const tvSchedule = fs.existsSync(tvScheduleFile) ? JSON.parse(fs.readFileSync(tvScheduleFile, "utf8")) : [];
 const espnSchedule = fs.existsSync(espnMatchupsFile) ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8")) : [];
 const amazonSchedule = fs.existsSync(amazonScheduleFile) ? JSON.parse(fs.readFileSync(amazonScheduleFile, "utf8")) : [];
-const cspanSchedule = fs.existsSync(cspanScheduleFile) ? JSON.parse(fs.readFileSync(cspanScheduleFile, "utf8")) : [];
+const cspanSchedule = (fs.existsSync(cspanScheduleFile) ? JSON.parse(fs.readFileSync(cspanScheduleFile, "utf8")) : [])
+  .filter(event => event.title && event.title.includes('LIVE'));
 const foxnewsSchedule = fs.existsSync(foxnewsScheduleFile) ? JSON.parse(fs.readFileSync(foxnewsScheduleFile, "utf8")) : [];
 const youtubeUpcoming = fs.existsSync(youtubeUpcomingFile) ? JSON.parse(fs.readFileSync(youtubeUpcomingFile, "utf8")) : [];
 
