@@ -322,8 +322,8 @@ app.post("/api/data-entry", (req, res) => {
         // Start local recording: server + client, both backgrounded with timeout
         const BUN = "/home/nathan/.bun/bin/bun";
         exec(
-            `cd "${DATA_DIR}" && nohup timeout 10m python3 server.py & sleep 3 && nohup timeout 10m ${BUN} run client.js --local --fromFile "sample-scheduling/${slug}.json" & sleep 600 && (nohup bash pull_all_s3_responses.sh & wait $!) && SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1) && [ -n "$SESSION_DIR" ] && SPEAKER_NUM="${speaker}" SPEAKER_NAME="${speakerName}" SESSION_ID=$(basename "$SESSION_DIR") python3 -c 'import json, os; sid = os.environ["SESSION_ID"]; spk = os.environ["SPEAKER_NUM"]; name = os.environ["SPEAKER_NAME"]; labels = json.load(open("speaker_labels.json")); labels.setdefault(sid, {}); labels[sid][spk] = name; json.dump(labels, open("speaker_labels.json", "w"), indent=2); print(f"Labeled {sid}/{spk} -> {name}")'`,
-            (err) => { if (err) console.error(`Sample run error: ${err.message}`); }
+            `cd "${DATA_DIR}" && nohup timeout 10m python3 server.py & sleep 60 && nohup timeout 10m ${BUN} run client.js --local --fromFile "sample-scheduling/${slug}.json" & sleep 600 && (nohup bash pull_all_s3_responses.sh & wait $!) && SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1) && [ -n "$SESSION_DIR" ] && SPEAKER_NUM="${speaker}" SPEAKER_NAME="${speakerName}" SESSION_ID=$(basename "$SESSION_DIR") python3 -c 'import json, os; sid = os.environ["SESSION_ID"]; spk = os.environ["SPEAKER_NUM"]; name = os.environ["SPEAKER_NAME"]; labels = json.load(open("speaker_labels.json")); labels.setdefault(sid, {}); labels[sid][spk] = name; json.dump(labels, open("speaker_labels.json", "w"), indent=2); print(f"Labeled {sid}/{spk} -> {name}")'`,
+            (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "error.log"), `${new Date().toISOString()} Sample run error (${slug}): ${err.message}\n`); }
         );
 
         res.json({ success: true, recording: true });
