@@ -2,7 +2,7 @@
 """
 build_audio_library.py — Compiles labeled speaker samples into the audio-library/
 
-Reads speaker_labels.json, maps identities to their .wav files in speakers.wav/,
+Reads speaker_labels.json, maps identities to their .wav files in s3/{session_id}/audio/,
 and copies them into audio-library/ with a standardized slugified filename
 for easy loading by SpeakerIdentifier.
 """
@@ -31,18 +31,14 @@ def slugify(name: str) -> str:
 
 def main():
     root_dir = Path(__file__).parent.parent
+    s3_dir = root_dir / "s3"
     labels_file = root_dir / "speaker_labels.json"
-    speakers_dir = root_dir / "speakers.wav"
     output_dir = Path("~/audio-library").expanduser()
 
     if not labels_file.exists():
         logger.error(f"Labels file not found: {labels_file}")
         return
-        
-    if not speakers_dir.exists():
-        logger.error(f"Speakers directory not found: {speakers_dir}")
-        return
-        
+
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -58,8 +54,7 @@ def main():
                 if not identity:
                     continue
                 slug = slugify(identity)
-                wav_filename = f"{session_id}_speaker_{speaker_id}.wav"
-                wav_path = speakers_dir / wav_filename
+                wav_path = s3_dir / session_id / "audio" / f"speaker_{speaker_id}.wav"
                 if wav_path.exists():
                     expected_slugs.add(slug)
 
@@ -101,8 +96,7 @@ def main():
             slug = slugify(identity)
             # Find the corresponding wav file
             # Format: <session_id>_speaker_<speaker_id>.wav
-            wav_filename = f"{session_id}_speaker_{speaker_id}.wav"
-            wav_path = speakers_dir / wav_filename
+            wav_path = s3_dir / session_id / "audio" / f"speaker_{speaker_id}.wav"
             
             if not wav_path.exists():
                 logger.warning(f"Audio file not found for {identity}: {wav_path}")
