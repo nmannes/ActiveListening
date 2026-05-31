@@ -52,3 +52,6 @@ done
 
 echo ""
 echo "✅ Done. All deepgram_responses synced to ./$LOCAL_DIR/"
+echo ""
+echo "🔨 Rebuilding audio library from speaker_labels.json..."
+python3 "$(dirname "$0")/scripts/build_audio_library.py"
