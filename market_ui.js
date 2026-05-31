@@ -347,44 +347,7 @@ app.delete("/api/data-entry/:index", (req, res) => {
     }
 });
 
-app.post("/api/data-entry/generate-samples", (req, res) => {
-    try {
-        const entries = readJsonFile(DATA_ENTRIES_PATH, []);
-        if (!entries.length) {
-            return res.status(400).json({ error: "No entries to generate from." });
-        }
 
-        if (!fs.existsSync(SAMPLES_DIR)) {
-            fs.mkdirSync(SAMPLES_DIR, { recursive: true });
-        }
-
-        const createdFiles = [];
-        for (const entry of entries) {
-            const sample = {
-                ...entry,
-                mediaStreamURL: entry.youtube,
-                eventStartTime: null,
-                keywords: {},
-                clipProfile: null,
-                audioOnly: true,
-            };
-            if (entry.speakerName) {
-                sample.speakerEntities = [entry.speakerName];
-            }
-
-            const filePath = path.join(SAMPLES_DIR, `${entry.slug}.json`);
-            fs.writeFileSync(filePath, JSON.stringify(sample, null, 2));
-            createdFiles.push(filePath);
-        }
-
-
-        res.json({ success: true, created: createdFiles, count: createdFiles.length });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ── Session detail page ─────────────────────────────────────────────────────
 app.get("/session/:slug", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "session-detail.html"));
 });
