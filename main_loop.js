@@ -29,7 +29,7 @@ async function start() {
 
     // 1. Start UI Server in background
     console.log("Starting Market Manager UI...");
-    const uiProc = spawn(process.execPath, ["run", "market_ui.js"], {
+    const uiProc = spawn(process.execPath, ["run", "--hot", "market_ui.js"], {
         cwd: __dirname,
         stdio: "inherit"
     });

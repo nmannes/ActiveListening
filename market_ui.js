@@ -349,26 +349,7 @@ app.post("/api/data-entry/generate-samples", (req, res) => {
         }
 
 
-        const at = (cmd, when = "now") =>
-            execSync(`echo ${JSON.stringify(cmd)} | at ${when}`, { encoding: "utf8" }).trim();
-
-        const jobs = [
-            { type: "server", job: at("timeout 11m python server.py --local") },
-            ...createdFiles.map(f => ({
-                type: "client",
-                slug: path.basename(f, ".json"),
-                job: at(`timeout 10m bun run client.js --fromFile ${f} --local`, "now + 1 minute")
-            })),
-            {
-                type: "identity",
-                job: at(
-                    "sh /home/nathan/kalshi/pull_s3_responses.sh && python /home/nathan/kalshi/extract_all_speakers.py",
-                    "now + 13 minutes"
-                )
-            }
-        ];
-
-        res.json({ success: true, created: createdFiles, count: createdFiles.length, jobs });
+        res.json({ success: true, created: createdFiles, count: createdFiles.length });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
