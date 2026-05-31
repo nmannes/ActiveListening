@@ -7,10 +7,40 @@ import time
 import base64
 import requests
 from pathlib import Path
+from pydantic import BaseModel
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.backends import default_backend
+
+
+class Order(BaseModel):
+    action: str
+    book_side: str
+    client_order_id: str
+    created_time: str
+    fill_count_fp: str
+    initial_count_fp: str
+    last_update_time: str
+    maker_fees_dollars: str
+    maker_fill_cost_dollars: str
+    no_price_dollars: str
+    order_id: str
+    outcome_side: str
+    remaining_count_fp: str
+    side: str
+    status: str
+    subaccount_number: int
+    taker_fees_dollars: str
+    taker_fill_cost_dollars: str
+    ticker: str
+    type: str
+    user_id: str
+    yes_price_dollars: str
+
+
+class OrderResponse(BaseModel):
+    order: Order
 
 logger = logging.getLogger("remote_server")
 
@@ -99,7 +129,7 @@ class KalshiClient:
 
         try:
             response.raise_for_status()
-            return response.json()
+            return OrderResponse.model_validate(response.json())
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
