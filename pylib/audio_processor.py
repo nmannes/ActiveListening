@@ -15,9 +15,10 @@ transcript_logger = logging.getLogger("transcript")
 
 
 class AudioProcessor:
-    def __init__(self, session, on_tokens_callback=None):
+    def __init__(self, session, on_tokens_callback=None, word_predictor=None):
         self.session = session
         self.on_tokens_callback = on_tokens_callback
+        self.word_predictor = word_predictor
 
         # Deepgram specific configuration
         self.api_key = os.environ.get("DEEPGRAM_API_KEY")
@@ -298,6 +299,11 @@ class AudioProcessor:
                     # results — interim fires hundreds of ms before final
                     if self.on_tokens_callback:
                         await self.on_tokens_callback(
+                            formatted_tokens, speaker_id=speaker_id
+                        )
+
+                    if self.word_predictor:
+                        self.word_predictor.push_tokens(
                             formatted_tokens, speaker_id=speaker_id
                         )
 

@@ -35,6 +35,7 @@ from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
 from pylib.frame_processor import FrameProcessor
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
+from pylib.word_prediction import WordPredictor
 
 from pylib.log_config import setup_logging
 from pylib.telegram import send_telegram
@@ -81,6 +82,8 @@ class Config:
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
         logger.info(f"Environment: {self.env}")
         logger.info(f"Trading enabled: {self.trade_for_real}")
+        self.word_prediction_enabled = os.environ.get("WORD_PREDICTION", None) is not None
+        logger.info(f"Word prediction: {self.word_prediction_enabled}")
         self.audio_library_path = Path("~/audio-library").expanduser()
 
 
@@ -113,6 +116,8 @@ class ClientSession:
 
         self.audio_task = None
         self.frame_task = None
+
+        self.predictor: Optional[WordPredictor] = None
 
     async def run(self):
         logger.info("[server] New client connection")
@@ -175,6 +180,21 @@ class ClientSession:
             json.dumps(self.keyword_index, indent=2, default=str)
         )
 
+        if self.server.config.word_prediction_enabled:
+            keywords = self.market.get("keywords", {})
+            if keywords:
+                self.predictor = WordPredictor(
+                    target_words=list(keywords.keys()),
+                    horizon_sec=60,
+                    context_window_sec=120,
+                    update_interval_sec=5,
+                    min_context_utterances=3,
+                    llm_enabled=False,
+                )
+                logger.info(
+                    f"[{self.session_id}] WordPredictor initialized with {len(keywords)} target words"
+                )
+
         if not self.audio_only and self.clip_profile is not None:
             self.frame_processor = FrameProcessor(self)
             self.frame_task = asyncio.create_task(self.frame_processor.run())
@@ -191,9 +211,14 @@ class ClientSession:
         # Start the background tasks
         self.trade_processor = DiarizedTradeProcessor(self)
         self.audio_processor = AudioProcessor(
-            self, on_tokens_callback=self.trade_processor.process_tokens
-		)
+            self,
+            on_tokens_callback=self.trade_processor.process_tokens,
+            word_predictor=self.predictor,
+        )
         self.audio_task = asyncio.create_task(self.audio_processor.run())
+
+        if self.predictor:
+            await self.predictor.start()
 
         if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
@@ -272,6 +297,8 @@ class ClientSession:
             self.frame_task.cancel()
         if self.speaker_task:
             self.speaker_task.cancel()
+        if self.predictor:
+            asyncio.create_task(self.predictor.stop())
 
 
 class TradingServer:

@@ -348,6 +348,152 @@ app.delete("/api/data-entry/:index", (req, res) => {
 });
 
 
+app.get("/sessions", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "sessions.html"));
+});
+
+app.get("/transcript/:session", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "transcript.html"));
+});
+
+app.get("/api/sessions", (req, res) => {
+    try {
+        const s3Dir = path.join(DATA_DIR, "s3");
+        if (!fs.existsSync(s3Dir)) {
+            return res.json({ sessions: [] });
+        }
+
+        const sessions = [];
+
+        const dirs = fs.readdirSync(s3Dir, { withFileTypes: true })
+            .filter(d => d.isDirectory())
+            .map(d => d.name);
+
+        for (const session of dirs) {
+            const dgDir = path.join(s3Dir, session, "deepgram_responses");
+            if (!fs.existsSync(dgDir)) continue;
+
+            const dgFiles = fs.readdirSync(dgDir)
+                .filter(f => f.startsWith("dg_") && f.endsWith(".json"))
+                .sort();
+
+            if (dgFiles.length === 0) continue;
+
+            // Extract nanosecond timestamp from first file: dg_{ns}.json
+            const firstFile = dgFiles[0];
+            const tsNs = parseInt(firstFile.match(/^dg_(\d+)\.json$/)?.[1], 10);
+            const firstTs = tsNs ? new Date(Number(tsNs) / 1_000_000) : null;
+
+            // Extract slug (everything before the _YYYY-MM-DD_HH-MM-SS timestamp)
+            const slugMatch = session.match(/^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$/);
+            const slug = slugMatch ? slugMatch[1] : session;
+
+            const hasTranscript = fs.existsSync(path.join(s3Dir, session, "transcript.json"));
+
+            sessions.push({
+                session,
+                slug,
+                first_timestamp_ns: tsNs ? String(tsNs) : null,
+                first_timestamp_iso: firstTs ? firstTs.toISOString() : null,
+                deepgram_count: dgFiles.length,
+                has_transcript: hasTranscript,
+            });
+        }
+
+        // Sort by first timestamp descending (most recent first)
+        sessions.sort((a, b) => {
+            if (!a.first_timestamp_iso) return 1;
+            if (!b.first_timestamp_iso) return -1;
+            return b.first_timestamp_iso.localeCompare(a.first_timestamp_iso);
+        });
+
+        res.json({ sessions });
+    } catch (e) {
+        console.error(`Error in /api/sessions: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/transcript/:session", (req, res) => {
+    try {
+        const session = req.params.session;
+        if (!/^[\w.-]+$/.test(session)) {
+            return res.status(400).json({ error: "Invalid session name" });
+        }
+
+        const sessionDir = path.join(DATA_DIR, "s3", session);
+        if (!fs.existsSync(sessionDir)) {
+            return res.status(404).json({ error: "Session not found" });
+        }
+
+        const dgDir = path.join(sessionDir, "deepgram_responses");
+        if (!fs.existsSync(dgDir)) {
+            return res.status(404).json({ error: "No Deepgram responses for this session" });
+        }
+
+        const dgFiles = fs.readdirSync(dgDir)
+            .filter(f => f.startsWith("dg_") && f.endsWith(".json"))
+            .sort();
+
+        if (dgFiles.length === 0) {
+            return res.status(404).json({ error: "No Deepgram response files found" });
+        }
+
+        const slugMatch = session.match(/^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$/);
+        const slug = slugMatch ? slugMatch[1] : session;
+        const sessionTs = slugMatch ? slugMatch[2] : null;
+
+        // Pagination
+        const limit = Math.min(parseInt(req.query.limit) || dgFiles.length, 10000);
+        const offset = parseInt(req.query.offset) || 0;
+        const pageFiles = dgFiles.slice(offset, offset + limit);
+
+        const lines = [];
+        for (const file of pageFiles) {
+            try {
+                const raw = fs.readFileSync(path.join(dgDir, file), "utf8");
+                const msg = JSON.parse(raw);
+                const alt = msg.channel?.alternatives?.[0] || {};
+                const transcript = alt.transcript || "";
+                const confidence = alt.confidence ?? null;
+                const words = alt.words || [];
+                const speakers = [...new Set(words.map(w => w.speaker).filter(s => s != null))];
+
+                lines.push({
+                    file,
+                    ts_ns: file.match(/^dg_(\d+)\.json$/)?.[1] || null,
+                    type: msg.type || null,
+                    start: msg.start ?? null,
+                    duration: msg.duration ?? null,
+                    is_final: msg.is_final || false,
+                    transcript,
+                    confidence,
+                    speakers,
+                });
+            } catch (e) {
+                lines.push({ file, error: e.message });
+            }
+        }
+
+        // Parse signals for this session
+        const signals = parseLogFiles(slug.toLowerCase());
+
+        res.json({
+            session,
+            slug,
+            session_timestamp: sessionTs,
+            total: dgFiles.length,
+            offset,
+            limit,
+            lines,
+            signals,
+        });
+    } catch (e) {
+        console.error(`Error in /api/transcript/:session: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/session/:slug", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "session-detail.html"));
 });
