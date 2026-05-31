@@ -165,7 +165,7 @@ module.exports = {
 
     // Live: extract direct URL with yt-dlp -g for low-latency streaming
     const startTime = Date.now();
-    const timeoutMs = 5 * 60 * 1000;
+    const timeoutMs = 60 * 60 * 1000;
 
     while (Date.now() - startTime < timeoutMs && !_isStopped) {
       try {
