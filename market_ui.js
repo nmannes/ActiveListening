@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const bodyParser = require("body-parser");
 const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
-const { execSync } = require("child_process");
+const { execSync, exec } = require("child_process");
 const {
   parseLogFiles, loadMarketTitles, loadResolutions,
   fuzzyMatchTicker, openDb, getTickers,
@@ -297,7 +297,36 @@ app.post("/api/data-entry", (req, res) => {
         const entries = readJsonFile(DATA_ENTRIES_PATH, []);
         entries.push({ slug, youtube, speaker: speaker || "", speakerName: speakerName || "" });
         fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify(entries, null, 2));
-        res.json({ success: true });
+
+        // Create sample-scheduling file
+        if (!fs.existsSync(SAMPLES_DIR)) {
+            fs.mkdirSync(SAMPLES_DIR, { recursive: true });
+        }
+        const sample = {
+            slug,
+            youtube,
+            speaker: speaker || "",
+            speakerName: speakerName || "",
+            mediaStreamURL: youtube,
+            eventStartTime: null,
+            keywords: {},
+            clipProfile: null,
+            audioOnly: true,
+        };
+        if (speakerName) {
+            sample.speakerEntities = [speakerName];
+        }
+        const samplePath = path.join(SAMPLES_DIR, `${slug}.json`);
+        fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
+
+        // Start local recording: server + client, both backgrounded with timeout
+        const BUN = "/home/nathan/.bun/bin/bun";
+        exec(
+            `cd "${DATA_DIR}" && nohup timeout 10m python3 server.py & sleep 3 && nohup timeout 10m ${BUN} run client.js --local --fromFile "sample-scheduling/${slug}.json" & sleep 600 && (nohup bash pull_all_s3_responses.sh & wait $!) && SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1) && [ -n "$SESSION_DIR" ] && SPEAKER_NUM="${speaker}" SPEAKER_NAME="${speakerName}" SESSION_ID=$(basename "$SESSION_DIR") python3 -c 'import json, os; sid = os.environ["SESSION_ID"]; spk = os.environ["SPEAKER_NUM"]; name = os.environ["SPEAKER_NAME"]; labels = json.load(open("speaker_labels.json")); labels.setdefault(sid, {}); labels[sid][spk] = name; json.dump(labels, open("speaker_labels.json", "w"), indent=2); print(f"Labeled {sid}/{spk} -> {name}")'`,
+            (err) => { if (err) console.error(`Sample run error: ${err.message}`); }
+        );
+
+        res.json({ success: true, recording: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
