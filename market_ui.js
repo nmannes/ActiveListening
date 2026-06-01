@@ -320,9 +320,17 @@ app.post("/api/data-entry", (req, res) => {
         fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
 
         // Start local recording: server + client, both backgrounded with timeout
-        const BUN = "/home/nathan/.bun/bin/bun";
-        exec(
-            `cd "${DATA_DIR}" && nohup timeout 10m python3 server.py & sleep 60 && nohup timeout 10m ${BUN} run client.js --local --fromFile "sample-scheduling/${slug}.json" & sleep 600 && (nohup bash pull_all_s3_responses.sh & wait $!) && SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1) && [ -n "$SESSION_DIR" ] && SPEAKER_NUM="${speaker}" SPEAKER_NAME="${speakerName}" SESSION_ID=$(basename "$SESSION_DIR") python3 -c 'import json, os; sid = os.environ["SESSION_ID"]; spk = os.environ["SPEAKER_NUM"]; name = os.environ["SPEAKER_NAME"]; labels = json.load(open("speaker_labels.json")); labels.setdefault(sid, {}); labels[sid][spk] = name; json.dump(labels, open("speaker_labels.json", "w"), indent=2); print(f"Labeled {sid}/{spk} -> {name}")'`,
+        const cmd = [
+            `cd /home/nathan/kalshi`,
+            `nohup timeout 10m python server.py &`,
+            `sleep 60`,
+            `nohup timeout 10m bun run client.js --local --fromFile "sample-scheduling/${slug}.json" &`,
+            `sleep 900`,
+            `(nohup bash pull_all_s3_responses.sh & wait $!)`,
+            `SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1)`,
+            `[ -n "$SESSION_DIR" ] && python label_speaker.py "$(basename "$SESSION_DIR")" "${speaker}" "${speakerName}"`,
+        ].join(" && ");
+        exec(cmd,
             (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "error.log"), `${new Date().toISOString()} Sample run error (${slug}): ${err.message}\n`); }
         );
 

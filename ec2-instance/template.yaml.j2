@@ -191,6 +191,7 @@ Resources:
           - MarketType: spot
           - !Ref AWS::NoValue
       Ipv6AddressCount: !If [ ShouldAssignIpv6, 1, !Ref "AWS::NoValue" ]
+      InstanceInitiatedShutdownBehavior: terminate
       MetadataOptions:
         HttpEndpoint: enabled
         HttpTokens: required
