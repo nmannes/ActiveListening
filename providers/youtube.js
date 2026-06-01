@@ -78,9 +78,9 @@ function setupAudioTranscoder(inputUrl, retryCount = 0) {
  * Pipe yt-dlp audio output directly into ffmpeg for VOD (non-live) videos.
  * This avoids the DASH URL fragmentation issue with `-g`.
  */
-function setupPipedTranscoder(youtubeUrl) {
+function setupPipedTranscoder(youtubeUrl, retryCount = 0) {
   if (_isStopped) return;
-  _logger.info(`[youtube] Starting piped yt-dlp -> FFmpeg for ${youtubeUrl}`);
+  _logger.info(`[youtube] Starting piped yt-dlp -> FFmpeg for ${youtubeUrl} (Retry ${retryCount})`);
 
   const ytdlp = spawn("/home/linuxbrew/.linuxbrew/bin/yt-dlp", [
     "-f", "bestaudio/best",
@@ -103,14 +103,24 @@ function setupPipedTranscoder(youtubeUrl) {
 
   ytdlp.stdout.pipe(ffmpeg.stdin);
 
+  let ytdlpStderr = "";
   ytdlp.stderr.on("data", (data) => {
-    _logger.trace(`[youtube-ytdlp] ${data.toString().trim()}`);
+    const text = data.toString().trim();
+    ytdlpStderr += text + "\n";
+    _logger.trace(`[youtube-ytdlp] ${text}`);
   });
 
   ytdlp.on("close", (code) => {
-    _logger.info(`[youtube-ytdlp] yt-dlp exited with code ${code}`);
-    // Close ffmpeg's stdin so it finishes processing remaining data
+    _logger.info(`[youtube-ytdlp] yt-dlp exited with code ${code}${code !== 0 ? ': ' + ytdlpStderr.slice(-500).trim() : ''}`);
     ffmpeg.stdin.end();
+
+    if (!_isStopped && code !== 0) {
+      const delay = Math.min(30000, 2000 * Math.pow(2, retryCount));
+      _logger.info(`[youtube-ytdlp] Retrying piped yt-dlp in ${delay}ms...`);
+      _retryTimeout = setTimeout(() => {
+        setupPipedTranscoder(youtubeUrl, retryCount + 1);
+      }, delay);
+    }
   });
 
   ffmpeg.stdout.on("data", (data) => {
@@ -125,6 +135,13 @@ function setupPipedTranscoder(youtubeUrl) {
 
   ffmpeg.on("close", (code) => {
     _logger.info(`[youtube-ffmpeg] FFmpeg exited with code ${code}`);
+    if (!_isStopped && code !== 0 && code !== 255 && retryCount === 0) {
+      const delay = Math.min(30000, 2000 * Math.pow(2, retryCount));
+      _logger.info(`[youtube-ffmpeg] Retrying piped FFmpeg in ${delay}ms...`);
+      _retryTimeout = setTimeout(() => {
+        setupPipedTranscoder(youtubeUrl, retryCount + 1);
+      }, delay);
+    }
   });
 
   ffmpegProc = ffmpeg;

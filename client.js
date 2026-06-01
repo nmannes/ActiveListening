@@ -243,6 +243,7 @@ let heartbeatInterval = null;
 let transcriptCheckInterval = null;
 let reconnectStartTime = null;
 let lastTranscriptTime = Date.now();
+let providerStarted = false;
 
 // ── WebSocket connection with auto-reconnect ─────────────────────────
 function connectWebSocket() {
@@ -275,6 +276,7 @@ function connectWebSocket() {
     // Start transcript inactivity check
     if (!transcriptCheckInterval) {
       transcriptCheckInterval = setInterval(() => {
+        if (!providerStarted) return;
         const elapsed = (Date.now() - lastTranscriptTime) / 1000;
         if (elapsed > TRANSCRIPT_TIMEOUT_SEC) {
           logger.warn(
@@ -381,6 +383,9 @@ setTimeout(async () => {
       logger,
       isShuttingDown: () => isShuttingDown,
     });
+    // Reset transcript timeout now that the provider is actually streaming
+    providerStarted = true;
+    lastTranscriptTime = Date.now();
   } catch (err) {
     // Graceful browser session endings are expected
     if (

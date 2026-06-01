@@ -592,6 +592,17 @@ app.get("/api/session/:slug", (req, res) => {
     try {
         const slug = req.params.slug.toLowerCase();
 
+        // Find full session directory name for transcript linking
+        let sessionName = slug;
+        const s3Dir = path.join(DATA_DIR, "s3");
+        if (fs.existsSync(s3Dir)) {
+            const dirs = fs.readdirSync(s3Dir, { withFileTypes: true })
+                .filter(d => d.isDirectory())
+                .map(d => d.name);
+            const match = dirs.find(d => d.startsWith(slug + "_") && /\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}$/.test(d));
+            if (match) sessionName = match;
+        }
+
         // Load metadata
         const slugToTitle = loadMarketTitles();
         const resolutions = loadResolutions();
@@ -728,6 +739,7 @@ app.get("/api/session/:slug", (req, res) => {
 
         res.json({
             slug,
+            session: sessionName,
             title: slugToTitle.get(slug) || slug,
             mediaSource: mediaSources.get(slug) || slug.split("-")[0],
             tickers: [...tickerSet],
