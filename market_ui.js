@@ -374,18 +374,9 @@ app.post("/api/data-entry/:index/retry", (req, res) => {
         const samplePath = path.join(SAMPLES_DIR, `${entry.slug}.json`);
         fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
 
-        const cmd = [
-            `cd /home/nathan/kalshi`,
-            `(nohup timeout 10m python server.py &)`,
-            `sleep 60`,
-            `(nohup timeout 10m bun run client.js --local --fromFile "sample-scheduling/${entry.slug}.json" &)`,
-            `sleep 900`,
-            `(nohup bash pull_all_s3_responses.sh & wait $!)`,
-            `SESSION_DIR=$(ls -d "s3/${entry.slug}_"* 2>/dev/null | head -1)`,
-            `[ -n "$SESSION_DIR" ] && python label_speaker.py "$(basename "$SESSION_DIR")" "${entry.speaker}" "${entry.speakerName}"`,
-        ].join(" && ");
+        const cmd = `bash run_sample.sh "${samplePath}"`;
         exec(cmd,
-            (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "error.log"), `${new Date().toISOString()} Retry run error (${entry.slug}): ${err.message}\n`); }
+            (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "data-entry.log"), `${new Date().toISOString()} Retry run error (${entry.slug}): ${err.message}\n`); }
         );
 
         res.json({ success: true, recording: true });
