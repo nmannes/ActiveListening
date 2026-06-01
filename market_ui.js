@@ -322,9 +322,9 @@ app.post("/api/data-entry", (req, res) => {
         // Start local recording: server + client, both backgrounded with timeout
         const cmd = [
             `cd /home/nathan/kalshi`,
-            `nohup timeout 10m python server.py &`,
+            `(nohup timeout 10m python server.py &)`,
             `sleep 60`,
-            `nohup timeout 10m bun run client.js --local --fromFile "sample-scheduling/${slug}.json" &`,
+            `(nohup timeout 10m bun run client.js --local --fromFile "sample-scheduling/${slug}.json" &)`,
             `sleep 900`,
             `(nohup bash pull_all_s3_responses.sh & wait $!)`,
             `SESSION_DIR=$(ls -d "s3/${slug}_"* 2>/dev/null | head -1)`,
@@ -332,6 +332,60 @@ app.post("/api/data-entry", (req, res) => {
         ].join(" && ");
         exec(cmd,
             (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "error.log"), `${new Date().toISOString()} Sample run error (${slug}): ${err.message}\n`); }
+        );
+
+        res.json({ success: true, recording: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/data-entry/:index/retry", (req, res) => {
+    try {
+        const index = parseInt(req.params.index);
+        const entries = readJsonFile(DATA_ENTRIES_PATH, []);
+        if (index < 0 || index >= entries.length) {
+            return res.status(404).json({ error: "Index out of range" });
+        }
+        const entry = entries[index];
+
+        if (!entry.slug || !entry.youtube) {
+            return res.status(400).json({ error: "Entry missing slug or youtube" });
+        }
+
+        // Create/update sample-scheduling file
+        if (!fs.existsSync(SAMPLES_DIR)) {
+            fs.mkdirSync(SAMPLES_DIR, { recursive: true });
+        }
+        const sample = {
+            slug: entry.slug,
+            youtube: entry.youtube,
+            speaker: entry.speaker || "",
+            speakerName: entry.speakerName || "",
+            mediaStreamURL: entry.youtube,
+            eventStartTime: null,
+            keywords: {},
+            clipProfile: null,
+            audioOnly: true,
+        };
+        if (entry.speakerName) {
+            sample.speakerEntities = [entry.speakerName];
+        }
+        const samplePath = path.join(SAMPLES_DIR, `${entry.slug}.json`);
+        fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
+
+        const cmd = [
+            `cd /home/nathan/kalshi`,
+            `(nohup timeout 10m python server.py &)`,
+            `sleep 60`,
+            `(nohup timeout 10m bun run client.js --local --fromFile "sample-scheduling/${entry.slug}.json" &)`,
+            `sleep 900`,
+            `(nohup bash pull_all_s3_responses.sh & wait $!)`,
+            `SESSION_DIR=$(ls -d "s3/${entry.slug}_"* 2>/dev/null | head -1)`,
+            `[ -n "$SESSION_DIR" ] && python label_speaker.py "$(basename "$SESSION_DIR")" "${entry.speaker}" "${entry.speakerName}"`,
+        ].join(" && ");
+        exec(cmd,
+            (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "error.log"), `${new Date().toISOString()} Retry run error (${entry.slug}): ${err.message}\n`); }
         );
 
         res.json({ success: true, recording: true });
