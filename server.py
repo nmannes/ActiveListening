@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import asyncio
+import fcntl
 import json
 import numpy as np
 import logging
@@ -19,6 +20,7 @@ import os
 import re
 import signal
 import sys
+import tempfile
 import time
 import threading
 from collections import defaultdict
@@ -51,6 +53,23 @@ SPEAKER_RECOGNITION_INTERVAL_SECS = 10
 SPEAKER_RECOGNITION_WORD_STEP = 500
 SPEAKER_RECOGNITION_MAX_WORDS = 10000
 AUDIO_INBOX_CAP_SECS = 60
+
+LOCK_PATH = Path(tempfile.gettempdir()) / "kalshi-server.lock"
+
+
+def acquire_singleton_lock() -> int:
+    """Acquire an exclusive lock file. Returns fd. Exits if another server is running."""
+    lock_fd = os.open(LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        pid = Path(LOCK_PATH).read_text().strip() or "unknown"
+        print(f"Server is already running (PID: {pid}). Exiting.", file=sys.stderr)
+        os.close(lock_fd)
+        sys.exit(1)
+    os.truncate(lock_fd, 0)
+    os.write(lock_fd, str(os.getpid()).encode())
+    return lock_fd
 
 
 # ── Main server ───────────────────────────────────────────────────────
@@ -401,6 +420,8 @@ class TradingServer:
 
 
 async def main():
+    _lock_fd = acquire_singleton_lock()
+
     parser = argparse.ArgumentParser(
         description="Remote transcription & trading server"
     )
