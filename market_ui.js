@@ -497,6 +497,47 @@ app.get("/api/transcript/:session", (req, res) => {
     }
 });
 
+app.get("/api/runtime-logs/:slug", (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w.-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const logPath = path.join(DATA_DIR, "runtime_logs", `${slug}_merged.log`);
+        if (!fs.existsSync(logPath)) {
+            return res.status(404).json({ error: "No merged runtime logs for this session. Run sync_logs.sh first." });
+        }
+
+        const raw = fs.readFileSync(logPath, "utf8").trim();
+        const allLines = raw ? raw.split("\n").filter(Boolean) : [];
+
+        const limit = Math.min(parseInt(req.query.limit) || 500, 5000);
+        const offset = parseInt(req.query.offset) || 0;
+        const page = allLines.slice(offset, offset + limit);
+
+        const logs = [];
+        for (const line of page) {
+            try {
+                logs.push(JSON.parse(line));
+            } catch {
+                logs.push({ raw: line });
+            }
+        }
+
+        res.json({
+            slug,
+            total: allLines.length,
+            offset,
+            limit,
+            logs,
+        });
+    } catch (e) {
+        console.error(`Error in /api/runtime-logs/:slug: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/session/:slug", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "session-detail.html"));
 });

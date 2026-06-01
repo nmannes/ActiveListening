@@ -35,12 +35,6 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
 
 const runUUID = crypto.randomUUID();
 
-// Create the per-run logger (owns the file transport for this run)
-const runLogger = baseLogger.createLogger({ runUUID });
-
-// Initial logger with basic session ID if available via args
-let logger = runLogger.child({ sessionId: args.id || "startup", runUUID });
-
 // ── Help ─────────────────────────────────────────────────────────────
 if (args.help) {
   console.log(`
@@ -90,9 +84,12 @@ if (args.purchaseCount !== undefined) {
   market.purchaseCount = parseInt(args.purchaseCount, 10);
 }
 
-// ── Session ID & Lockfile ────────────────────────────────────────────
+// ── Session ID & Logger ──────────────────────────────────────────────
 const sessionId = market.slug || args.id || new Date().getUTCSeconds().toString();
-logger = runLogger.child({ sessionId, runUUID });
+
+// Create the per-run logger (owns the file transport for this run)
+const runLogger = baseLogger.createLogger({ runUUID, sessionId });
+let logger = runLogger.child({ sessionId, runUUID });
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
 const LOCK_DIR = path.join(DATA_DIR, "locks");

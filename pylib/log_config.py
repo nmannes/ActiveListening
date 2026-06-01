@@ -20,7 +20,7 @@ class JsonFormatter(logging.Formatter):
         ts = dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{int(record.msecs):03d}Z"
 
         log_entry = {
-            "timestamp": ts,
+            "time": ts,
             "level": record.levelname,
             "logger": record.name,
             "run_uuid": getattr(record, "run_uuid", "-"),
