@@ -354,6 +354,11 @@ function shutdown(reason, exitCode = 0) {
     logger.info(`[client] Lockfile removed: ${lockPath}`);
   }
 
+  // Queue log sync for after CloudWatch ingestion
+  try {
+    execSync(`echo "/home/nathan/kalshi/sync_logs.sh ${runUUID} --slug ${sessionId}" | at now + 5 minutes`, { stdio: "ignore" });
+  } catch (e) { /* best-effort */ }
+
   process.exit(exitCode);
 }
 
