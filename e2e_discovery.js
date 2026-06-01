@@ -3,6 +3,7 @@ const { fetchOpenMarkets } = require("./lib/discover_markets.js");
 const { findProgramsAcrossZipsAndKeywords } = require("./lib/scrapers/tv_discovery.js");
 const { scrapeESPNMatchups } = require("./lib/scrapers/league_schedule.js");
 const logger = require("./lib/logger");
+const { sendTelegram } = require("./lib/telegram");
 const path = require("path");
 const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
 const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
