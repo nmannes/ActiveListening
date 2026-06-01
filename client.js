@@ -232,10 +232,14 @@ sendTelegram(msg).catch((err) =>
 // ── State ────────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_DURATION_MS = 2 * 60 * 1000; // 2 minutes
+const TRANSCRIPT_TIMEOUT_SEC = parseInt(args.transcriptTimeout, 10) || 300;
+const TRANSCRIPT_CHECK_INTERVAL_MS = 5_000;
 let isShuttingDown = false;
 let ws = null;
 let heartbeatInterval = null;
+let transcriptCheckInterval = null;
 let reconnectStartTime = null;
+let lastTranscriptTime = Date.now();
 
 // ── WebSocket connection with auto-reconnect ─────────────────────────
 function connectWebSocket() {
@@ -264,6 +268,19 @@ function connectWebSocket() {
         ws.send(JSON.stringify({ type: "ping", ts: Date.now() }));
       }
     }, 2000);
+
+    // Start transcript inactivity check
+    if (!transcriptCheckInterval) {
+      transcriptCheckInterval = setInterval(() => {
+        const elapsed = (Date.now() - lastTranscriptTime) / 1000;
+        if (elapsed > TRANSCRIPT_TIMEOUT_SEC) {
+          logger.warn(
+            `No transcript for ${elapsed.toFixed(0)}s (timeout: ${TRANSCRIPT_TIMEOUT_SEC}s), ending stream`,
+          );
+          shutdown("Transcript timeout");
+        }
+      }, TRANSCRIPT_CHECK_INTERVAL_MS);
+    }
   });
 
   ws.on("message", (data) => {
@@ -272,6 +289,7 @@ function connectWebSocket() {
       if (msg.type === "signal") {
         logger.info(`SIGNAL: ${msg.keyword} → ${msg.ticker}`);
       } else if (msg.type === "transcript") {
+        lastTranscriptTime = Date.now();
         logger.info(`TRANSCRIPT: ${msg.text}`);
       } else if (msg.type === "speaker_identified") {
         const sortedScores = Object.entries(msg.scores)
@@ -323,6 +341,7 @@ function shutdown(reason, exitCode = 0) {
   logger.info(`${reason}, shutting down...`);
   isShuttingDown = true;
   if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (transcriptCheckInterval) clearInterval(transcriptCheckInterval);
   provider.stop();
   if (ws) ws.close();
   if (orderbook && orderbook.stop) orderbook.stop();

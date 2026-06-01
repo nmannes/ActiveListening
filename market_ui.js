@@ -475,6 +475,9 @@ app.get("/api/transcript/:session", (req, res) => {
             }
         }
 
+        // Filter out blank transcripts
+        const filtered = lines.filter(l => l.error || l.transcript);
+
         // Parse signals for this session
         const signals = parseLogFiles(slug.toLowerCase());
 
@@ -482,10 +485,10 @@ app.get("/api/transcript/:session", (req, res) => {
             session,
             slug,
             session_timestamp: sessionTs,
-            total: dgFiles.length,
+            total: filtered.length,
             offset,
             limit,
-            lines,
+            lines: filtered,
             signals,
         });
     } catch (e) {
