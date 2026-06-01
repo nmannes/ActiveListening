@@ -12,6 +12,7 @@
  *   node client.js --fromFile market.json   (auto-detects provider from stream URL)
  */
 
+const crypto = require("crypto");
 const path = require("path");
 const { execSync } = require("child_process");
 const net = require("net");
@@ -32,8 +33,13 @@ const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
   return acc;
 }, {});
 
+const runUUID = crypto.randomUUID();
+
+// Create the per-run logger (owns the file transport for this run)
+const runLogger = baseLogger.createLogger({ runUUID });
+
 // Initial logger with basic session ID if available via args
-let logger = baseLogger.child({ sessionId: args.id || "startup" });
+let logger = runLogger.child({ sessionId: args.id || "startup", runUUID });
 
 // ── Help ─────────────────────────────────────────────────────────────
 if (args.help) {
@@ -86,7 +92,7 @@ if (args.purchaseCount !== undefined) {
 
 // ── Session ID & Lockfile ────────────────────────────────────────────
 const sessionId = market.slug || args.id || new Date().getUTCSeconds().toString();
-logger = baseLogger.child({ sessionId });
+logger = runLogger.child({ sessionId, runUUID });
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
 const LOCK_DIR = path.join(DATA_DIR, "locks");
@@ -253,7 +259,7 @@ function connectWebSocket() {
     reconnectStartTime = null;
 
     // Send handshake with market data
-    const hello = { type: "hello", market };
+    const hello = { type: "hello", market, runUUID };
     if (provider.audioOnly) hello.audioOnly = true;
     if (market.clipProfile !== undefined)
       hello.clipProfile = market.clipProfile;

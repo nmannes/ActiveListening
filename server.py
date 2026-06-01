@@ -37,7 +37,7 @@ from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
 from pylib.word_prediction import WordPredictor
 
-from pylib.log_config import setup_logging
+from pylib.log_config import setup_logging, run_uuid_var
 from pylib.telegram import send_telegram
 
 
@@ -159,6 +159,9 @@ class ClientSession:
         self.voice_profile = msg.get("voiceProfile")
         self.clip_profile = msg.get("clipProfile")
         self.session_id = self.market.get("slug", f"session-{int(time.time())}")
+
+        run_uuid = msg.get("runUUID", "-")
+        run_uuid_var.set(run_uuid)
 
         logger.info(
             f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
