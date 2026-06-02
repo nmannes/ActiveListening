@@ -15,6 +15,7 @@ const {
   gpuServerQueue,
   runClientQueue,
   logSyncQueue,
+  schedulingLoopQueue,
   connection,
 } = require("./lib/queues");
 
@@ -25,6 +26,7 @@ const queues = {
   "gpu-server": gpuServerQueue,
   "run-client": runClientQueue,
   "log-sync": logSyncQueue,
+  "scheduling-loop": schedulingLoopQueue,
 };
 
 async function showStats() {
@@ -58,7 +60,14 @@ async function addTestJobs() {
     { runUUID: "test-run-uuid", sessionId: "test-session" },
     { delay: LONG_DELAY },
   );
-  console.log(`  [log-sync]    Added job: ${syncJob.id}`);
+  console.log(`  [log-sync]        Added job: ${syncJob.id}`);
+
+  const loopJob = await schedulingLoopQueue.add(
+    `${TEST_PREFIX}scheduling-loop`,
+    { includeDiscovery: true },
+    { delay: LONG_DELAY },
+  );
+  console.log(`  [scheduling-loop] Added job: ${loopJob.id}`);
 
   console.log("\nDone. Check http://localhost:3000/admin/queues or run with --stats\n");
 }

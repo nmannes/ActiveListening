@@ -1,100 +1,56 @@
 const { spawn } = require("child_process");
-const path = require("path");
+const { schedulingLoopQueue } = require("./lib/queues");
 
 const SCHEDULER_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
-function runScript(scriptName, args = []) {
-    return new Promise((resolve, reject) => {
-        console.log(`[${new Date().toISOString()}] Running ${scriptName} ${args.join(" ")}...`);
-        const proc = spawn(process.execPath, ["run", scriptName, ...args], {
-            cwd: __dirname,
-            stdio: "inherit"
-        });
-
-        proc.on("close", (code) => {
-            if (code === 0) {
-                console.log(`[${new Date().toISOString()}] ${scriptName} completed successfully.`);
-                resolve();
-            } else {
-                console.error(`[${new Date().toISOString()}] ${scriptName} failed with code ${code}.`);
-                reject(new Error(`${scriptName} failed`));
-            }
-        });
-    });
-}
-
 async function start() {
-    console.log("Starting Kalshi Main Event Loop...");
+  console.log("Starting Kalshi Main Event Loop...");
 
-    // 1. Start UI Server in background
-    console.log("Starting Market Manager UI...");
-    const uiProc = spawn(process.execPath, ["run", "--hot", "market_ui.js"], {
-        cwd: __dirname,
-        stdio: "inherit"
-    });
+  // 1. Start UI Server in background
+  console.log("Starting Market Manager UI...");
+  const uiProc = spawn(process.execPath, ["run", "--hot", "market_ui.js"], {
+    cwd: __dirname,
+    stdio: "inherit",
+  });
+  uiProc.on("error", (err) => console.error("Failed to start UI server:", err));
 
-    uiProc.on("error", (err) => {
-        console.error("Failed to start UI server:", err);
-    });
+  // 2. Start BullMQ Worker in background
+  console.log("Starting BullMQ Worker...");
+  const workerProc = spawn(process.execPath, ["run", "worker.js"], {
+    cwd: __dirname,
+    stdio: "inherit",
+  });
+  workerProc.on("error", (err) => console.error("Failed to start BullMQ worker:", err));
 
-    // 1b. Start BullMQ Worker in background
-    console.log("Starting BullMQ Worker...");
-    const workerProc = spawn(process.execPath, ["run", "worker.js"], {
-        cwd: __dirname,
-        stdio: "inherit"
-    });
+  // 3. Initial scheduling loop with discovery
+  console.log("Enqueuing initial scheduling loop...");
+  await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
 
-    workerProc.on("error", (err) => {
-        console.error("Failed to start BullMQ worker:", err);
-    });
-
-    // 2. Initial Discovery Run
+  // 4. Recurring: scheduling + analysis every 15 minutes (no discovery)
+  setInterval(async () => {
     try {
-        await runScript("e2e_discovery.js");
+      await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: false });
+      console.log(`[${new Date().toISOString()}] Enqueued scheduling loop`);
     } catch (e) {
-        console.error("Initial discovery failed, but continuing loop...");
+      console.error("Failed to enqueue scheduling loop:", e);
     }
+  }, SCHEDULER_INTERVAL_MS);
 
-    // 3. Initial Scheduling Run
+  // 5. Recurring: full loop with discovery every 60 minutes
+  setInterval(async () => {
     try {
-        await runScript("schedule_matches.js");
+      await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
+      console.log(`[${new Date().toISOString()}] Enqueued scheduling loop (with discovery)`);
     } catch (e) {
-        console.error("Initial scheduling failed, but continuing loop...");
+      console.error("Failed to enqueue scheduling loop:", e);
     }
+  }, DISCOVERY_INTERVAL_MS);
 
-    // 3a. Initial Timing Analysis Run
-    try {
-        await runScript("signal_vs_no_closeout.js");
-    } catch (e) {
-        console.error("Initial timing analysis failed, but continuing loop...");
-    }
-
-    // 4. Setup Intervals
-    setInterval(async () => {
-        try {
-            await runScript("schedule_matches.js");
-            await runScript("signal_vs_no_closeout.js");
-        } catch (e) {
-            console.error("Scheduled matching/analysis run failed:", e);
-        }
-    }, SCHEDULER_INTERVAL_MS);
-
-    setInterval(async () => {
-        try {
-            await runScript("e2e_discovery.js");
-            // Always follow discovery with scheduling to pick up new matches
-            await runScript("schedule_matches.js");
-            await runScript("signal_vs_no_closeout.js");
-        } catch (e) {
-            console.error("Scheduled discovery run failed:", e);
-        }
-    }, DISCOVERY_INTERVAL_MS);
-
-    console.log("Main loop active. Scheduling/Analysis every 15m, Discovery every 60m.");
+  console.log("Main loop active. Scheduling every 15m, Discovery every 60m — all via BullMQ.");
 }
 
-start().catch(err => {
-    console.error("Fatal error in main loop:", err);
-    process.exit(1);
+start().catch((err) => {
+  console.error("Fatal error in main loop:", err);
+  process.exit(1);
 });
