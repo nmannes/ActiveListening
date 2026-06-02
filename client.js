@@ -358,7 +358,8 @@ function shutdown(reason, exitCode = 0) {
 
   // Queue log sync for after CloudWatch ingestion
   try {
-    execSync(`echo "/home/nathan/kalshi/sync_logs.sh ${runUUID} --slug ${sessionId}" | at now + 5 minutes`, { stdio: "ignore" });
+    const { logSyncQueue } = require("./lib/queues");
+    logSyncQueue.add("sync-logs", { runUUID, sessionId }, { delay: 5 * 60 * 1000 }).catch(() => {});
   } catch (e) { /* best-effort */ }
 
   process.exit(exitCode);

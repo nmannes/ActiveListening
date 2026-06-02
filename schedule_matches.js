@@ -6,6 +6,7 @@ const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { getHostScheduleTime } = require("./lib/host_schedules");
+const { gpuServerQueue, runClientQueue } = require("./lib/queues");
 const _ = require("lodash");
 
 const DATA_DIR = process.env.KALSHI_DATA_DIR || __dirname;
@@ -395,6 +396,7 @@ for (const m of candidates) {
 if (currentSequence) sequences.push(currentSequence);
 
 // ── 4. Process Sequences ─────────────────────────────────────────────
+(async () => {
 for (const seq of sequences) {
   // Calculate optimal server window for the entire sequence
   const firstM = seq[0];
@@ -475,13 +477,12 @@ for (const seq of sequences) {
         );
       }
 
-      let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
-      if (!clientOnly) cmd += ` --server-duration ${serverDuration}`;
-      if (clientOnly) cmd += " --client-only";
       const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
       const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
-      if (!isTv && !isYoutube) cmd += " --browser";
-      console.log(`          Command: ${cmd}`);
+      if (!clientOnly) {
+        console.log(`          BullMQ:  gpu-server job delayed until ${overallLaunch.toLocaleTimeString()}`);
+      }
+      console.log(`          BullMQ:  run-client job delayed until ${startTime.toLocaleTimeString()}${!isTv && !isYoutube ? " (browser)" : ""}`);
       console.log("");
       continue;
     }
@@ -506,18 +507,8 @@ for (const seq of sequences) {
       }
     }
 
-    let cmd = `/home/nathan/kalshi/schedule_run.sh ${newFile} --duration ${marketDuration}`;
-    if (!clientOnly) {
-      cmd += ` --server-duration ${serverDuration}`;
-    }
-    if (clientOnly) {
-      cmd += " --client-only";
-    }
     const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
     const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
-    if (!isTv && !isYoutube) {
-      cmd += " --browser";
-    }
 
     try {
       console.log(
@@ -536,7 +527,28 @@ for (const seq of sequences) {
         );
       }
 
-      execSync(cmd);
+      const absFile = path.resolve(newFile);
+      const nowMs = Date.now();
+
+      if (!clientOnly) {
+        const gpuDelay = overallLaunch.getTime() - nowMs;
+        await gpuServerQueue.add(
+          "launch-gpu-server",
+          { shutdownMinutes: serverDuration + 10 },
+          { delay: Math.max(0, gpuDelay) },
+        );
+      }
+
+      const clientDelay = startTime.getTime() - nowMs;
+      await runClientQueue.add(
+        "run-client",
+        {
+          marketFile: absFile,
+          duration: marketDuration + 10,
+          browser: !isTv && !isYoutube,
+        },
+        { delay: Math.max(0, clientDelay) },
+      );
 
       const mode = clientOnly
         ? reusableWindow
@@ -558,4 +570,7 @@ for (const seq of sequences) {
       console.error(`Failed to schedule ${market.title}: ${e.message}`);
     }
   }
-}
+})().catch(err => {
+  console.error("BullMQ scheduling error:", err);
+  process.exit(1);
+});

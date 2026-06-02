@@ -38,6 +38,17 @@ async function start() {
         console.error("Failed to start UI server:", err);
     });
 
+    // 1b. Start BullMQ Worker in background
+    console.log("Starting BullMQ Worker...");
+    const workerProc = spawn(process.execPath, ["run", "worker.js"], {
+        cwd: __dirname,
+        stdio: "inherit"
+    });
+
+    workerProc.on("error", (err) => {
+        console.error("Failed to start BullMQ worker:", err);
+    });
+
     // 2. Initial Discovery Run
     try {
         await runScript("e2e_discovery.js");

@@ -1,6 +1,6 @@
 #!/bin/bash
-# schedule_run.sh — Schedules GPU launch + tvclient.js execution
-# using `at` for non-blocking scheduling.
+# schedule_run.sh — Enqueues GPU launch + client.js execution
+# via BullMQ (Redis-backed job queue).
 #
 # Usage:
 #   bash schedule_run.sh cava.json
@@ -9,8 +9,8 @@
 #   bash schedule_run.sh cava.json --force
 #
 # Timeline:
-#   T-7min:  Launch GPU instance (with shutdown scheduled 30min after start)
-#   T=0:     Run bun run tvclient.js --fromFile <file>
+#   T-10min:  Enqueue GPU launch job
+#   T=0:      Enqueue client.js run job
 
 set -e
 export TZ="America/New_York"
@@ -114,43 +114,52 @@ echo "========================================"
 
 if [[ "$DRY_RUN" == true ]]; then
     echo ""
-    echo "  at jobs that would be scheduled:"
+    echo "  BullMQ jobs that would be enqueued:"
     if [[ "$CLIENT_ONLY" != true ]]; then
-        echo "    1) GPU launch: $SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES at $LAUNCH_AT"
+        echo "    1) gpu-server: launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES at $LAUNCH_AT"
     fi
-    
+
     CMD_PREFIX=""
     BROWSER_ARG=""
     if [[ "$USE_BROWSER" == true ]]; then
         CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
         BROWSER_ARG="--browser"
     fi
-    echo "    *) client.js:  cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG at $START_AT"
+    echo "    2) run-client: cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG at $START_AT"
     echo ""
-    echo "  (dry run — nothing scheduled)"
+    echo "  (dry run — nothing enqueued)"
     exit 0
 fi
 
-# Resolve to absolute path for the at job
+# Resolve to absolute path
 ABS_JSON_FILE="$(cd "$(dirname "$JSON_FILE")" && pwd)/$(basename "$JSON_FILE")"
 
-# --- Schedule GPU launch at T-10min ---
-if [[ "$CLIENT_ONLY" != true ]]; then
-    echo "$SCRIPT_DIR/launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES  >> $SCRIPT_DIR/schedule_run.log 2>&1" \
-        | at "$LAUNCH_AT"
-fi
-
-# --- Schedule tvclient.js at start time ---
-CMD_PREFIX=""
-BROWSER_ARG=""
+# --- Enqueue via BullMQ ---
+BROWSER_FLAG="false"
 if [[ "$USE_BROWSER" == true ]]; then
-    CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
-    BROWSER_ARG="--browser"
+    BROWSER_FLAG="true"
 fi
 
-echo "cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG >> $SCRIPT_DIR/schedule_run.log 2>&1" \
-    | at "$START_AT"
+NOW_MS=$((NOW_EPOCH * 1000))
+GPU_DELAY_MS=$(((LAUNCH_EPOCH - NOW_EPOCH) * 1000))
+CLIENT_DELAY_MS=$(((START_EPOCH - NOW_EPOCH) * 1000))
+
+if [[ "$CLIENT_ONLY" != true ]]; then
+    $BUN -e "
+const { gpuServerQueue } = require('./lib/queues');
+gpuServerQueue.add('launch-gpu-server', { shutdownMinutes: $SERVER_SHUTDOWN_MINUTES }, { delay: Math.max(0, $GPU_DELAY_MS) })
+  .then(j => { console.log('GPU server job enqueued:', j.id); process.exit(0); })
+  .catch(e => { console.error(e); process.exit(1); });
+"
+fi
+
+$BUN -e "
+const { runClientQueue } = require('./lib/queues');
+runClientQueue.add('run-client', { marketFile: '$ABS_JSON_FILE', duration: $SHUTDOWN_MINUTES, browser: $BROWSER_FLAG }, { delay: Math.max(0, $CLIENT_DELAY_MS) })
+  .then(j => { console.log('Run client job enqueued:', j.id); process.exit(0); })
+  .catch(e => { console.error(e); process.exit(1); });
+"
 
 echo ""
-echo "Jobs scheduled. Output will be logged to $SCRIPT_DIR/schedule_run.log"
-echo "Run 'atq' to see pending jobs, 'atrm <id>' to cancel."
+echo "Jobs enqueued via BullMQ."
+echo "View dashboard at http://localhost:3000/admin/queues"

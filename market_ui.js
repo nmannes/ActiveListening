@@ -760,6 +760,25 @@ app.get("/api/session/:slug", (req, res) => {
     }
 });
 
+// ── Bull Board ────────────────────────────────────────────────────────
+const { createBullBoard } = require("@bull-board/api");
+const { BullMQAdapter } = require("@bull-board/api/bullMQAdapter");
+const { ExpressAdapter } = require("@bull-board/express");
+const { gpuServerQueue, runClientQueue, logSyncQueue } = require("./lib/queues");
+
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath("/admin/queues");
+createBullBoard({
+  queues: [
+    new BullMQAdapter(gpuServerQueue),
+    new BullMQAdapter(runClientQueue),
+    new BullMQAdapter(logSyncQueue),
+  ],
+  serverAdapter,
+});
+app.use("/admin/queues", serverAdapter.getRouter());
+
 app.listen(PORT, () => {
     console.log(`Market Manager UI running at http://localhost:${PORT}`);
+    console.log(`Bull Board running at http://localhost:${PORT}/admin/queues`);
 });
