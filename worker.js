@@ -30,7 +30,7 @@ const clientWorker = new Worker(
     const prefix = browser ? "/home/linuxbrew/.linuxbrew/bin/xvfb-run -a " : "";
     const browserArg = browser ? "--browser" : "";
     spawn(
-      `cd ${SCRIPT_DIR} && ${prefix}bun run client.js --fromFile ${marketFile} --duration ${duration} ${browserArg}`,
+      `cd ${SCRIPT_DIR} && ${prefix}/home/nathan/.bun/bin/bun run client.js --fromFile ${marketFile} --duration ${duration} ${browserArg}`,
       job,
     );
   },
@@ -51,10 +51,10 @@ const schedulingLoopWorker = new Worker(
   async (job) => {
     const { includeDiscovery } = job.data;
     if (includeDiscovery) {
-      spawn(`bun run e2e_discovery.js`, job);
+      spawn(`/home/nathan/.bun/bin/bun run e2e_discovery.js`, job);
     }
-    spawn(`bun run schedule_matches.js`, job);
-    spawn(`bun run signal_vs_no_closeout.js`, job);
+    spawn(`/home/nathan/.bun/bin/bun run schedule_matches.js`, job);
+    spawn(`/home/nathan/.bun/bin/bun run signal_vs_no_closeout.js`, job);
   },
   { connection, concurrency: 1 },
 );
