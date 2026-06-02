@@ -41,7 +41,7 @@ const cleanupOldFiles = () => {
         try {
           fs.unlinkSync(filePath);
           console.log(`Cleaned up old scheduled file: ${filePath}`);
-        } catch (e) {}
+        } catch (e) { }
       }
     });
   });
@@ -184,7 +184,7 @@ function getDuration(market, match) {
   const espnEvent = mediaSources?.find(s => s.type === 'espn')?.metadata;
   const tvEvent = mediaSources?.find(s => s.type === 'tv')?.metadata;
   const cspanEvent = mediaSources?.find(s => s.type === 'cspan')?.metadata;
-  
+
   if (cspanEvent && cspanEvent.duration) {
     return cspanEvent.duration;
   }
@@ -331,41 +331,41 @@ for (const match of matches) {
     if (!scheduleStartTime && targetSlug) {
       scheduleStartTime = now.toISOString();
     }
-    
+
     if (scheduleStartTime) {
       let startTime = new Date(scheduleStartTime);
       let alreadyStarted = false;
 
-    // Skip if started more than 30 minutes ago, unless targeted
-    const stalenessThresholdMs = 30 * 60 * 1000;
-    const isStale = startTime < new Date(now.getTime() - stalenessThresholdMs);
-    if (isStale && !targetSlug) {
-      console.log(
-        `Skipping ${market.title} - started too long ago (${startTime.toLocaleString()})`,
-      );
-      continue;
-    }
-
-    if (startTime <= now) {
-      alreadyStarted = true;
-      startTime = new Date(now.getTime() + 5 * 1000); // 5s buffer
-    }
-
-    if (startTime <= lookaheadLimit) {
-      if (Object.keys(market.keywords || {}).length === 0) {
-        console.log(`Skipping ${market.title} - no keywords (likely duration market)`);
+      // Skip if started more than 30 minutes ago, unless targeted
+      const stalenessThresholdMs = 30 * 60 * 1000;
+      const isStale = startTime < new Date(now.getTime() - stalenessThresholdMs);
+      if (isStale && !targetSlug) {
+        console.log(
+          `Skipping ${market.title} - started too long ago (${startTime.toLocaleString()})`,
+        );
         continue;
       }
-      market.mediaStreamURL = streamURL;
-      market.eventStartTime = startTime;
-      market.alreadyStarted = alreadyStarted;
-      market.bestMediaSource = bestSource;
-      market.mediaSourceCommonName = bestSource?.commonName || "Unknown";
 
-      candidates.push(market);
+      if (startTime <= now) {
+        alreadyStarted = true;
+        startTime = new Date(now.getTime() + 5 * 1000); // 5s buffer
+      }
+
+      if (startTime <= lookaheadLimit) {
+        if (Object.keys(market.keywords || {}).length === 0) {
+          console.log(`Skipping ${market.title} - no keywords (likely duration market)`);
+          continue;
+        }
+        market.mediaStreamURL = streamURL;
+        market.eventStartTime = startTime;
+        market.alreadyStarted = alreadyStarted;
+        market.bestMediaSource = bestSource;
+        market.mediaSourceCommonName = bestSource?.commonName || "Unknown";
+
+        candidates.push(market);
+      }
     }
   }
-}
 }
 
 candidates.sort(
@@ -397,180 +397,181 @@ if (currentSequence) sequences.push(currentSequence);
 
 // ── 4. Process Sequences ─────────────────────────────────────────────
 (async () => {
-for (const seq of sequences) {
-  // Calculate optimal server window for the entire sequence
-  const firstM = seq[0];
-  const lastM = seq[seq.length - 1];
+  for (const seq of sequences) {
+    // Calculate optimal server window for the entire sequence
+    const firstM = seq[0];
+    const lastM = seq[seq.length - 1];
 
-  const seqStart = new Date(firstM.eventStartTime);
-  const seqLastStart = new Date(lastM.eventStartTime);
+    const seqStart = new Date(firstM.eventStartTime);
+    const seqLastStart = new Date(lastM.eventStartTime);
 
-  // Server should launch 10m before first and shut down based on the longest duration required
-  const overallLaunch = new Date(seqStart.getTime() - 10 * 60 * 1000);
+    // Server should launch 10m before first and shut down based on the longest duration required
+    const overallLaunch = new Date(seqStart.getTime() - 10 * 60 * 1000);
 
-  let maxEndTime = 0;
-  for (const m of seq) {
-    const mStartTime = new Date(m.eventStartTime).getTime();
-    // We need to find the original match object to get duration context
-    const originalMatch = matches.find((match) => match.market.slug === m.slug);
-    const duration = getDuration(m, originalMatch);
-    const mEndTime = mStartTime + duration * 60 * 1000;
-    if (mEndTime > maxEndTime) maxEndTime = mEndTime;
-  }
-
-  const overallShutdown = new Date(maxEndTime);
-  const optimizedDuration =
-    Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
-
-  let seqServerWindow = null;
-
-  for (const market of seq) {
-    const originalMatch = matches.find(
-      (match) => match.market.slug === market.slug,
-    );
-    const startTime = new Date(market.eventStartTime);
-    const slug = market.slug;
-    const newFile = path.join(scheduledDir, `${slug}.json`);
-
-    const marketDuration = getDuration(market, originalMatch);
-
-    // Check if we can reuse an existing server window (from previous runs or current sequence)
-    const estimatedEndTime = new Date(startTime.getTime() + marketDuration * 60 * 1000);
-    let reusableWindow = serverWindows.find(
-      (w) => w.start <= startTime && w.end >= estimatedEndTime,
-    );
-
-    if (!reusableWindow && seqServerWindow) {
-      if (
-        seqServerWindow.start <= startTime &&
-        seqServerWindow.end >= estimatedEndTime
-      ) {
-        reusableWindow = seqServerWindow;
-      }
+    let maxEndTime = 0;
+    for (const m of seq) {
+      const mStartTime = new Date(m.eventStartTime).getTime();
+      // We need to find the original match object to get duration context
+      const originalMatch = matches.find((match) => match.market.slug === m.slug);
+      const duration = getDuration(m, originalMatch);
+      const mEndTime = mStartTime + duration * 60 * 1000;
+      if (mEndTime > maxEndTime) maxEndTime = mEndTime;
     }
 
-    let clientOnly = market.alreadyStarted || !!reusableWindow;
-    let serverDuration = clientOnly ? 0 : optimizedDuration;
+    const overallShutdown = new Date(maxEndTime);
+    const optimizedDuration =
+      Math.ceil((overallShutdown - overallLaunch) / 60000) - 10;
 
-    const isAlreadyScheduled = fs.existsSync(newFile) && !force;
+    let seqServerWindow = null;
 
-    if (dryRun) {
-      console.log(`[DRY-RUN] Market: ${market.title}`);
-      console.log(`          Event:   ${startTime.toLocaleString()}`);
-      console.log(`          Stream:  ${market.mediaStreamURL || "NONE"}`);
-      console.log(`          Source:  ${scheduledDir}/${slug}.json`);
+    for (const market of seq) {
+      const originalMatch = matches.find(
+        (match) => match.market.slug === market.slug,
+      );
+      const startTime = new Date(market.eventStartTime);
+      const slug = market.slug;
+      const newFile = path.join(scheduledDir, `${slug}.json`);
+
+      const marketDuration = getDuration(market, originalMatch);
+
+      // Check if we can reuse an existing server window (from previous runs or current sequence)
+      const estimatedEndTime = new Date(startTime.getTime() + marketDuration * 60 * 1000);
+      let reusableWindow = serverWindows.find(
+        (w) => w.start <= startTime && w.end >= estimatedEndTime,
+      );
+
+      if (!reusableWindow && seqServerWindow) {
+        if (
+          seqServerWindow.start <= startTime &&
+          seqServerWindow.end >= estimatedEndTime
+        ) {
+          reusableWindow = seqServerWindow;
+        }
+      }
+
+      let clientOnly = market.alreadyStarted || !!reusableWindow;
+      let serverDuration = clientOnly ? 0 : optimizedDuration;
+
+      const isAlreadyScheduled = fs.existsSync(newFile) && !force;
+
+      if (dryRun) {
+        console.log(`[DRY-RUN] Market: ${market.title}`);
+        console.log(`          Event:   ${startTime.toLocaleString()}`);
+        console.log(`          Stream:  ${market.mediaStreamURL || "NONE"}`);
+        console.log(`          Source:  ${scheduledDir}/${slug}.json`);
+
+        if (isAlreadyScheduled) {
+          console.log(`          Status:  ALREADY SCHEDULED (Would be skipped)`);
+        }
+        console.log(
+          `          Mode:    ${clientOnly ? (reusableWindow ? "REUSE Server (Client Only)" : "Client Only (Started)") : "NEW Server (Full Run)"}`,
+        );
+        if (!clientOnly) {
+          console.log(
+            `          Server:  Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
+          );
+          seqServerWindow = { start: overallLaunch, end: overallShutdown };
+        } else if (reusableWindow) {
+          console.log(
+            `          Using:   Existing server window (${reusableWindow.start.toLocaleTimeString()} - ${reusableWindow.end.toLocaleTimeString()})`,
+          );
+        }
+
+        const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
+        const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
+        if (!clientOnly) {
+          console.log(`          BullMQ:  gpu-server job delayed until ${overallLaunch.toLocaleTimeString()}`);
+        }
+        console.log(`          BullMQ:  run-client job delayed until ${startTime.toLocaleTimeString()}${!isTv && !isYoutube ? " (browser)" : ""}`);
+        console.log("");
+        continue;
+      }
 
       if (isAlreadyScheduled) {
-        console.log(`          Status:  ALREADY SCHEDULED (Would be skipped)`);
+        console.log(`Skipping ${market.title} - already scheduled`);
+        continue;
       }
-      console.log(
-        `          Mode:    ${clientOnly ? (reusableWindow ? "REUSE Server (Client Only)" : "Client Only (Started)") : "NEW Server (Full Run)"}`,
-      );
-      if (!clientOnly) {
-        console.log(
-          `          Server:  Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
-        );
-        seqServerWindow = { start: overallLaunch, end: overallShutdown };
-      } else if (reusableWindow) {
-        console.log(
-          `          Using:   Existing server window (${reusableWindow.start.toLocaleTimeString()} - ${reusableWindow.end.toLocaleTimeString()})`,
-        );
+
+      // Prepare market file
+      if (market.keywords) delete market["keywords"]["event does not qualify"];
+      market.clientOnly = clientOnly;
+      market.serverDuration = serverDuration;
+      fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
+
+      if (homeScheduledDir) {
+        try {
+          const homeFile = path.join(homeScheduledDir, `${slug}.json`);
+          fs.writeFileSync(homeFile, JSON.stringify(market, null, 2));
+        } catch (e) {
+          console.error(`Failed to write to home scheduled dir: ${e.message}`);
+        }
       }
 
       const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
       const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
-      if (!clientOnly) {
-        console.log(`          BullMQ:  gpu-server job delayed until ${overallLaunch.toLocaleTimeString()}`);
-      }
-      console.log(`          BullMQ:  run-client job delayed until ${startTime.toLocaleTimeString()}${!isTv && !isYoutube ? " (browser)" : ""}`);
-      console.log("");
-      continue;
-    }
 
-    if (isAlreadyScheduled) {
-      console.log(`Skipping ${market.title} - already scheduled`);
-      continue;
-    }
-
-    // Prepare market file
-    if (market.keywords) delete market["keywords"]["event does not qualify"];
-    market.clientOnly = clientOnly;
-    market.serverDuration = serverDuration;
-    fs.writeFileSync(newFile, JSON.stringify(market, null, 2));
-
-    if (homeScheduledDir) {
       try {
-        const homeFile = path.join(homeScheduledDir, `${slug}.json`);
-        fs.writeFileSync(homeFile, JSON.stringify(market, null, 2));
-      } catch (e) {
-        console.error(`Failed to write to home scheduled dir: ${e.message}`);
-      }
-    }
-
-    const isTv = market.mediaStreamURL && market.mediaStreamURL.includes("localhost:9981");
-    const isYoutube = market.mediaStreamURL && (market.mediaStreamURL.includes("youtube.com") || market.mediaStreamURL.includes("youtu.be")) && !market.mediaStreamURL.includes("tv.youtube.com");
-
-    try {
-      console.log(
-        `Scheduling ${market.title} for ${startTime.toLocaleString()}`,
-      );
-      console.log(
-        `          Mode:   ${clientOnly ? (reusableWindow ? "REUSE Server" : "Client Only") : "NEW Server"}`,
-      );
-      if (market.mediaStreamURL) {
-        const displayStream = market.mediaStreamURL.includes("localhost") ? "localhost" : market.mediaStreamURL;
-        console.log(`          Stream: ${displayStream}`);
-      }
-      if (!clientOnly) {
         console.log(
-          `          Server: Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
+          `Scheduling ${market.title} for ${startTime.toLocaleString()}`,
         );
-      }
-
-      const absFile = path.resolve(newFile);
-      const nowMs = Date.now();
-
-      if (!clientOnly) {
-        const gpuDelay = overallLaunch.getTime() - nowMs;
-        await gpuServerQueue.add(
-          "launch-gpu-server",
-          { shutdownMinutes: serverDuration + 10 },
-          { delay: Math.max(0, gpuDelay) },
+        console.log(
+          `          Mode:   ${clientOnly ? (reusableWindow ? "REUSE Server" : "Client Only") : "NEW Server"}`,
         );
+        if (market.mediaStreamURL) {
+          const displayStream = market.mediaStreamURL.includes("localhost") ? "localhost" : market.mediaStreamURL;
+          console.log(`          Stream: ${displayStream}`);
+        }
+        if (!clientOnly) {
+          console.log(
+            `          Server: Launch at ${overallLaunch.toLocaleTimeString()}, Shutdown at ${overallShutdown.toLocaleTimeString()} (${optimizedDuration + 10}m total)`,
+          );
+        }
+
+        const absFile = path.resolve(newFile);
+        const nowMs = Date.now();
+
+        if (!clientOnly) {
+          const gpuDelay = overallLaunch.getTime() - nowMs;
+          await gpuServerQueue.add(
+            "launch-gpu-server",
+            { shutdownMinutes: serverDuration + 10 },
+            { delay: Math.max(0, gpuDelay) },
+          );
+        }
+
+        const clientDelay = startTime.getTime() - nowMs;
+        await runClientQueue.add(
+          "run-client",
+          {
+            marketFile: absFile,
+            duration: marketDuration + 10,
+            browser: !isTv && !isYoutube,
+          },
+          { delay: Math.max(0, clientDelay) },
+        );
+
+        const mode = clientOnly
+          ? reusableWindow
+            ? "REUSE Server"
+            : "Client Only"
+          : "NEW Server";
+        const channelName = market.mediaSourceCommonName || "NONE";
+        const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Channel: ${channelName}`;
+        sendTelegram(message).catch((e) =>
+          console.error(`Failed to send Telegram: ${e.message}`),
+        );
+
+        if (!clientOnly) {
+          seqServerWindow = { start: overallLaunch, end: overallShutdown };
+          serverWindows.push(seqServerWindow);
+        }
+        console.log("");
+      } catch (e) {
+        console.error(`Failed to schedule ${market.title}: ${e.message}`);
       }
-
-      const clientDelay = startTime.getTime() - nowMs;
-      await runClientQueue.add(
-        "run-client",
-        {
-          marketFile: absFile,
-          duration: marketDuration + 10,
-          browser: !isTv && !isYoutube,
-        },
-        { delay: Math.max(0, clientDelay) },
-      );
-
-      const mode = clientOnly
-        ? reusableWindow
-          ? "REUSE Server"
-          : "Client Only"
-        : "NEW Server";
-      const channelName = market.mediaSourceCommonName || "NONE";
-      const message = `✅ Scheduled Match: ${market.title}\n📅 Time: ${startTime.toLocaleString()}\n🚀 Mode: ${mode}\n📺 Channel: ${channelName}`;
-      sendTelegram(message).catch((e) =>
-        console.error(`Failed to send Telegram: ${e.message}`),
-      );
-
-      if (!clientOnly) {
-        seqServerWindow = { start: overallLaunch, end: overallShutdown };
-        serverWindows.push(seqServerWindow);
-      }
-      console.log("");
-    } catch (e) {
-      console.error(`Failed to schedule ${market.title}: ${e.message}`);
     }
   }
-})().catch(err => {
+}).catch((err) => {
   console.error("BullMQ scheduling error:", err);
   process.exit(1);
 });
