@@ -10,6 +10,7 @@ const {
   collectCandidates,
   processSequences,
 } = require("./lib/scheduling");
+const { connection } = require("./lib/queues");
 const {
   MAX_SCHEDULED_FILE_AGE_MS,
   DEFAULT_LOOKAHEAD_HOURS,
@@ -223,6 +224,8 @@ async function main() {
     homeScheduledDir,
     sendTelegram,
   });
+
+  await connection.quit();
 }
 
 main().catch((err) => {

@@ -27,16 +27,6 @@ async function start() {
   console.log("Enqueuing initial scheduling loop...");
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
 
-  // 4. Recurring: scheduling + analysis every 15 minutes (no discovery)
-  setInterval(async () => {
-    try {
-      await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: false });
-      console.log(`[${new Date().toISOString()}] Enqueued scheduling loop`);
-    } catch (e) {
-      console.error("Failed to enqueue scheduling loop:", e);
-    }
-  }, SCHEDULER_INTERVAL_MS);
-
   // 5. Recurring: full loop with discovery every 60 minutes
   setInterval(async () => {
     try {
@@ -47,7 +37,7 @@ async function start() {
     }
   }, DISCOVERY_INTERVAL_MS);
 
-  console.log("Main loop active. Scheduling every 15m, Discovery every 60m — all via BullMQ.");
+  console.log("Discovery every 60m — all via BullMQ.");
 }
 
 start().catch((err) => {
