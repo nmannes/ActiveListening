@@ -25,8 +25,7 @@ let _streamUrl = null;
 let _isStopped = false;
 let _retryTimeout = null;
 
-
-const LATENCY_REDUCTION_INTERVAL = 60_000
+const LATENCY_REDUCTION_INTERVAL = 60_000;
 
 // ── FFmpeg Transcoder (Browser WebM -> Raw PCM) ──────────────────────
 function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {

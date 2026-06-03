@@ -235,7 +235,7 @@ sendTelegram(msg).catch((err) =>
 // ── State ────────────────────────────────────────────────────────────
 const RECONNECT_DELAY_MS = 3_000;
 const MAX_RECONNECT_DURATION_MS = 2 * 60 * 1000; // 2 minutes
-const TRANSCRIPT_TIMEOUT_SEC = parseInt(args.transcriptTimeout, 10) || 300;
+const TRANSCRIPT_TIMEOUT_SEC = parseInt(args.transcriptTimeout, 10) || 1800;
 const TRANSCRIPT_CHECK_INTERVAL_MS = 5_000;
 let isShuttingDown = false;
 let ws = null;

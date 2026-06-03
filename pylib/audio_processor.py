@@ -103,42 +103,54 @@ class AudioProcessor:
                     break
             await asyncio.sleep(0.5)
 
-        try:
-            logger.info(
-                f"[{self.session.session_id}] Attempting Deepgram connection..."
-            )
-            # Use additional_headers for newer websockets version compat
-            async with websockets.connect(
-                self.dg_url, additional_headers=headers
-            ) as dg_ws:
+        reconnect_delay = 1
+        while True:
+            try:
                 logger.info(
-                    f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
+                    f"[{self.session.session_id}] Attempting Deepgram connection..."
+                )
+                # Use additional_headers for newer websockets version compat
+                async with websockets.connect(
+                    self.dg_url, additional_headers=headers
+                ) as dg_ws:
+                    logger.info(
+                        f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
+                    )
+                    reconnect_delay = 1  # reset backoff on successful connection
+
+                    # Spawn sender and receiver tasks
+                    send_task = asyncio.create_task(self.send_audio(dg_ws))
+                    receive_task = asyncio.create_task(self.receive_results(dg_ws))
+                    telemetry_task = asyncio.create_task(self.telemetry_loop())
+
+                    try:
+                        await asyncio.gather(send_task, receive_task, telemetry_task)
+                    except asyncio.CancelledError:
+                        logger.info(f"[{self.session.session_id}] Deepgram tasks cancelled, shutting down")
+                        raise  # re-raise to exit the reconnection loop
+                    except Exception as e:
+                        logger.error(
+                            f"[{self.session.session_id}] Deepgram processing error: {e}"
+                        )
+                        raise  # caught by outer except for reconnect
+                    finally:
+                        # Clean shutdown of tasks for this connection attempt
+                        send_task.cancel()
+                        receive_task.cancel()
+                        telemetry_task.cancel()
+
+            except asyncio.CancelledError:
+                break  # intentional shutdown, exit loop to finally block
+            except Exception as e:
+                logger.exception(
+                    f"[{self.session.session_id}] Deepgram connection/runtime error: {e}"
                 )
 
-                # Spawn sender and receiver tasks
-                send_task = asyncio.create_task(self.send_audio(dg_ws))
-                receive_task = asyncio.create_task(self.receive_results(dg_ws))
-                telemetry_task = asyncio.create_task(self.telemetry_loop())
-
-                try:
-                    await asyncio.gather(send_task, receive_task, telemetry_task)
-                except asyncio.CancelledError:
-                    logger.info(f"[{self.session.session_id}] Deepgram tasks cancelled")
-                except Exception as e:
-                    logger.error(
-                        f"[{self.session.session_id}] Deepgram processing error: {e}"
-                    )
-                    raise
-                finally:
-                    # Clean shutdown
-                    send_task.cancel()
-                    receive_task.cancel()
-                    telemetry_task.cancel()
-
-        except Exception as e:
-            logger.exception(
-                f"[{self.session.session_id}] Deepgram connection/runtime error: {e}"
+            logger.info(
+                f"[{self.session.session_id}] Deepgram disconnected, reconnecting in {reconnect_delay}s..."
             )
+            await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, 30)
         finally:
             if self._wav_file:
                 self._wav_file.close()
