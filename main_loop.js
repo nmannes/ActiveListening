@@ -1,5 +1,6 @@
 const { spawn } = require("child_process");
 const { schedulingLoopQueue } = require("./lib/queues");
+const { sendTelegram } = require("./lib/telegram");
 
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -25,12 +26,15 @@ async function start() {
   // 3. Initial scheduling loop with discovery
   console.log("Enqueuing initial scheduling loop...");
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
+  sendTelegram("Scheduling loop started").catch(() => {});
 
   // 5. Recurring: full loop with discovery every 60 minutes
   setInterval(async () => {
     try {
       await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
-      console.log(`[${new Date().toISOString()}] Enqueued scheduling loop (with discovery)`);
+      const timestamp = new Date().toISOString();
+      console.log(`[${timestamp}] Enqueued scheduling loop (with discovery)`);
+      sendTelegram(`[${timestamp}] Scheduling loop enqueued`).catch(() => {});
     } catch (e) {
       console.error("Failed to enqueue scheduling loop:", e);
     }
