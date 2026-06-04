@@ -49,14 +49,11 @@ const syncWorker = new Worker(
 const schedulingLoopWorker = new Worker(
   "scheduling-loop",
   async (job) => {
-    const { includeDiscovery } = job.data;
-    if (includeDiscovery) {
-      spawn(`/home/nathan/.bun/bin/bun run e2e_discovery.js`, job);
-    }
+    spawn(`/home/nathan/.bun/bin/bun run e2e_discovery.js`, job);
     spawn(`/home/nathan/.bun/bin/bun run schedule_matches.js`, job);
     spawn(`/home/nathan/.bun/bin/bun run signal_vs_no_closeout.js`, job);
   },
   { connection, concurrency: 1 },
 );
 
-console.log("[worker] BullMQ worker started — listening on gpu-server, run-client, log-sync, scheduling-loop");
+console.log("[worker] BullMQ worker started — listening on gpu-server, run-client, scheduling-loop");
