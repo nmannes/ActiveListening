@@ -1,7 +1,6 @@
 const { spawn } = require("child_process");
 const { schedulingLoopQueue } = require("./lib/queues");
 
-const SCHEDULER_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 async function start() {
@@ -9,7 +8,7 @@ async function start() {
 
   // 1. Start UI Server in background
   console.log("Starting Market Manager UI...");
-  const uiProc = spawn(process.execPath, ["run", "--hot", "market_ui.js"], {
+  const uiProc = spawn(process.execPath, ["run", "market_ui.js"], {
     cwd: __dirname,
     stdio: "inherit",
   });
