@@ -255,7 +255,7 @@ const freshMarkets = marketsResults || [];
       logMessages.push(msg);
     }
     // Send all log messages in one Telegram message (debug channel)
-    sendTelegram(logMessages.join('\n'), "info").catch(e => logger.warn(`Telegram batch send failed: ${e.message}`));
+    sendTelegram(logMessages.join('\n'), "debug").catch(e => logger.warn(`Telegram batch send failed: ${e.message}`));
 
     // Also save a unified schedule for easy debugging/matching
     const allNormalized = [
