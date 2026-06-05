@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalshi Market Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --glass: rgba(255, 255, 255, 0.03);
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1400px;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        section {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            max-height: 85vh;
+        }
+
+        h2 {
+            font-size: 1.125rem;
+            margin: 0 0 1.5rem 0;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .market-list {
+            overflow-y: auto;
+            flex-grow: 1;
+            padding-right: 0.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .market-card {
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+
+        .market-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .market-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+            line-height: 1.4;
+            margin: 0;
+        }
+
+        .market-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        .market-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        input {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            padding: 0.5rem;
+            width: 100%;
+            font-size: 0.85rem;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0.5rem 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            font-size: 0.85rem;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button.secondary {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        button.secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        button.danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+
+        button.danger:hover {
+            background: rgba(239, 68, 68, 0.3);
+        }
+
+        .badge {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 0.25rem;
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+            text-transform: uppercase;
+        }
+
+        .badge.scheduled {
+            background: rgba(59, 130, 246, 0.2);
+            color: #93c5fd;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .market-card.scheduled {
+            border-color: rgba(59, 130, 246, 0.5);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Kalshi Market Manager</h1>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <a href="/sessions" target="_blank"
+                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Sessions</a>
+            <a href="/speakers" target="_blank"
+                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Speaker
+                Identification </a>
+            <a href="/signals" target="_blank"
+                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Signal
+                Dashboard 📈</a>
+            <a href="/data-entry" target="_blank"
+                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Data
+                Entry 📝</a>
+            <div id="status" class="market-meta">Loading data...</div>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Upcoming Streams -->
+        <section>
+            <h2>Upcoming Streams 📅</h2>
+            <div class="market-list" id="upcoming-list"></div>
+        </section>
+
+        <!-- Started / Past Streams -->
+        <section>
+            <h2>Started Events 📡</h2>
+            <div class="market-list" id="started-list"></div>
+        </section>
+
+        <!-- Unmatched Markets -->
+        <section>
+            <h2>Find Streams 🔍</h2>
+            <div class="market-list" id="unmatched-list"></div>
+        </section>
+    </div>
+
+    <!-- Edit Modal -->
+    <div id="edit-modal"
+        style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); justify-content: center; align-items: center; z-index: 1000; opacity: 0; transition: opacity 0.3s ease;">
+        <div
+            style="background: rgba(20, 20, 25, 0.9); border: 1px solid var(--border); border-radius: 1rem; padding: 1.5rem; width: 90%; max-width: 500px; box-shadow: 0 20px 40px rgba(0,0,0,0.5); backdrop-filter: blur(16px); transform: scale(0.95); transition: transform 0.3s ease; display: flex; flex-direction: column; gap: 1.25rem;">
+            <h3 id="modal-title"
+                style="margin: 0; font-size: 1.2rem; font-weight: 600; line-height: 1.4; color: var(--text); background: linear-gradient(to right, #60a5fa, #a855f7); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;">
+                Edit Event Details</h3>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Media Stream URL</label>
+                <input type="text" id="modal-url" placeholder="https://...">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Start Time
+                        (Local)</label>
+                    <span id="modal-time-relative"
+                        style="font-size: 0.75rem; color: var(--accent); font-weight: 600;"></span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <input type="datetime-local" id="modal-time" style="flex-grow: 1;">
+                    <button class="secondary" onclick="adjustModalTime(-30)"
+                        style="padding: 0.5rem 0.75rem; font-size: 0.8rem; font-weight: 600;"
+                        title="Subtract 30 minutes">-30m</button>
+                    <button class="secondary" onclick="adjustModalTime(30)"
+                        style="padding: 0.5rem 0.75rem; font-size: 0.8rem; font-weight: 600;"
+                        title="Add 30 minutes">+30m</button>
+                </div>
+                <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.25rem;">
+                    <button class="secondary" onclick="setModalTimePreset(15)"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem;">+15m</button>
+                    <button class="secondary" onclick="setModalTimePreset(60)"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem;">+1h</button>
+                    <button class="secondary" onclick="setModalTimePreset(120)"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem;">+2h</button>
+                    <button class="secondary" onclick="setModalTimePreset(1440)"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem;">+1d</button>
+                    <button class="secondary" onclick="setModalTimePreset(0)"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem; background: rgba(59, 130, 246, 0.1); color: var(--accent);">Now</button>
+                    <button class="secondary" onclick="clearModalTime()"
+                        style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem; background: rgba(239, 68, 68, 0.1); color: #fca5a5;">Clear</button>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
+                <button class="secondary" onclick="closeEditModal()">Cancel</button>
+                <button id="modal-save-btn">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let activeEditSlug = null;
+
+        function getEventDate(startTime, eventStartTime) {
+            const time = startTime || eventStartTime;
+            if (!time) return null;
+            const d = new Date(time);
+            if (isNaN(d.getTime()) || d.getTime() <= 0) return null;
+            return d;
+        }
+
+        function formatEventTime(startTime, eventStartTime) {
+            const d = getEventDate(startTime, eventStartTime);
+            if (!d) return "No Start Time";
+            return d.toLocaleString();
+        }
+
+        function formatLocalDateTime(d) {
+            if (!d || isNaN(d.getTime())) return "";
+            const pad = n => String(n).padStart(2, '0');
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        }
+
+        function updateModalRelativeTime() {
+            const timeVal = document.getElementById("modal-time").value;
+            const relativeSpan = document.getElementById("modal-time-relative");
+            if (!timeVal) {
+                relativeSpan.textContent = "No time set";
+                relativeSpan.style.color = "var(--text-muted)";
+                return;
+            }
+            const date = new Date(timeVal);
+            if (isNaN(date.getTime())) {
+                relativeSpan.textContent = "";
+                return;
+            }
+            const now = new Date();
+            const diffMs = date - now;
+            const diffMin = Math.round(diffMs / 60000);
+
+            if (Math.abs(diffMin) < 1) {
+                relativeSpan.textContent = "starting now";
+                relativeSpan.style.color = "var(--accent)";
+            } else if (diffMin > 0) {
+                const hours = Math.floor(diffMin / 60);
+                const mins = diffMin % 60;
+                let text = "starts in ";
+                if (hours > 0) text += `${hours}h `;
+                text += `${mins}m`;
+                relativeSpan.textContent = text;
+                relativeSpan.style.color = "#34d399";
+            } else {
+                const absMin = Math.abs(diffMin);
+                const hours = Math.floor(absMin / 60);
+                const mins = absMin % 60;
+                let text = "started ";
+                if (hours > 0) text += `${hours}h `;
+                text += `${mins}m ago`;
+                relativeSpan.textContent = text;
+                relativeSpan.style.color = "#fca5a5";
+            }
+        }
+
+        function adjustModalTime(minutes) {
+            const input = document.getElementById("modal-time");
+            let d = input.value ? new Date(input.value) : new Date();
+            if (isNaN(d.getTime())) d = new Date();
+            d.setMinutes(d.getMinutes() + minutes);
+            input.value = formatLocalDateTime(d);
+            updateModalRelativeTime();
+        }
+
+        function setModalTimePreset(minutesFromNow) {
+            const input = document.getElementById("modal-time");
+            const d = new Date();
+            d.setMinutes(d.getMinutes() + minutesFromNow);
+            input.value = formatLocalDateTime(d);
+            updateModalRelativeTime();
+        }
+
+        function clearModalTime() {
+            document.getElementById("modal-time").value = "";
+            updateModalRelativeTime();
+        }
+
+        function updateCardRelativeTime(slug) {
+            const input = document.getElementById(`time-${slug}`);
+            const relativeSpan = document.getElementById(`relative-${slug}`);
+            if (!input || !relativeSpan) return;
+
+            const timeVal = input.value;
+            if (!timeVal) {
+                relativeSpan.textContent = "No time set";
+                relativeSpan.style.color = "var(--text-muted)";
+                return;
+            }
+
+            const date = new Date(timeVal);
+            if (isNaN(date.getTime())) {
+                relativeSpan.textContent = "";
+                return;
+            }
+
+            const now = new Date();
+            const diffMs = date - now;
+            const diffMin = Math.round(diffMs / 60000);
+
+            if (Math.abs(diffMin) < 1) {
+                relativeSpan.textContent = "starting now";
+                relativeSpan.style.color = "var(--accent)";
+            } else if (diffMin > 0) {
+                const hours = Math.floor(diffMin / 60);
+                const mins = diffMin % 60;
+                let text = "starts in ";
+                if (hours > 0) text += `${hours}h `;
+                text += `${mins}m`;
+                relativeSpan.textContent = text;
+                relativeSpan.style.color = "#34d399";
+            } else {
+                const absMin = Math.abs(diffMin);
+                const hours = Math.floor(absMin / 60);
+                const mins = absMin % 60;
+                let text = "started ";
+                if (hours > 0) text += `${hours}h `;
+                text += `${mins}m ago`;
+                relativeSpan.textContent = text;
+                relativeSpan.style.color = "#fca5a5";
+            }
+        }
+
+        function adjustCardTime(slug, minutes) {
+            const input = document.getElementById(`time-${slug}`);
+            if (!input) return;
+            let d = input.value ? new Date(input.value) : new Date();
+            if (isNaN(d.getTime())) d = new Date();
+            d.setMinutes(d.getMinutes() + minutes);
+            input.value = formatLocalDateTime(d);
+            updateCardRelativeTime(slug);
+        }
+
+        function setCardPreset(slug, minutesFromNow) {
+            const input = document.getElementById(`time-${slug}`);
+            if (!input) return;
+            const d = new Date();
+            d.setMinutes(d.getMinutes() + minutesFromNow);
+            input.value = formatLocalDateTime(d);
+            updateCardRelativeTime(slug);
+        }
+
+        async function fetchMarkets() {
+            try {
+                const res = await fetch("/api/markets");
+                if (!res.ok) throw new Error(`Server returned ${res.status}: ${res.statusText}`);
+                const data = await res.json();
+                console.log("Fetched data:", data);
+
+                const allActive = (data.manual || []).concat((data.matched || []).filter(m => !(data.manual || []).find(man => man.market.slug === m.market.slug)));
+
+                const now = new Date();
+                const upcoming = [];
+                const started = [];
+
+                allActive.forEach(m => {
+                    const d = getEventDate(m.startTime, m.market.eventStartTime);
+                    if (!d) {
+                        // Events without specified start times are treated as upcoming so they aren't lost
+                        upcoming.push(m);
+                    } else if (d > now) {
+                        upcoming.push(m);
+                    } else {
+                        started.push(m);
+                    }
+                });
+
+                renderList("upcoming-list", upcoming);
+                renderList("started-list", started);
+                renderUnmatched((data.unmatched || []).filter(m => !(data.manual || []).find(man => man.market.slug === m.market.slug)));
+
+                document.getElementById("status").textContent = `Sync: ${new Date().toLocaleTimeString()}`;
+            } catch (err) {
+                console.error("Fetch error:", err);
+                document.getElementById("status").textContent = `Error: ${err.message}`;
+            }
+        }
+
+        function renderList(id, markets) {
+            const container = document.getElementById(id);
+            container.innerHTML = "";
+            markets.sort((a, b) => {
+                const dateA = getEventDate(a.startTime, a.market.eventStartTime);
+                const dateB = getEventDate(b.startTime, b.market.eventStartTime);
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1;
+                if (!dateB) return -1;
+                return dateA - dateB;
+            });
+
+            if (markets.length === 0) {
+                container.innerHTML = '<div class="market-meta">No events found.</div>';
+                return;
+            }
+
+            markets.forEach(m => {
+                const card = document.createElement("div");
+                card.className = "market-card";
+                const streamUrl = m.market.mediaStreamURL || m.market.channelURL || "";
+                const displayUrl = streamUrl.includes("localhost") ? "localhost" : streamUrl;
+
+                const channelName = m.market.channelName || displayUrl;
+
+                const entities = m.market.speakerEntities && Array.isArray(m.market.speakerEntities) && m.market.speakerEntities.length > 0
+                    ? m.market.speakerEntities.join(", ")
+                    : null;
+
+                card.innerHTML = `
+                    <div class="market-title">${m.market.title}</div>
+                    <div class="market-meta">
+                        ${m.manual ? '<span class="badge">Manual</span>' : ''}
+                        ${m.market.isScheduled ? '<span class="badge scheduled">Scheduled</span>' : ''}
+                        ${formatEventTime(m.startTime, m.market.eventStartTime)}
+                    </div>
+                    ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
+                    <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
+                    <div class="market-actions">
+                        <button class="secondary" onclick="openEditModal('${m.market.slug}', '${streamUrl}')">Edit</button>
+                        ${m.manual ? `<button class="danger" onclick="removeManual('${m.market.slug}')">Revert</button>` : ''}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function renderUnmatched(markets) {
+            const container = document.getElementById("unmatched-list");
+            container.innerHTML = "";
+
+            if (markets.length === 0) {
+                container.innerHTML = '<div class="market-meta">No unmatched markets found.</div>';
+                return;
+            }
+
+            markets.sort((a, b) => {
+                const dateA = getEventDate(a.startTime, a.market.eventStartTime);
+                const dateB = getEventDate(b.startTime, b.market.eventStartTime);
+                if (!dateA && !dateB) return 0;
+                if (!dateA) return 1;
+                if (!dateB) return -1;
+                return dateA - dateB;
+            });
+
+            markets.forEach(m => {
+                const card = document.createElement("div");
+                card.className = "market-card";
+                const entities = m.market.speakerEntities && Array.isArray(m.market.speakerEntities) && m.market.speakerEntities.length > 0
+                    ? m.market.speakerEntities.join(", ")
+                    : null;
+                const streamUrl = m.streamUrl || "";
+                const channelName = m.channelName || "Unknown";
+
+                let defaultLocalTime = "";
+                const rawTime = m.startTime || m.market.eventStartTime;
+                if (rawTime) {
+                    try {
+                        const d = new Date(rawTime);
+                        if (!isNaN(d.getTime()) && d.getTime() > 0) {
+                            defaultLocalTime = formatLocalDateTime(d);
+                        }
+                    } catch (e) { }
+                }
+
+                card.innerHTML = `
+                    <div class="market-title">${m.market.title}</div>
+                    <div class="market-meta">
+                        ${formatEventTime(m.startTime, m.market.eventStartTime)}
+                    </div>
+                    ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
+                    <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
+                        <input type="text" placeholder="Paste Stream URL" id="stream-${m.market.slug}">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 0.75rem; color: var(--text-muted); white-space: nowrap;">Start Time:</span>
+                            <input type="datetime-local" id="time-${m.market.slug}" value="${defaultLocalTime}" oninput="updateCardRelativeTime('${m.market.slug}')" onchange="updateCardRelativeTime('${m.market.slug}')" style="flex-grow: 1;">
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: -0.2rem;">
+                            <span id="relative-${m.market.slug}" style="font-size: 0.75rem; font-weight: 500;"></span>
+                            <div style="display: flex; gap: 0.25rem;">
+                                <button class="secondary" onclick="adjustCardTime('${m.market.slug}', -30)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-radius: 0.25rem;">-30m</button>
+                                <button class="secondary" onclick="adjustCardTime('${m.market.slug}', 30)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-radius: 0.25rem;">+30m</button>
+                                <button class="secondary" onclick="setCardPreset('${m.market.slug}', 0)" style="padding: 0.15rem 0.35rem; font-size: 0.7rem; border-radius: 0.25rem;">Now</button>
+                            </div>
+                        </div>
+                        <button onclick="saveManual('${m.market.slug}')" style="margin-top: 0.25rem;">Assign Stream</button>
+                    </div>
+                `;
+                container.appendChild(card);
+                setTimeout(() => updateCardRelativeTime(m.market.slug), 0);
+            });
+        }
+
+        async function saveManual(slug) {
+            const urlInput = document.getElementById(`stream-${slug}`);
+            const timeInput = document.getElementById(`time-${slug}`);
+            const url = urlInput ? urlInput.value : "";
+            if (!url) return alert("Enter a URL");
+
+            const newTime = timeInput ? timeInput.value : "";
+
+            const res = await fetch("/api/markets");
+            const data = await res.json();
+            const all = [...data.unmatched, ...data.matched, ...data.manual];
+            const item = all.find(m => m.market.slug === slug);
+
+            if (!item) return alert("Market not found");
+
+            let startTime = item.startTime || item.market.eventStartTime;
+            if (newTime) {
+                try {
+                    const parsedDate = new Date(newTime);
+                    if (!isNaN(parsedDate.getTime())) {
+                        startTime = parsedDate.toISOString();
+                    }
+                } catch (e) {
+                    console.error("Invalid date entered:", newTime);
+                }
+            } else {
+                startTime = null;
+            }
+
+            await fetch("/api/manual-match", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    market: item.market,
+                    mediaStreamURL: url,
+                    startTime: startTime
+                })
+            });
+            fetchMarkets();
+        }
+
+        async function removeManual(slug) {
+            await fetch(`/api/manual-match/${slug}`, { method: "DELETE" });
+            fetchMarkets();
+        }
+
+        async function openEditModal(slug, currentUrl) {
+            activeEditSlug = slug;
+            const res = await fetch("/api/markets");
+            const data = await res.json();
+            const all = [...data.unmatched, ...data.matched, ...data.manual];
+            const item = all.find(m => m.market.slug === slug);
+            if (!item) return alert("Market not found");
+
+            document.getElementById("modal-title").textContent = `Edit: ${item.market.title}`;
+            document.getElementById("modal-url").value = currentUrl || "";
+
+            const currentStartTime = item.startTime || item.market.eventStartTime;
+            let defaultLocalTime = "";
+            if (currentStartTime) {
+                try {
+                    const d = new Date(currentStartTime);
+                    if (!isNaN(d.getTime()) && d.getTime() > 0) {
+                        defaultLocalTime = formatLocalDateTime(d);
+                    }
+                } catch (e) { }
+            }
+            document.getElementById("modal-time").value = defaultLocalTime;
+            updateModalRelativeTime();
+
+            const modal = document.getElementById("edit-modal");
+            modal.style.display = "flex";
+            modal.offsetHeight; // force reflow
+            modal.style.opacity = "1";
+            modal.firstElementChild.style.transform = "scale(1)";
+        }
+
+        function closeEditModal() {
+            const modal = document.getElementById("edit-modal");
+            modal.style.opacity = "0";
+            modal.firstElementChild.style.transform = "scale(0.95)";
+            setTimeout(() => {
+                modal.style.display = "none";
+                activeEditSlug = null;
+            }, 300);
+        }
+
+        async function saveModalChanges() {
+            if (!activeEditSlug) return;
+            const url = document.getElementById("modal-url").value;
+            if (!url) return alert("Enter a URL");
+
+            const newTime = document.getElementById("modal-time").value;
+
+            const res = await fetch("/api/markets");
+            const data = await res.json();
+            const all = [...data.unmatched, ...data.matched, ...data.manual];
+            const item = all.find(m => m.market.slug === activeEditSlug);
+
+            if (!item) return alert("Market not found");
+
+            let startTime = item.startTime || item.market.eventStartTime;
+            if (newTime) {
+                try {
+                    const parsedDate = new Date(newTime);
+                    if (!isNaN(parsedDate.getTime())) {
+                        startTime = parsedDate.toISOString();
+                    }
+                } catch (e) {
+                    console.error("Invalid date entered:", newTime);
+                }
+            } else {
+                startTime = null;
+            }
+
+            await fetch("/api/manual-match", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    market: item.market,
+                    mediaStreamURL: url,
+                    startTime: startTime
+                })
+            });
+
+            closeEditModal();
+            fetchMarkets();
+        }
+
+        document.getElementById("modal-save-btn").onclick = saveModalChanges;
+
+        document.getElementById("edit-modal").addEventListener("click", (e) => {
+            if (e.target === document.getElementById("edit-modal")) {
+                closeEditModal();
+            }
+        });
+
+        document.getElementById("modal-time").addEventListener("input", updateModalRelativeTime);
+        document.getElementById("modal-time").addEventListener("change", updateModalRelativeTime);
+
+        fetchMarkets();
+        setInterval(fetchMarkets, 30000);
+    </script>
+</body>
+
+</html>

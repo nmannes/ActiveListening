@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DG Responses</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .nav { margin-bottom: 16px; font-size: 12px; }
+  .nav a { color: #8b949e; }
+  .nav span { color: #484f58; margin: 0 8px; }
+
+  h1 { font-size: 18px; color: #58a6ff; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #8b949e; margin-bottom: 8px; }
+  .slug-text { font-size: 11px; color: #484f58; font-family: inherit; margin-bottom: 4px; }
+
+  .tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 1px solid #30363d; }
+  .tab-btn { background: none; border: none; color: #8b949e; padding: 8px 16px;
+             font-size: 11px; font-family: inherit; cursor: pointer; border-bottom: 2px solid transparent;
+             transition: color 0.15s, border-color 0.15s; }
+  .tab-btn:hover { color: #c9d1d9; }
+  .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .toolbar { display: flex; gap: 12px; margin-bottom: 12px; align-items: center; flex-wrap: wrap; }
+  .toolbar input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px;
+                   border-radius: 6px; font-size: 12px; font-family: inherit; width: 220px; }
+  .toolbar input:focus { outline: none; border-color: #58a6ff; }
+  .toolbar select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 12px;
+                    border-radius: 6px; font-size: 12px; font-family: inherit; }
+  .toolbar label { font-size: 11px; color: #8b949e; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+  .toolbar .match-count { font-size: 11px; color: #484f58; margin-left: auto; }
+  .toolbar button { background: #161b22; border: 1px solid #30363d; color: #8b949e; padding: 4px 10px;
+                    border-radius: 6px; font-size: 11px; font-family: inherit; cursor: pointer; }
+  .toolbar button:hover { border-color: #58a6ff; color: #c9d1d9; }
+
+  .paginator { display: flex; gap: 6px; align-items: center; margin-bottom: 12px; font-size: 11px; color: #8b949e; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  th { background: #161b22; color: #8b949e; text-align: left; padding: 8px 10px; border-bottom: 2px solid #30363d;
+       font-weight: 600; text-transform: uppercase; font-size: 9px; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 1; }
+  td { padding: 4px 10px; border-bottom: 1px solid #21262d; vertical-align: top; }
+  tr:hover td { background: #1c2128; }
+  .signal-row td { background: #1a120b; border-bottom: 1px solid #3d2e1a; padding: 3px 10px; }
+  .signal-row:hover td { background: #1f160d; }
+
+  .idx { color: #484f58; text-align: right; font-variant-numeric: tabular-nums; }
+  .time-col { color: #79c0ff; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .type-col { font-size: 10px; }
+  .type-Results { }
+  .type-UtteranceEnd { color: #d2a8ff; }
+  .type-Metadata { color: #484f58; }
+  .transcript-col { color: #c9d1d9; }
+  .speaker-col { color: #f0883e; white-space: nowrap; }
+  .conf-col { font-variant-numeric: tabular-nums; text-align: right; }
+  .final-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: 600; }
+  .final-true { background: #1a3d1f; color: #3fb950; }
+  .final-false { background: #1c2128; color: #484f58; }
+  .file-col { font-size: 10px; color: #484f58; }
+
+  mark { background: rgba(88, 166, 255, 0.25); color: #58a6ff; border-radius: 2px; padding: 0 1px; }
+
+  .loading { text-align: center; padding: 60px; color: #8b949e; font-size: 14px; }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff;
+             border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-box { background: #1c1117; border: 1px solid #f85149; color: #f85149; padding: 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+  .empty { text-align: center; color: #484f58; padding: 40px; font-size: 13px; }
+
+  /* Runtime log level colors */
+  .level-col { font-weight: 600; white-space: nowrap; }
+  .level-ERROR { color: #f85149; }
+  .level-WARN { color: #f0883e; }
+  .level-INFO { color: #58a6ff; }
+  .level-DEBUG { color: #484f58; }
+  .log-msg { word-break: break-word; max-width: 600px; }
+  .log-logger { color: #8b949e; white-space: nowrap; }
+  .log-run-uuid { color: #484f58; font-size: 10px; }
+</style>
+</head>
+<body>
+<div class="nav">
+  <a href="/">Market Manager</a><span>/</span><a href="/sessions">Sessions</a><span>/</span><span id="nav-session">DG Responses</span>
+</div>
+
+<h1 id="page-title">Loading...</h1>
+<p class="subtitle" id="page-subtitle"></p>
+<p class="slug-text" id="page-slug"></p>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="transcript" onclick="switchTab('transcript')">Transcript</button>
+  <button class="tab-btn" data-tab="runtime" onclick="switchTab('runtime')">Runtime Logs</button>
+</div>
+
+<div id="panel-transcript" class="tab-panel active">
+  <div id="content">
+    <div class="loading"><span class="spinner"></span>Loading responses...</div>
+  </div>
+</div>
+
+<div id="panel-runtime" class="tab-panel">
+  <div id="runtime-content">
+    <div class="loading"><span class="spinner"></span>Loading runtime logs...</div>
+  </div>
+</div>
+
+<script>
+const sessionName = window.location.pathname.split('/').pop();
+document.getElementById('nav-session').textContent = decodeURIComponent(sessionName);
+
+// Extract session slug (strip _YYYY-MM-DD_HH-MM-SS suffix)
+const slugMatch = sessionName.match(/^(.+)_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})$/);
+const sessionSlug = slugMatch ? slugMatch[1] : sessionName;
+
+const PAGE_SIZE = 100000;
+let data = null;
+let offset = 0;
+let runtimeLoaded = false;
+
+function esc(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function fmtTime(s) {
+  if (s == null) return '';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return m + ':' + String(sec).padStart(2, '0');
+}
+
+function fmtNs(tsNs) {
+  if (!tsNs) return '';
+  const ms = Number(BigInt(tsNs) / 1_000_000n);
+  return new Date(ms).toISOString().replace('T', ' ').replace(/\.\d+Z$/, '');
+}
+
+function pct(v) {
+  if (v == null) return '';
+  return (v * 100).toFixed(1) + '%';
+}
+
+function highlight(text, query) {
+  if (!query) return esc(text);
+  const lower = text.toLowerCase();
+  const q = query.toLowerCase();
+  const idx = lower.indexOf(q);
+  if (idx === -1) return esc(text);
+  return esc(text.slice(0, idx)) + '<mark>' + esc(text.slice(idx, idx + q.length)) + '</mark>' + esc(text.slice(idx + q.length));
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
+
+  if (name === 'runtime' && !runtimeLoaded) {
+    loadRuntimeLogs(0);
+    runtimeLoaded = true;
+  }
+}
+
+// ── Transcript tab ─────────────────────────────────────────────────────
+async function load(offsetVal) {
+  offset = offsetVal || 0;
+  document.getElementById('content').innerHTML = '<div class="loading"><span class="spinner"></span>Loading responses...</div>';
+
+  try {
+    const url = '/api/transcript/' + encodeURIComponent(sessionName) + '?offset=' + offset + '&limit=' + PAGE_SIZE;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      document.getElementById('content').innerHTML =
+        '<div class="error-box">' + (resp.status === 404 ? 'No Deepgram responses for this session' : 'Failed to load: HTTP ' + resp.status) + '</div>';
+      return;
+    }
+    data = await resp.json();
+
+    document.title = data.slug + ' - DG Responses';
+    document.getElementById('page-title').textContent = data.slug;
+    document.getElementById('page-subtitle').textContent =
+      (data.session_timestamp ? data.session_timestamp.replace('_', ' ') : '') +
+      ' · ' + data.total.toLocaleString() + ' responses' +
+      (data.signals.length ? ' · ' + data.signals.length + ' signals' : '');
+    document.getElementById('page-slug').textContent = data.session;
+
+    renderToolbar();
+    render();
+  } catch (e) {
+    document.getElementById('content').innerHTML = '<div class="error-box">' + esc(e.message) + '</div>';
+  }
+}
+
+function renderToolbar() {
+  const totalPages = Math.ceil(data.total / PAGE_SIZE);
+  const curPage = Math.floor(offset / PAGE_SIZE) + 1;
+
+  let html = '<div class="toolbar">';
+  html += '<input type="text" id="filter" placeholder="Filter transcript..." oninput="filter()">';
+  html += '<select id="type-filter" onchange="filter()"><option value="all">All types</option>';
+  const types = [...new Set(data.lines.map(l => l.type).filter(Boolean))].sort();
+  for (const t of types) {
+    html += '<option value="' + esc(t) + '">' + esc(t) + '</option>';
+  }
+  html += '</select>';
+  html += '<label><input type="checkbox" id="final-only" onchange="filter()"> Finals only</label>';
+  html += '<label><input type="checkbox" id="text-only" onchange="filter()" checked> Has transcript</label>';
+  html += '<span class="match-count" id="match-count"></span>';
+  html += '</div>';
+
+  html += '<div class="paginator">';
+  html += '<button onclick="load(0)" ' + (offset === 0 ? 'disabled' : '') + '>&#x23EE; First</button>';
+  html += '<button onclick="load(' + Math.max(0, offset - PAGE_SIZE) + ')" ' + (offset === 0 ? 'disabled' : '') + '>Prev</button>';
+  html += '<span>Page ' + curPage + ' of ' + totalPages + ' (' + data.total.toLocaleString() + ' total)</span>';
+  html += '<button onclick="load(' + (offset + PAGE_SIZE) + ')" ' + (offset + PAGE_SIZE >= data.total ? 'disabled' : '') + '>Next</button>';
+  html += '<button onclick="load(' + (Math.max(0, totalPages - 1) * PAGE_SIZE) + ')" ' + (offset + PAGE_SIZE >= data.total ? 'disabled' : '') + '>&#x23ED; Last</button>';
+  html += '</div>';
+
+  document.getElementById('content').innerHTML = html + '<table><thead><tr>' +
+    '<th>#</th><th>Time</th><th>Type</th><th>Speaker</th><th>Transcript</th><th>Conf</th><th>Final</th><th>File TS</th>' +
+    '</tr></thead><tbody id="tbody"></tbody></table>';
+}
+
+function filter() {
+  const query = document.getElementById('filter').value.trim();
+  const typeFilter = document.getElementById('type-filter').value;
+  const finalOnly = document.getElementById('final-only').checked;
+  const textOnly = document.getElementById('text-only').checked;
+
+  const rows = document.querySelectorAll('#tbody tr');
+  let visible = 0;
+  let total = 0;
+
+  for (const row of rows) {
+    const type = row.dataset.type;
+    const text = row.dataset.text || '';
+    const isFinal = row.dataset.final === 'true';
+
+    let show = true;
+    if (typeFilter !== 'all' && type !== typeFilter) show = false;
+    if (finalOnly && !isFinal) show = false;
+    if (textOnly && !text) show = false;
+    if (query && !text.toLowerCase().includes(query.toLowerCase())) show = false;
+
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+    total++;
+  }
+
+  document.getElementById('match-count').textContent = visible + ' / ' + total;
+}
+
+function render() {
+  const tbody = document.getElementById('tbody');
+
+  const signalMap = new Map();
+  for (const sig of data.signals) {
+    const sigMs = new Date(sig.timestamp.replace(' ', 'T') + 'Z').getTime();
+    if (isNaN(sigMs)) continue;
+    let bestIdx = -1;
+    let bestDiff = Infinity;
+    for (let i = 0; i < data.lines.length; i++) {
+      if (!data.lines[i].ts_ns) continue;
+      const dgMs = Number(BigInt(data.lines[i].ts_ns) / 1_000_000n);
+      const diff = dgMs - sigMs;
+      if (diff >= 0 && diff < bestDiff) {
+        bestDiff = diff;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx === -1) {
+      for (let i = data.lines.length - 1; i >= 0; i--) {
+        if (data.lines[i].ts_ns) { bestIdx = i; break; }
+      }
+    }
+    if (bestIdx >= 0) {
+      if (!signalMap.has(bestIdx)) signalMap.set(bestIdx, []);
+      signalMap.get(bestIdx).push(sig);
+    }
+  }
+
+  let html = '';
+
+  for (let i = 0; i < data.lines.length; i++) {
+    const sigs = signalMap.get(i) || [];
+    for (const sig of sigs) {
+      html += '<tr class="signal-row" data-type="" data-text="' + esc(sig.word) + '" data-final="false">' +
+        '<td class="idx"></td>' +
+        '<td class="time-col" style="color:#f0883e">' + esc(sig.timestamp.slice(11, 23)) + '</td>' +
+        '<td class="type-col" style="color:#f0883e;font-weight:600">SIGNAL</td>' +
+        '<td class="speaker-col">' + esc(sig.speaker || '') + '</td>' +
+        '<td class="transcript-col"><span style="color:#f0883e;font-weight:600">' + esc(sig.word) + '</span>' +
+        (sig.target && sig.target !== 'undefined' ? ' <span style="color:#8b949e;font-size:10px">→ ' + esc(sig.target) + '</span>' : '') +
+        '</td>' +
+        '<td class="conf-col"></td>' +
+        '<td></td>' +
+        '<td class="file-col"></td>' +
+        '</tr>';
+    }
+
+    const line = data.lines[i];
+    if (line.error) {
+      html += '<tr><td class="idx">' + (offset + i + 1) + '</td><td colspan="7" style="color:#f85149">Error: ' + esc(line.error) + '</td></tr>';
+      continue;
+    }
+
+    const idx = offset + i + 1;
+    const time = fmtTime(line.start);
+    const type = line.type || '';
+    const transcript = line.transcript || '';
+    const speakers = line.speakers.length ? line.speakers.join(',') : '';
+    const conf = pct(line.confidence);
+    const finalBadge = line.is_final
+      ? '<span class="final-badge final-true">FINAL</span>'
+      : '<span class="final-badge final-false">int</span>';
+    const fileTs = fmtNs(line.ts_ns);
+
+    html += '<tr data-type="' + esc(type) + '" data-text="' + esc(transcript) + '" data-final="' + line.is_final + '">' +
+      '<td class="idx">' + idx + '</td>' +
+      '<td class="time-col">' + esc(time) + '</td>' +
+      '<td class="type-col type-' + esc(type) + '">' + esc(type) + '</td>' +
+      '<td class="speaker-col">' + esc(speakers) + '</td>' +
+      '<td class="transcript-col">' + highlight(transcript, document.getElementById('filter')?.value || '') + '</td>' +
+      '<td class="conf-col">' + esc(conf) + '</td>' +
+      '<td>' + finalBadge + '</td>' +
+      '<td class="file-col">' + esc(fileTs) + '</td>' +
+      '</tr>';
+  }
+
+  tbody.innerHTML = html;
+  filter();
+}
+
+// ── Runtime Logs tab ───────────────────────────────────────────────────
+const RT_PAGE_SIZE = 500;
+let rtData = null;
+let rtOffset = 0;
+
+async function loadRuntimeLogs(offsetVal) {
+  rtOffset = offsetVal || 0;
+  document.getElementById('runtime-content').innerHTML = '<div class="loading"><span class="spinner"></span>Loading runtime logs...</div>';
+
+  try {
+    const url = '/api/runtime-logs/' + encodeURIComponent(sessionSlug) + '?offset=' + rtOffset + '&limit=' + RT_PAGE_SIZE;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      document.getElementById('runtime-content').innerHTML =
+        '<div class="error-box">' + (resp.status === 404 ? 'No merged runtime logs for this session. Run: ./sync_logs.sh &lt;uuid&gt; --slug ' + esc(sessionSlug) : 'Failed to load: HTTP ' + resp.status) + '</div>';
+      return;
+    }
+    rtData = await resp.json();
+    renderRuntimeToolbar();
+    renderRuntime();
+  } catch (e) {
+    document.getElementById('runtime-content').innerHTML = '<div class="error-box">' + esc(e.message) + '</div>';
+  }
+}
+
+function renderRuntimeToolbar() {
+  const totalPages = Math.ceil(rtData.total / RT_PAGE_SIZE);
+  const curPage = Math.floor(rtOffset / RT_PAGE_SIZE) + 1;
+
+  let html = '<div class="toolbar">';
+  html += '<input type="text" id="rt-filter" placeholder="Filter logs..." oninput="rtFilter()">';
+  html += '<select id="rt-level-filter" onchange="rtFilter()"><option value="all">All levels</option>';
+  const levels = [...new Set(rtData.logs.map(l => l.level).filter(Boolean))].sort();
+  for (const lvl of levels) {
+    html += '<option value="' + esc(lvl) + '">' + esc(lvl) + '</option>';
+  }
+  html += '</select>';
+  html += '<select id="rt-logger-filter" onchange="rtFilter()"><option value="all">All loggers</option>';
+  const loggers = [...new Set(rtData.logs.map(l => l.logger).filter(Boolean))].sort();
+  for (const lg of loggers) {
+    html += '<option value="' + esc(lg) + '">' + esc(lg) + '</option>';
+  }
+  html += '</select>';
+  html += '<span class="match-count" id="rt-match-count"></span>';
+  html += '</div>';
+
+  html += '<div class="paginator">';
+  html += '<button onclick="loadRuntimeLogs(0)" ' + (rtOffset === 0 ? 'disabled' : '') + '>&#x23EE; First</button>';
+  html += '<button onclick="loadRuntimeLogs(' + Math.max(0, rtOffset - RT_PAGE_SIZE) + ')" ' + (rtOffset === 0 ? 'disabled' : '') + '>Prev</button>';
+  html += '<span>Page ' + curPage + ' of ' + totalPages + ' (' + rtData.total.toLocaleString() + ' total)</span>';
+  html += '<button onclick="loadRuntimeLogs(' + (rtOffset + RT_PAGE_SIZE) + ')" ' + (rtOffset + RT_PAGE_SIZE >= rtData.total ? 'disabled' : '') + '>Next</button>';
+  html += '<button onclick="loadRuntimeLogs(' + (Math.max(0, totalPages - 1) * RT_PAGE_SIZE) + ')" ' + (rtOffset + RT_PAGE_SIZE >= rtData.total ? 'disabled' : '') + '>&#x23ED; Last</button>';
+  html += '</div>';
+
+  document.getElementById('runtime-content').innerHTML = html + '<table><thead><tr>' +
+    '<th>#</th><th>Time</th><th>Level</th><th>Logger</th><th>Message</th><th>Run UUID</th>' +
+    '</tr></thead><tbody id="rt-tbody"></tbody></table>';
+}
+
+function rtFilter() {
+  const query = document.getElementById('rt-filter').value.trim().toLowerCase();
+  const levelFilter = document.getElementById('rt-level-filter').value;
+  const loggerFilter = document.getElementById('rt-logger-filter').value;
+
+  const rows = document.querySelectorAll('#rt-tbody tr');
+  let visible = 0;
+  let total = 0;
+
+  for (const row of rows) {
+    const level = row.dataset.level;
+    const logger = row.dataset.logger;
+    const text = row.dataset.text || '';
+
+    let show = true;
+    if (levelFilter !== 'all' && level !== levelFilter) show = false;
+    if (loggerFilter !== 'all' && logger !== loggerFilter) show = false;
+    if (query && !text.includes(query)) show = false;
+
+    row.style.display = show ? '' : 'none';
+    if (show) visible++;
+    total++;
+  }
+
+  document.getElementById('rt-match-count').textContent = visible + ' / ' + total;
+}
+
+function renderRuntime() {
+  const tbody = document.getElementById('rt-tbody');
+  let html = '';
+
+  for (let i = 0; i < rtData.logs.length; i++) {
+    const log = rtData.logs[i];
+    const idx = rtOffset + i + 1;
+    const ts = log.time ? esc(log.time.slice(11, 23)) : '';
+    const level = log.level || '';
+    const logger = log.logger || '';
+    const message = esc(log.message || log.raw || '');
+    const runUuid = log.run_uuid ? esc(log.run_uuid.slice(0, 8)) : '';
+
+    html += '<tr data-level="' + esc(level) + '" data-logger="' + esc(logger) + '" data-text="' + esc((log.message || '').toLowerCase()) + '">' +
+      '<td class="idx">' + idx + '</td>' +
+      '<td class="time-col">' + ts + '</td>' +
+      '<td class="level-col level-' + esc(level) + '">' + esc(level) + '</td>' +
+      '<td class="log-logger">' + esc(logger) + '</td>' +
+      '<td class="log-msg">' + message + '</td>' +
+      '<td class="log-run-uuid">' + runUuid + '</td>' +
+      '</tr>';
+  }
+
+  tbody.innerHTML = html;
+  rtFilter();
+}
+
+// ── Startup ────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => load(0));
+</script>
+</body>
+</html>

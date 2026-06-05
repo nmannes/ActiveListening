@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Session Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .nav { margin-bottom: 16px; font-size: 12px; }
+  .nav a { color: #8b949e; }
+  .nav span { color: #484f58; margin: 0 8px; }
+
+  h1 { font-size: 18px; color: #58a6ff; margin-bottom: 4px; }
+  .subtitle { font-size: 12px; color: #8b949e; margin-bottom: 20px; }
+  .slug { font-size: 11px; color: #484f58; font-family: inherit; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin-bottom: 24px; }
+  .stat { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; }
+  .stat .label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+  .stat .value { font-size: 20px; font-weight: 700; color: #e6edf3; margin-top: 2px; }
+  .stat .value.green { color: #3fb950; }
+  .stat .value.red { color: #f85149; }
+  .stat .value.blue { color: #58a6ff; }
+
+  .section-title { font-size: 14px; color: #58a6ff; margin: 24px 0 12px 0; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 24px; }
+  th { background: #161b22; color: #8b949e; text-align: left; padding: 10px 12px; border-bottom: 2px solid #30363d;
+       font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; cursor: pointer; user-select: none; }
+  th:hover { color: #58a6ff; }
+  td { padding: 8px 12px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+  tr:hover td { background: #1c2128; }
+
+  .before { color: #3fb950; font-weight: 700; }
+  .after { color: #f85149; }
+  .no_change { color: #484f58; }
+  .resolved-yes { color: #3fb950; font-weight: 700; }
+  .resolved-no { color: #f85149; font-weight: 700; }
+  .resolved-pending { color: #484f58; }
+  .word { color: #d2a8ff; font-weight: 600; }
+  .sfx { color: #79c0ff; }
+  .ticker-name { font-size: 10px; color: #484f58; }
+  .delta { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .ticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; margin-bottom: 24px; }
+  .ticker-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+  .ticker-card-header { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #21262d; }
+  .ticker-card-title { font-size: 13px; font-weight: 600; color: #e6edf3; }
+  .ticker-card-body { padding: 12px 16px; }
+  .ticker-card-body canvas { width: 100%; height: 200px; }
+
+  .error-box { background: #1c1117; border: 1px solid #f85149; color: #f85149; padding: 16px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
+
+  .loading { text-align: center; padding: 60px; color: #8b949e; font-size: 14px; }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid #30363d; border-top-color: #58a6ff;
+             border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="nav">
+  <a href="/">Market Manager</a><span>/</span><a href="/signals">Signal Dashboard</a><span>/</span><a href="/sessions">Sessions</a><span>/</span><span id="nav-slug">Session</span><span>/</span><a id="nav-transcript" href="#">Transcript</a>
+</div>
+
+<h1 id="page-title">Loading...</h1>
+<p class="subtitle" id="page-subtitle"></p>
+<p class="slug" id="page-slug"></p>
+
+<div id="content">
+  <div class="loading"><span class="spinner"></span>Loading session data...</div>
+</div>
+
+<div id="template" style="display:none">
+  <div id="tpl-content">
+    <div class="stats" id="stats-bar"></div>
+
+    <div class="section-title">Signals</div>
+    <table>
+      <thead>
+        <tr>
+          <th>Word</th>
+          <th>Ticker</th>
+          <th>Signal Time</th>
+          <th>Market Change</th>
+          <th>Price Chg</th>
+          <th>Delta</th>
+          <th>Status</th>
+          <th>Resolved</th>
+        </tr>
+      </thead>
+      <tbody id="signals-tbody"></tbody>
+    </table>
+
+    <div class="section-title" id="ticker-section-title">Ticker Breakdown</div>
+    <div class="ticker-grid" id="ticker-grid"></div>
+  </div>
+</div>
+
+<script>
+const slug = window.location.pathname.split('/').pop();
+document.getElementById('nav-slug').textContent = slug;
+
+function esc(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function formatPriceChange(signalPrice, changePrice, changeSide) {
+  if (signalPrice === null || signalPrice === undefined) return 'n/a';
+  const cStr = changePrice !== null && changePrice !== undefined ? changePrice + 'c' : 'PENDING';
+  const label = changeSide === 'yes' ? '(Y)' : changeSide === 'no' ? '(N)' : '';
+  return signalPrice + 'c' + label + ' → ' + cStr;
+}
+
+async function load() {
+  try {
+    const resp = await fetch('/api/session/' + encodeURIComponent(slug));
+    if (!resp.ok) {
+      document.getElementById('content').innerHTML =
+        '<div class="error-box">Failed to load session: HTTP ' + resp.status + '</div>';
+      return;
+    }
+    const data = await resp.json();
+    document.getElementById('nav-transcript').href = '/transcript/' + encodeURIComponent(data.session);
+
+    document.title = data.title + ' - Session Analysis';
+    document.getElementById('page-title').textContent = data.title;
+    document.getElementById('page-subtitle').textContent = data.mediaSource + ' · ' +
+      data.stats.totalSignals + ' signals · ' + data.stats.uniqueWords + ' unique words';
+    document.getElementById('page-slug').textContent = data.slug;
+
+    const tpl = document.getElementById('tpl-content');
+    document.getElementById('content').innerHTML = tpl.innerHTML;
+
+    // Stats bar
+    const s = data.stats;
+    document.getElementById('stats-bar').innerHTML =
+      '<div class="stat"><div class="label">Total Signals</div><div class="value blue">' + s.totalSignals + '</div></div>' +
+      '<div class="stat"><div class="label">Unique Words</div><div class="value">' + s.uniqueWords + '</div></div>' +
+      '<div class="stat"><div class="label">Before (WIN)</div><div class="value green">' + s.beforeCount + '</div></div>' +
+      '<div class="stat"><div class="label">After (LATE)</div><div class="value red">' + s.afterCount + '</div></div>' +
+      '<div class="stat"><div class="label">No Change</div><div class="value" style="color: #8b949e">' + s.noChangeCount + '</div></div>' +
+      '<div class="stat"><div class="label">Avg Lead</div><div class="value green">' + esc(s.avgLeadHuman) + '</div></div>' +
+      '<div class="stat"><div class="label">Resolved YES</div><div class="value green">' + s.resolvedYes + '</div></div>' +
+      '<div class="stat"><div class="label">Resolved NO</div><div class="value red">' + s.resolvedNo + '</div></div>' +
+      '<div class="stat"><div class="label">Pending</div><div class="value" style="color: #8b949e">' + s.resolvedPending + '</div></div>';
+
+    // Signals table
+    const tbody = document.getElementById('signals-tbody');
+    for (const sig of data.signals) {
+      const cls = sig.status.toLowerCase();
+      const resCls = sig.resolution === 'YES' ? 'resolved-yes' : sig.resolution === 'NO' ? 'resolved-no' : 'resolved-pending';
+      const mktStr = sig.mktChangeTs ? sig.mktChangeTs.slice(0, 26) : '—';
+      tbody.innerHTML += '<tr>' +
+        '<td class="word">' + esc(sig.word) + '</td>' +
+        '<td><span class="sfx">' + esc(sig.suffix) + '</span> <span class="ticker-name">' + esc(sig.ticker || '') + '</span></td>' +
+        '<td>' + esc(sig.signalTs) + '</td>' +
+        '<td>' + esc(mktStr) + '</td>' +
+        '<td>' + esc(formatPriceChange(sig.signalPrice, sig.changePrice, sig.changeSide)) + '</td>' +
+        '<td class="delta"><span class="' + cls + '">' + esc(sig.deltaHuman) + '</span></td>' +
+        '<td class="' + cls + '">' + sig.status + '</td>' +
+        '<td class="' + resCls + '">' + sig.resolution + '</td>' +
+        '</tr>';
+    }
+
+    if (data.signals.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #484f58; padding: 24px;">No signals found for this session</td></tr>';
+    }
+
+    // Ticker breakdown
+    if (data.tickerSummaries.length > 0) {
+      document.getElementById('ticker-section-title').textContent = 'Ticker Breakdown (' + data.tickerSummaries.length + ')';
+    } else {
+      document.getElementById('ticker-section-title').textContent = 'Ticker Breakdown';
+    }
+
+    const tickerGrid = document.getElementById('ticker-grid');
+    for (const ts of data.tickerSummaries) {
+      const resCls = ts.resolution === 'YES' ? 'resolved-yes' : ts.resolution === 'NO' ? 'resolved-no' : 'resolved-pending';
+
+      const card = document.createElement('div');
+      card.className = 'ticker-card';
+      card.innerHTML =
+        '<div class="ticker-card-header">' +
+          '<div><span class="ticker-card-title">' + esc(ts.suffix) + '</span> <span class="ticker-name">' + esc(ts.ticker) + '</span></div>' +
+          '<div><span class="' + resCls + '" style="font-size:12px">' + ts.resolution + '</span>' +
+          ' <span style="font-size:11px;color:#8b949e">' + ts.signalCount + ' signals</span></div>' +
+        '</div>' +
+        '<div class="ticker-card-body"><canvas id="chart-' + esc(ts.suffix) + '"></canvas></div>';
+      tickerGrid.appendChild(card);
+
+      // Draw chart after DOM insertion
+      setTimeout(() => drawTickerChart(ts.suffix, ts.noAskSeries, ts.yesBidSeries), 50);
+    }
+  } catch (e) {
+    document.getElementById('content').innerHTML =
+      '<div class="error-box">' + esc(e.message) + '</div>';
+  }
+}
+
+function drawTickerChart(suffix, noAskSeries, yesBidSeries) {
+  const canvas = document.getElementById('chart-' + suffix);
+  if (!canvas) return;
+
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  const data = noAskSeries.length > 0 ? noAskSeries : yesBidSeries;
+  if (data.length === 0) {
+    canvas.parentElement.innerHTML = '<div style="color:#484f58;text-align:center;padding:40px">No orderbook data</div>';
+    return;
+  }
+
+  const times = data.map(d => d.x);
+  const xMin = Math.min(...times);
+  const xMax = Math.max(...times);
+
+  const datasets = [];
+  if (noAskSeries.length > 0) {
+    datasets.push({
+      label: 'NO Best Ask',
+      data: noAskSeries,
+      borderColor: '#f85149',
+      backgroundColor: '#f85149',
+    });
+  }
+  if (yesBidSeries.length > 0) {
+    datasets.push({
+      label: 'YES Best Bid',
+      data: yesBidSeries,
+      borderColor: '#3fb950',
+      backgroundColor: '#3fb950',
+    });
+  }
+
+  new Chart(canvas, {
+    type: 'candlestick',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#8b949e', font: { size: 10 } } } },
+      scales: {
+        x: { display: true, type: 'time', min: xMin, max: xMax,
+             time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+             grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 9 } } },
+        y: { display: true, min: 1, max: 99, grid: { color: '#21262d' },
+             ticks: { color: '#8b949e', font: { size: 9 }, callback: (v) => v !== null ? v + 'c' : '' } }
+      },
+      elements: { candlestick: { upColor: '#3fb950', upBorderColor: '#3fb950',
+                                  downColor: '#f85149', downBorderColor: '#f85149',
+                                  borderWidth: 0.5, bodyWidth: 10 } }
+    }
+  });
+}
+
+window.addEventListener('DOMContentLoaded', load);
+</script>
+</body>
+</html>

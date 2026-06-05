@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Entry</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        * { box-sizing: border-box; }
+
+        :root {
+            --bg: #0a0a0c;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        header {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 700px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-end;
+            margin-bottom: 1rem;
+        }
+
+        .form-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .form-row > div {
+            flex: 1;
+        }
+
+        .form-row > .grow-2 {
+            flex: 2;
+        }
+
+        .form-row > .no-grow {
+            flex: 0;
+        }
+
+        label {
+            display: block;
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-bottom: 0.375rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input {
+            width: 100%;
+            padding: 0.625rem 0.75rem;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--accent);
+        }
+
+        button {
+            padding: 0.625rem 1.25rem;
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 0.5rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover { background: var(--accent-hover); }
+
+        .entry-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .entry-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+        }
+
+        .entry-item .slug {
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .entry-item .yt {
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            max-width: 400px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .entry-item button {
+            background: none;
+            color: var(--danger);
+            font-size: 0.75rem;
+            padding: 0.375rem 0.75rem;
+            border: 1px solid var(--danger);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .entry-item button:hover {
+            background: var(--danger);
+            color: #fff;
+        }
+
+        .empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 2rem 0;
+            font-size: 0.875rem;
+        }
+
+        .status {
+            font-size: 0.8125rem;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            display: none;
+        }
+
+        .status.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+            border: 1px solid rgba(34, 197, 94, 0.3);
+        }
+
+        .status.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Data Entry</h1>
+        <a href="/" style="color: var(--text-muted); font-size: 0.8125rem; text-decoration: none;">← Markets</a>
+    </header>
+
+    <div class="container">
+        <div class="card">
+            <div id="status" class="status"></div>
+            <div class="form-row">
+                <div>
+                    <label for="slug">Slug</label>
+                    <input type="text" id="slug" placeholder="e.g. kxexample-25jan01" autocomplete="off">
+                </div>
+                <div class="grow-2">
+                    <label for="youtube">YouTube Link</label>
+                    <input type="text" id="youtube" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+                </div>
+            </div>
+            <div class="form-row">
+                <div>
+                    <label for="speaker">Speaker #</label>
+                    <input type="text" id="speaker" placeholder="e.g. 0, 1, 2" autocomplete="off">
+                </div>
+                <div>
+                    <label for="speakerName">Speaker Name</label>
+                    <input type="text" id="speakerName" placeholder="e.g. Powell" autocomplete="off">
+                </div>
+                <div class="no-grow">
+                    <button onclick="saveEntry()">Save & Record</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="font-size: 1.125rem; margin: 0;">Entries</h2>
+
+            </div>
+            <div id="entries" class="entry-list"></div>
+        </div>
+    </div>
+
+    <script>
+        const statusEl = document.getElementById("status");
+
+        function showStatus(msg, type) {
+            statusEl.textContent = msg;
+            statusEl.className = "status " + type;
+            setTimeout(() => { statusEl.className = "status"; }, 4000);
+        }
+
+        async function fetchEntries() {
+            const res = await fetch("/api/data-entry");
+            const data = await res.json();
+            const el = document.getElementById("entries");
+            if (!data.length) {
+                el.innerHTML = '<div class="empty">No entries yet.</div>';
+                return;
+            }
+            el.innerHTML = data.map((e, i) => `
+                <div class="entry-item">
+                    <span class="slug">${esc(e.slug)}</span>
+                    <span class="yt">${esc(e.youtube)}</span>
+                    <span class="yt">Speaker #${esc(e.speaker || "")}${e.speakerName ? " — " + esc(e.speakerName) : ""}</span>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="retryEntry(${i})" style="color: var(--accent); border-color: var(--accent);">Retry</button>
+                        <button onclick="deleteEntry(${i})">Delete</button>
+                    </div>
+                </div>
+            `).join("");
+        }
+
+        function esc(s) {
+            const div = document.createElement("div");
+            div.textContent = s;
+            return div.innerHTML;
+        }
+
+        async function saveEntry() {
+            const slug = document.getElementById("slug").value.trim();
+            const youtube = document.getElementById("youtube").value.trim();
+            const speaker = document.getElementById("speaker").value.trim();
+            const speakerName = document.getElementById("speakerName").value.trim();
+            if (!slug || !youtube) {
+                showStatus("Both slug and youtube are required.", "error");
+                return;
+            }
+            const res = await fetch("/api/data-entry", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ slug, youtube, speaker, speakerName })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showStatus(data.recording ? "Recording started locally." : "Saved.", "success");
+                document.getElementById("slug").value = "";
+                document.getElementById("youtube").value = "";
+                document.getElementById("speaker").value = "";
+                document.getElementById("speakerName").value = "";
+                fetchEntries();
+                document.getElementById("slug").focus();
+            } else {
+                showStatus(data.error || "Save failed.", "error");
+            }
+        }
+
+        async function retryEntry(index) {
+            const res = await fetch("/api/data-entry/" + index + "/retry", { method: "POST" });
+            const data = await res.json();
+            if (data.success) {
+                showStatus("Retry recording started.", "success");
+            } else {
+                showStatus(data.error || "Retry failed.", "error");
+            }
+        }
+
+        async function deleteEntry(index) {
+            await fetch("/api/data-entry/" + index, { method: "DELETE" });
+            fetchEntries();
+        }
+
+        document.getElementById("slug").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") document.getElementById("youtube").focus();
+        });
+        document.getElementById("youtube").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") document.getElementById("speaker").focus();
+        });
+        document.getElementById("speaker").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") document.getElementById("speakerName").focus();
+        });
+        document.getElementById("speakerName").addEventListener("keydown", (e) => {
+            if (e.key === "Enter") saveEntry();
+        });
+
+        fetchEntries();
+    </script>
+</body>
+
+</html>

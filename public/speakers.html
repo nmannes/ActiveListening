@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speaker Classification</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+            --success: #10b981;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .controls-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .control-group {
+            flex: 1;
+            min-width: 250px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-group label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 9999px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            transition: background-color 0.1s, transform 0.1s;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: var(--accent-hover);
+            transform: scale(1.1);
+        }
+
+        .stats-card {
+            background: rgba(15, 23, 42, 0.4);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 1.5rem;
+            align-items: center;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+        }
+
+        .stat-val {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .progress-container {
+            grid-column: 1 / -1;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 9999px;
+            height: 0.5rem;
+            overflow: hidden;
+            width: 100%;
+        }
+
+        .progress-fill {
+            background: linear-gradient(to right, var(--accent), var(--success));
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.4s ease;
+        }
+
+        .section-title-outer {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin: 2.5rem 0 1.5rem 0;
+            color: #cbd5e1;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .section-count {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+        }
+
+        .session-group {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .session-group:hover {
+            border-color: rgba(59, 130, 246, 0.3);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+        }
+
+        .session-title {
+            font-size: 1.35rem;
+            font-weight: 600;
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            color: #e2e8f0;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.75rem;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        .session-title:hover {
+            color: white;
+        }
+
+        .toggle-icon {
+            font-size: 1rem;
+            transition: transform 0.2s;
+        }
+
+        .speakers-grid.collapsed {
+            display: none;
+        }
+
+        .session-title.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .speakers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .speaker-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            transition: border-color 0.2s;
+        }
+
+        .speaker-card:hover {
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .speaker-header {
+            font-weight: 500;
+            color: #cbd5e1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .badge {
+            background: rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge.identified {
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+        }
+
+        .badge.unidentified {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+
+        audio {
+            width: 100%;
+            height: 40px;
+            outline: none;
+        }
+
+        audio::-webkit-media-controls-panel {
+            background-color: #334155;
+            color: white;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.875rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--accent);
+        }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        button:hover {
+            background: var(--accent-hover);
+        }
+
+        button:active {
+            transform: scale(0.95);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--success);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(150%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 50;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+        }
+
+        .loader {
+            display: inline-block;
+            width: 2rem;
+            height: 2rem;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .center-msg {
+            text-align: center;
+            margin-top: 4rem;
+            color: var(--text-muted);
+        }
+
+        .no-results-msg {
+            text-align: center;
+            padding: 3rem;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 1rem;
+            border: 1px dashed var(--border);
+            color: var(--text-muted);
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Speaker Classification</h1>
+        <div id="app">
+            <div class="center-msg">
+                <div class="loader"></div>
+                <p>Loading speakers...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast">Saved successfully!</div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const app = document.getElementById('app');
+            const toast = document.getElementById('toast');
+            
+            let speakersData = {}; // Store fetched speaker records globally
+            let minDuration = 45;
+            let searchQuery = '';
+            let collapsedGroups = {}; // Keep track of user collapse/expand state
+
+            function showToast(message) {
+                toast.textContent = message;
+                toast.classList.add('show');
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+
+            function formatDuration(seconds) {
+                const m = Math.floor(seconds / 60);
+                const s = Math.floor(seconds % 60);
+                if (m > 0) return `${m}m ${s}s`;
+                return `${s}s`;
+            }
+
+            async function saveLabel(session, speakerId, inputEl) {
+                const label = inputEl.value.trim();
+                const btn = inputEl.nextElementSibling;
+                const originalText = btn.textContent;
+                
+                btn.disabled = true;
+                btn.textContent = '...';
+
+                try {
+                    const res = await fetch('/api/speakers/label', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ session, speaker_id: speakerId, label })
+                    });
+                    
+                    if (!res.ok) throw new Error('Failed to save');
+                    showToast(`Saved label for Speaker ${speakerId}`);
+                    
+                    // Update state and immediately re-render to hoist
+                    updateSpeakerLabelInState(session, speakerId, label);
+                } catch (err) {
+                    console.error(err);
+                    alert('Error saving label');
+                } finally {
+                    btn.disabled = false;
+                    btn.textContent = originalText;
+                }
+            }
+
+            function updateSpeakerLabelInState(session, speakerId, label) {
+                if (speakersData[session]) {
+                    const spk = speakersData[session].find(s => s.speaker_id === speakerId);
+                    if (spk) {
+                        spk.label = label;
+                        render();
+                    }
+                }
+            }
+
+            function render() {
+                // Keep references to inputs to preserve focus and cursor position
+                const searchEl = document.getElementById('search-input');
+                const rangeEl = document.getElementById('min-duration-input');
+                
+                const currentSearchVal = searchEl ? searchEl.value : searchQuery;
+                const currentDurationVal = rangeEl ? Number(rangeEl.value) : minDuration;
+                
+                searchQuery = currentSearchVal.toLowerCase().trim();
+                minDuration = currentDurationVal;
+
+                // Group lists
+                const identifiedGroups = {};
+                const unidentifiedSessions = {};
+                
+                let totalClips = 0;
+                let identifiedClipsCount = 0;
+                let filteredTotal = 0;
+                let filteredIdentified = 0;
+
+                // Loop through all data to calculate stats and group appropriately
+                for (const [session, speakers] of Object.entries(speakersData)) {
+                    speakers.forEach(speaker => {
+                        const hasLabel = !!speaker.label;
+                        
+                        totalClips++;
+                        if (hasLabel) identifiedClipsCount++;
+
+                        // Apply min duration filter
+                        if (speaker.duration < minDuration) return;
+
+                        // Apply search filter
+                        const labelText = (speaker.label || '').toLowerCase();
+                        const predText = (speaker.targetSpeaker || '').toLowerCase();
+                        const sessionText = session.toLowerCase();
+                        
+                        if (searchQuery && 
+                            !sessionText.includes(searchQuery) && 
+                            !labelText.includes(searchQuery) && 
+                            !predText.includes(searchQuery)) {
+                            return;
+                        }
+
+                        filteredTotal++;
+                        if (hasLabel) filteredIdentified++;
+
+                        const speakerWithSession = { ...speaker, session };
+
+                        if (hasLabel) {
+                            const groupName = speaker.label;
+                            if (!identifiedGroups[groupName]) {
+                                identifiedGroups[groupName] = [];
+                            }
+                            identifiedGroups[groupName].push(speakerWithSession);
+                        } else {
+                            if (!unidentifiedSessions[session]) {
+                                unidentifiedSessions[session] = [];
+                            }
+                            unidentifiedSessions[session].push(speakerWithSession);
+                        }
+                    });
+                }
+
+                // Render Shell Controls if not already drawn
+                if (!document.getElementById('controls-section')) {
+                    app.innerHTML = `
+                        <div id="controls-section">
+                            <div class="controls-card">
+                                <div class="control-group">
+                                    <label for="search-input">Search Sessions & Labels</label>
+                                    <input type="text" id="search-input" placeholder="Search sessions, labels, predictions..." value="${currentSearchVal}">
+                                </div>
+                                <div class="control-group">
+                                    <label for="min-duration-input">
+                                        <span>Min Clip Duration</span>
+                                        <strong id="duration-val">${minDuration}s</strong>
+                                    </label>
+                                    <input type="range" id="min-duration-input" min="0" max="120" value="${minDuration}" step="5">
+                                </div>
+                            </div>
+
+                            <div class="stats-card">
+                                <div class="stat-item">
+                                    <span class="stat-label">Total Clips</span>
+                                    <span class="stat-val" id="stat-total">0</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Identified</span>
+                                    <span class="stat-val" id="stat-identified">0</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Unidentified</span>
+                                    <span class="stat-val" id="stat-unidentified">0</span>
+                                </div>
+                                <div class="progress-container">
+                                    <div class="progress-fill" id="stat-progress" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="identified-outer"></div>
+                        <div id="unidentified-outer"></div>
+                    `;
+
+                    // Add Event Listeners for inputs
+                    const searchInput = document.getElementById('search-input');
+                    const durationSlider = document.getElementById('min-duration-input');
+                    const durationValDisplay = document.getElementById('duration-val');
+
+                    searchInput.addEventListener('input', () => render());
+                    durationSlider.addEventListener('input', () => {
+                        durationValDisplay.textContent = `${durationSlider.value}s`;
+                        render();
+                    });
+                }
+
+                // Update Stats
+                document.getElementById('stat-total').textContent = totalClips;
+                document.getElementById('stat-identified').textContent = identifiedClipsCount;
+                document.getElementById('stat-unidentified').textContent = totalClips - identifiedClipsCount;
+                const percentage = totalClips > 0 ? (identifiedClipsCount / totalClips) * 100 : 0;
+                document.getElementById('stat-progress').style.width = `${percentage}%`;
+
+                // Render Identified Section
+                const idOuter = document.getElementById('identified-outer');
+                const sortedIdentities = Object.keys(identifiedGroups).sort((a, b) => a.localeCompare(b));
+                
+                let idHtml = `
+                    <div class="section-title-outer">
+                        <span>🎙️ Identified Speakers</span>
+                        <span class="section-count">${sortedIdentities.length} groups</span>
+                    </div>
+                `;
+
+                if (sortedIdentities.length === 0) {
+                    idHtml += `<div class="no-results-msg">No identified speakers matching current filters.</div>`;
+                } else {
+                    sortedIdentities.forEach(groupName => {
+                        const speakers = identifiedGroups[groupName];
+                        // Sort clips within group by session name, then ID rising
+                        speakers.sort((a, b) => {
+                            if (a.session !== b.session) return a.session.localeCompare(b.session);
+                            return Number(a.speaker_id) - Number(b.speaker_id);
+                        });
+
+                        const totalDuration = speakers.reduce((sum, s) => sum + s.duration, 0);
+                        const isCollapsed = collapsedGroups[`id-${groupName}`] !== false; // Default collapsed for identified to keep page clean
+                        
+                        idHtml += `
+                            <div class="session-group">
+                                <div class="session-title ${isCollapsed ? 'collapsed' : ''}" data-collapse-id="id-${groupName}">
+                                    <span>${groupName} <small style="opacity: 0.6; font-weight: 400;">(${speakers.length} clips • ${formatDuration(totalDuration)})</small></span>
+                                    <span class="toggle-icon">▼</span>
+                                </div>
+                                <div class="speakers-grid ${isCollapsed ? 'collapsed' : ''}">
+                                    ${speakers.map(speaker => renderSpeakerCard(speaker, true)).join('')}
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                idOuter.innerHTML = idHtml;
+
+                // Render Unidentified Section
+                const unidOuter = document.getElementById('unidentified-outer');
+                const sortedSessions = Object.keys(unidentifiedSessions).sort((a, b) => a.localeCompare(b));
+                
+                let unidHtml = `
+                    <div class="section-title-outer">
+                        <span>📁 Unidentified S3 Sessions</span>
+                        <span class="section-count">${sortedSessions.length} sessions</span>
+                    </div>
+                `;
+
+                if (sortedSessions.length === 0) {
+                    unidHtml += `<div class="no-results-msg">No unidentified speaker segments matching current filters. All identified segments have been hoisted to the top section.</div>`;
+                } else {
+                    sortedSessions.forEach(session => {
+                        const speakers = unidentifiedSessions[session];
+                        // Sort clips within group by ID rising
+                        speakers.sort((a, b) => Number(a.speaker_id) - Number(b.speaker_id));
+                        
+                        const totalDuration = speakers.reduce((sum, s) => sum + s.duration, 0);
+                        const isCollapsed = collapsedGroups[`unid-${session}`] === true; // Default expanded for unidentified to encourage identification
+
+                        unidHtml += `
+                            <div class="session-group">
+                                <div class="session-title ${isCollapsed ? 'collapsed' : ''}" data-collapse-id="unid-${session}">
+                                    <span>${session} <small style="opacity: 0.6; font-weight: 400;">(${speakers.length} clips • ${formatDuration(totalDuration)})</small></span>
+                                    <span class="toggle-icon">▼</span>
+                                </div>
+                                <div class="speakers-grid ${isCollapsed ? 'collapsed' : ''}">
+                                    ${speakers.map(speaker => renderSpeakerCard(speaker, false)).join('')}
+                                </div>
+                            </div>
+                        `;
+                    });
+                }
+                unidOuter.innerHTML = unidHtml;
+
+                // Re-bind listeners for collapsible headers, play control, and saves
+                bindRenderedEvents();
+            }
+
+            function renderSpeakerCard(speaker, isIdentified) {
+                const labelVal = speaker.label || '';
+                const predBadge = speaker.targetSpeaker 
+                    ? `<span class="badge predicted" style="background: rgba(59, 130, 246, 0.2); color: #60a5fa;">Pred: ${speaker.targetSpeaker}</span>`
+                    : '';
+                const idBadge = isIdentified 
+                    ? `<span class="badge identified">Identified: ${speaker.label}</span>`
+                    : `<span class="badge unidentified">Unidentified</span>`;
+
+                return `
+                    <div class="speaker-card">
+                        <div class="speaker-header">
+                            <span style="font-size: 0.75rem; color: var(--text-muted); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${speaker.session}">${speaker.session}</span>
+                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                <span class="badge" style="background: rgba(15, 23, 42, 0.6); color: var(--text-muted);">Spk ${speaker.speaker_id}</span>
+                                <span style="font-size: 0.75rem; opacity: 0.7;">${formatDuration(speaker.duration)}</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem;">
+                            ${idBadge}
+                            ${predBadge}
+                        </div>
+                        <audio controls preload="none">
+                            <source src="${speaker.fileUrl}" type="audio/wav">
+                            Your browser does not support the audio element.
+                        </audio>
+                        <div class="input-group">
+                            <input type="text" class="label-input" placeholder="Identity Label..." value="${labelVal}" data-session="${speaker.session}" data-speaker-id="${speaker.speaker_id}">
+                            <button class="save-btn" data-session="${speaker.session}" data-speaker-id="${speaker.speaker_id}">Save</button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            function bindRenderedEvents() {
+                // Collapsible titles
+                document.querySelectorAll('.session-title').forEach(title => {
+                    title.addEventListener('click', () => {
+                        const collapseId = title.getAttribute('data-collapse-id');
+                        const isCurrentlyCollapsed = title.classList.contains('collapsed');
+                        
+                        // Toggle state
+                        if (isCurrentlyCollapsed) {
+                            title.classList.remove('collapsed');
+                            title.nextElementSibling.classList.remove('collapsed');
+                            collapsedGroups[collapseId] = false;
+                        } else {
+                            title.classList.add('collapsed');
+                            title.nextElementSibling.classList.add('collapsed');
+                            collapsedGroups[collapseId] = true;
+                        }
+                    });
+                });
+
+                // Single audio play control
+                document.querySelectorAll('audio').forEach(audio => {
+                    audio.addEventListener('play', (e) => {
+                        document.querySelectorAll('audio').forEach(a => {
+                            if (a !== e.target) {
+                                a.pause();
+                            }
+                        });
+                    });
+                });
+
+                // Save buttons and input Enter triggers
+                document.querySelectorAll('.save-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const session = btn.getAttribute('data-session');
+                        const speakerId = btn.getAttribute('data-speaker-id');
+                        const input = btn.previousElementSibling;
+                        saveLabel(session, speakerId, input);
+                    });
+                });
+
+                document.querySelectorAll('.label-input').forEach(input => {
+                    input.addEventListener('keypress', (e) => {
+                        if (e.key === 'Enter') {
+                            const session = input.getAttribute('data-session');
+                            const speakerId = input.getAttribute('data-speaker-id');
+                            saveLabel(session, speakerId, input);
+                        }
+                    });
+                });
+            }
+
+            try {
+                const res = await fetch('/api/speakers');
+                speakersData = await res.json();
+                
+                if (Object.keys(speakersData).length === 0) {
+                    app.innerHTML = '<div class="center-msg"><h2>No speakers found.</h2><p>Make sure you have run the extraction script.</p></div>';
+                    return;
+                }
+
+                // Initial render
+                render();
+            } catch (err) {
+                console.error(err);
+                app.innerHTML = '<div class="center-msg"><h2>Error loading data.</h2><p>Check console for details.</p></div>';
+            }
+        });
+    </script>
+</body>
+</html>
