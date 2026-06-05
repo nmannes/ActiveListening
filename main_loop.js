@@ -33,8 +33,7 @@ async function start() {
     try {
       await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
       const timestamp = new Date().toISOString();
-      console.log(`[${timestamp}] Enqueued scheduling loop (with discovery)`);
-      sendTelegram(`[${timestamp}] Scheduling loop enqueued`).catch(() => {});
+      sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => {});
     } catch (e) {
       console.error("Failed to enqueue scheduling loop:", e);
     }
