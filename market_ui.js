@@ -320,7 +320,7 @@ app.post("/api/data-entry", (req, res) => {
         fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
 
         // Start local recording: server + client, both backgrounded with timeout
-        const cmd = `bash run_sample.sh "${samplePath}"`;
+        const cmd = `bash run_sample.sh "${samplePath}" >> data-entry.log`;
         exec(cmd,
             (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "data-entry.log"), `${new Date().toISOString()} Retry run error (${entry.slug}): ${err.message}\n`); }
         );
@@ -366,7 +366,7 @@ app.post("/api/data-entry/:index/retry", (req, res) => {
         const samplePath = path.join(SAMPLES_DIR, `${entry.slug}.json`);
         fs.writeFileSync(samplePath, JSON.stringify(sample, null, 2));
 
-        const cmd = `bash run_sample.sh "${samplePath}"`;
+        const cmd = `bash run_sample.sh "${samplePath}" >> data-entry.log`;
         exec(cmd,
             (err) => { if (err) fs.appendFileSync(path.join(DATA_DIR, "data-entry.log"), `${new Date().toISOString()} Retry run error (${entry.slug}): ${err.message}\n`); }
         );
