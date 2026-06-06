@@ -48,10 +48,22 @@ for PREFIX in $PREFIXES; do
         mkdir -p "$LOCAL_AUDIO_PATH"
         aws s3 sync "$S3_AUDIO_PATH" "$LOCAL_AUDIO_PATH"
     fi
+
+    # Auto-identify speaker if this session matches a sample-scheduling entry
+    SLUG=$(echo "$PREFIX" | sed 's/_[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}_[0-9]\{2\}-[0-9]\{2\}-[0-9]\{2\}$//')
+    SCHEDULE_FILE="sample-scheduling/${SLUG}.json"
+    if [ -f "$SCHEDULE_FILE" ]; then
+        SPEAKER=$(jq -r '.speaker' "$SCHEDULE_FILE")
+        SPEAKER_NAME=$(jq -r '.speakerName' "$SCHEDULE_FILE")
+        if [ -n "$SPEAKER" ] && [ "$SPEAKER" != "null" ] && [ -n "$SPEAKER_NAME" ] && [ "$SPEAKER_NAME" != "null" ]; then
+            echo "🏷️  Auto-labeling $PREFIX speaker $SPEAKER → $SPEAKER_NAME"
+            /home/nathan/.pyenv/shims/python "$(dirname "$0")/label_speaker.py" "$PREFIX" "$SPEAKER" "$SPEAKER_NAME"
+        fi
+    fi
 done
 
 echo ""
 echo "✅ Done. All deepgram_responses synced to ./$LOCAL_DIR/"
 echo ""
 echo "🔨 Rebuilding audio library from speaker_labels.json..."
-python3 "$(dirname "$0")/scripts/build_audio_library.py"
+/home/nathan/.pyenv/shims/python "$(dirname "$0")/scripts/build_audio_library.py"
