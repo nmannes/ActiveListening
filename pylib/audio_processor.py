@@ -6,12 +6,10 @@ import time
 from datetime import datetime
 import wave
 import websockets
-import numpy as np
 from pathlib import Path
 from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
-transcript_logger = logging.getLogger("transcript")
 
 
 class AudioProcessor:
@@ -36,8 +34,6 @@ class AudioProcessor:
             "vad_turnaround=10&"
             "endpointing=100"
         )
-
-
 
         # Audio recording
         self._pcm_buffer = bytearray()  # all PCM sent, for slicing by timestamp
@@ -103,54 +99,8 @@ class AudioProcessor:
                     break
             await asyncio.sleep(0.5)
 
-        reconnect_delay = 1
-        while True:
-            try:
-                logger.info(
-                    f"[{self.session.session_id}] Attempting Deepgram connection..."
-                )
-                # Use additional_headers for newer websockets version compat
-                async with websockets.connect(
-                    self.dg_url, additional_headers=headers
-                ) as dg_ws:
-                    logger.info(
-                        f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
-                    )
-                    reconnect_delay = 1  # reset backoff on successful connection
-
-                    # Spawn sender and receiver tasks
-                    send_task = asyncio.create_task(self.send_audio(dg_ws))
-                    receive_task = asyncio.create_task(self.receive_results(dg_ws))
-                    telemetry_task = asyncio.create_task(self.telemetry_loop())
-
-                    try:
-                        await asyncio.gather(send_task, receive_task, telemetry_task)
-                    except asyncio.CancelledError:
-                        logger.info(f"[{self.session.session_id}] Deepgram tasks cancelled, shutting down")
-                        raise  # re-raise to exit the reconnection loop
-                    except Exception as e:
-                        logger.error(
-                            f"[{self.session.session_id}] Deepgram processing error: {e}"
-                        )
-                        raise  # caught by outer except for reconnect
-                    finally:
-                        # Clean shutdown of tasks for this connection attempt
-                        send_task.cancel()
-                        receive_task.cancel()
-                        telemetry_task.cancel()
-
-            except asyncio.CancelledError:
-                break  # intentional shutdown, exit loop to finally block
-            except Exception as e:
-                logger.exception(
-                    f"[{self.session.session_id}] Deepgram connection/runtime error: {e}"
-                )
-
-            logger.info(
-                f"[{self.session.session_id}] Deepgram disconnected, reconnecting in {reconnect_delay}s..."
-            )
-            await asyncio.sleep(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 2, 30)
+        try:
+            await self._stream_with_reconnect(headers)
         finally:
             if self._wav_file:
                 self._wav_file.close()
@@ -179,20 +129,71 @@ class AudioProcessor:
             # Upload to S3 in background
             asyncio.get_running_loop().run_in_executor(None, self._upload_to_s3)
 
+    async def _stream_with_reconnect(self, headers):
+        """Reconnection loop: keep connecting to Deepgram until cancelled."""
+        reconnect_delay = 1
+        while True:
+            try:
+                await self._connect_and_stream(headers)
+                reconnect_delay = 1  # reset backoff on clean exit
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception(
+                    f"[{self.session.session_id}] Deepgram connection/runtime error"
+                )
+
+            logger.info(
+                f"[{self.session.session_id}] Deepgram disconnected, reconnecting in {reconnect_delay}s..."
+            )
+            await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, 30)
+
+    async def _connect_and_stream(self, headers):
+        """Single Deepgram connection: connect, spawn tasks, wait for completion."""
+        logger.info(
+            f"[{self.session.session_id}] Attempting Deepgram connection..."
+        )
+        async with websockets.connect(
+            self.dg_url, additional_headers=headers
+        ) as dg_ws:
+            logger.info(
+                f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
+            )
+
+            send_task = asyncio.create_task(self.send_audio(dg_ws))
+            receive_task = asyncio.create_task(self.receive_results(dg_ws))
+            telemetry_task = asyncio.create_task(self.telemetry_loop())
+
+            try:
+                await asyncio.gather(send_task, receive_task, telemetry_task)
+            finally:
+                send_task.cancel()
+                receive_task.cancel()
+                telemetry_task.cancel()
+
     async def send_audio(self, dg_ws):
         """Stream PCM audio data from session inbox to Deepgram."""
         logger.info(f"[{self.session.session_id}][AUDIO_SENDER] Task started")
+        last_send_time = time.time()
+        silence_start = None
         try:
             while True:
                 # Adaptive sleep: if we have a backlog (>1s), don't sleep to drain faster
                 with self.session.audio_inbox_lock:
                     inbox_len_current = len(self.session.audio_inbox)
-                
+
                 if inbox_len_current < (16000 * 2): # less than 1 second
                     await asyncio.sleep(0.01)
 
                 with self.session.audio_inbox_lock:
                     if not self.session.audio_inbox:
+                        if silence_start is None:
+                            silence_start = time.time()
+                        # Send KeepAlive every 5s, but only for the first 3 minutes of silence
+                        if time.time() - last_send_time > 5 and time.time() - silence_start < 180:
+                            await dg_ws.send(json.dumps({"type": "KeepAlive"}))
+                            last_send_time = time.time()
                         continue
 
                     pcm_data = bytes(self.session.audio_inbox)
@@ -235,6 +236,9 @@ class AudioProcessor:
                             f"[{self.session.session_id}][AUDIO_SENDER] Error sending to Deepgram: {e}"
                         )
                         raise
+
+                last_send_time = time.time()
+                silence_start = None
 
                 # Periodically log throughput (every 10s)
                 now = time.time()
