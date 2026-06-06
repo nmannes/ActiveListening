@@ -55,6 +55,7 @@ SHUTDOWN_MINUTES=45
 REMOTE_USER="ubuntu"
 REMOTE_DIR="/home/ubuntu"
 FORCE=false
+TAG=""
 
 
 args=("$@")
@@ -67,6 +68,7 @@ for ((i=0; i<${#args[@]}; i++)); do
         --no-rollback) NO_ROLLBACK=true ;;
         --destroy-all) ENV="--destroy-all" ;;
         --duration|--shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
+        --tag) TAG="${args[$((i+1))]}"; ((i++)) ;;
         --*) ;; # Ignore unknown flags
         *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
     esac
@@ -94,63 +96,63 @@ RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
 
 echo "Deploying to environment: $ENV (Ubuntu)"
 
-# --- 0. Check for existing instance (Locked) ---
-mkdir -p "$LOCAL_DIR/locks"
-LOCKFILE="$LOCAL_DIR/locks/launch_${ENV}.lock"
-
-while true; do
-    if (set -o noclobber; echo "$$" > "$LOCKFILE") 2>/dev/null; then
-        # Successfully acquired lock
-        trap 'rm -f "$LOCKFILE"; exit $?' INT TERM EXIT
-        break
-    else
-        # Lock exists, check if it is stale
-        OTHER_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
-        if [ -z "$OTHER_PID" ] || ! kill -0 "$OTHER_PID" 2>/dev/null; then
-            echo "Stale or empty lock found (PID $OTHER_PID), clearing..."
-            rm -f "$LOCKFILE"
-            continue
-        fi
-        echo "--------------------------------------------------------"
-        echo "ALREADY IN PROGRESS: A $ENV launch is active (PID $OTHER_PID)"
-        echo "Aborting this launch to avoid duplicates."
-        echo "--------------------------------------------------------"
-        exit 0
-    fi
-done
-
 echo "Generating local audio-library..."
 python3 "$LOCAL_DIR/scripts/build_audio_library.py"
 
-echo "[0/5] Checking for existing $ENV instances in $REGION..."
-EXISTING_INSTANCES=$(aws ec2 describe-instances \
-    --region "$REGION" \
-    --filters "Name=tag:Environment,Values=$ENV" "Name=instance-state-name,Values=running,pending" \
-    --query 'Reservations[].Instances[].{ID:InstanceId, IP:PublicIpAddress}' \
-    --output json)
+# --- 0. Per-event lock + duplicate check ---
+if [[ -n "$TAG" ]]; then
+    mkdir -p "$LOCAL_DIR/locks"
+    LOCKFILE="$LOCAL_DIR/locks/launch_${TAG}.lock"
 
-COUNT=$(echo "$EXISTING_INSTANCES" | jq '. | length')
+    # Acquire per-event lock (serializes concurrent launches for the same slug)
+    while true; do
+        if (set -o noclobber; echo "$$" > "$LOCKFILE") 2>/dev/null; then
+            trap 'rm -f "$LOCKFILE"; exit $?' INT TERM EXIT
+            break
+        else
+            OTHER_PID=$(cat "$LOCKFILE" 2>/dev/null || echo "")
+            if [ -z "$OTHER_PID" ] || ! kill -0 "$OTHER_PID" 2>/dev/null; then
+                echo "Stale lock for event '$TAG' (PID $OTHER_PID), clearing..."
+                rm -f "$LOCKFILE"
+                continue
+            fi
+            echo "Another launch for event '$TAG' is in progress (PID $OTHER_PID). Waiting..."
+            sleep 2
+        fi
+    done
 
-if [[ "$COUNT" -gt 0 ]]; then
-    echo "--------------------------------------------------------"
-    echo "ALREADY RUNNING: $COUNT $ENV instance(s) found:"
-    echo "$EXISTING_INSTANCES" | jq -r '.[] | "  - \(.ID) at \(.IP)"'
-    
-    if [[ "$FORCE" == true ]]; then
-        echo "FORCE ENABLED: Proceeding despite existing instance(s)."
+    echo "[0/4] Checking for existing instance for event '$TAG'..."
+    EXISTING=$(aws ec2 describe-instances \
+        --region "$REGION" \
+        --filters \
+            "Name=tag:Event,Values=$TAG" \
+            "Name=instance-state-name,Values=running,pending" \
+        --query 'Reservations[].Instances[].{ID:InstanceId, IP:PublicIpAddress}' \
+        --output json)
+    COUNT=$(echo "$EXISTING" | jq '. | length')
+
+    if [[ "$COUNT" -gt 0 ]]; then
         echo "--------------------------------------------------------"
-    else
-        echo "Aborting launch to avoid duplicates. Use -f to force."
+        echo "ALREADY RUNNING: Instance for event '$TAG' already exists:"
+        echo "$EXISTING" | jq -r '.[] | "  - \(.ID) at \(.IP)"'
+        echo "Aborting launch to avoid duplicate per event."
         echo "--------------------------------------------------------"
-        FIRST_IP=$(echo "$EXISTING_INSTANCES" | jq -r '.[0].IP')
-        FIRST_ID=$(echo "$EXISTING_INSTANCES" | jq -r '.[0].ID')
-        $BUN run lib/telegram.js --message "Aborted launch: A $ENV instance is already active at $FIRST_IP ($FIRST_ID)" --channel info
+        EXISTING_IP=$(echo "$EXISTING" | jq -r '.[0].IP')
+        EXISTING_ID=$(echo "$EXISTING" | jq -r '.[0].ID')
+        rm -f "$LOCKFILE"
+        $BUN run lib/telegram.js --message "Aborted launch: Instance for '$TAG' already active at $EXISTING_IP ($EXISTING_ID)" --channel info
+        STACK_NAME=$(aws ec2 describe-tags \
+            --region "$REGION" \
+            --filters "Name=resource-id,Values=$EXISTING_ID" "Name=key,Values=Name" \
+            --query 'Tags[0].Value' --output text)
+        echo "DEPLOY_RESULT={\"ip\":\"$EXISTING_IP\",\"instanceId\":\"$EXISTING_ID\",\"stackName\":\"$STACK_NAME\"}"
         exit 0
     fi
+    echo "No existing instance for event '$TAG'. Proceeding with launch."
 fi
 
 # --- 1. Get Local IP and Credentials ---
-echo "[1/5] Gathering deployment context..."
+echo "[1/4] Gathering deployment context..."
 MY_IPV4=$(curl -4 -s https://ifconfig.me || true)
 MY_IPV6=$(curl -6 -s https://ifconfig.me || true)
 
@@ -233,8 +235,11 @@ fi
 
 
 # --- 2. Assemble and Launch Stack ---
-echo "[2/5] Assembling and deploying modular CloudFormation stack..."
+echo "[2/4] Assembling and deploying modular CloudFormation stack..."
 STACK_NAME="kalshi-worker-$RUN_ID"
+if [[ -n "$TAG" ]]; then
+    STACK_NAME="${STACK_NAME}-${TAG}"
+fi
 if [[ "$FORCE" == true ]]; then
     STACK_NAME="${STACK_NAME}-forced"
 fi
@@ -380,7 +385,7 @@ rm "$TMP_TEMPLATE"
 
 
 # --- 3. Get Outputs ---
-echo "[3/5] Deployment complete. Fetching details..."
+echo "[3/4] Deployment complete. Fetching details..."
 
 echo "results:\n$DEPLOYMENT_RESULTS"
 
@@ -397,6 +402,15 @@ PUBLIC_IP=$(aws cloudformation describe-stacks \
     --region "$REGION" \
     --query 'Stacks[0].Outputs[?OutputKey==`PublicIp`].OutputValue' \
     --output text)
+
+# Tag the instance with the event slug so we can detect duplicates per event
+if [[ -n "$TAG" ]]; then
+    aws ec2 create-tags \
+        --region "$REGION" \
+        --resources "$INSTANCE_ID" \
+        --tags "Key=Event,Value=$TAG"
+    echo "Tagged instance $INSTANCE_ID with Event=$TAG"
+fi
 
 echo "--------------------------------------------------------"
 echo "Done! Kalshi Worker is active at $PUBLIC_IP:8090"
@@ -415,3 +429,6 @@ echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK
 echo "--------------------------------------------------------"
 
 $BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info
+
+# Machine-readable output for worker parsing
+echo "DEPLOY_RESULT={\"ip\":\"$PUBLIC_IP\",\"instanceId\":\"$INSTANCE_ID\",\"stackName\":\"$STACK_NAME\"}"

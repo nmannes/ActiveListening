@@ -1,6 +1,7 @@
 #!/bin/bash
-# schedule_run.sh — Enqueues GPU launch + client.js execution
-# via BullMQ (Redis-backed job queue).
+# schedule_run.sh — Enqueues client.js execution via BullMQ (Redis-backed job queue).
+#
+# Each event gets its own EC2 instance — the worker handles launch.
 #
 # Usage:
 #   bash schedule_run.sh cava.json
@@ -9,8 +10,7 @@
 #   bash schedule_run.sh cava.json --force
 #
 # Timeline:
-#   T-10min:  Enqueue GPU launch job
-#   T=0:      Enqueue client.js run job
+#   T-10min:  Enqueue run-client job (worker launches EC2 + runs client)
 
 set -e
 export TZ="America/New_York"
@@ -22,8 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 JSON_FILE=""
 DRY_RUN=false
 RUN_NOW=false
-SPOT_ARG=""
-CLIENT_ONLY=false
 FORCE=false
 USE_BROWSER=false
 
@@ -31,18 +29,13 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run) DRY_RUN=true; shift ;;
         --now) RUN_NOW=true; shift ;;
-        --spot) SPOT_ARG="--spot"; shift ;;
-        --client-only) CLIENT_ONLY=true; shift ;;
         --force) FORCE=true; shift ;;
         --browser) USE_BROWSER=true; shift ;;
-        --duration) 
+        --duration)
             DURATION_MINUTES="$2"
             shift 2 ;;
-        --server-duration)
-            SERVER_DURATION_MINUTES="$2"
-            shift 2 ;;
-        *) 
-            if [[ -z "$JSON_FILE" ]]; then 
+        *)
+            if [[ -z "$JSON_FILE" ]]; then
                 JSON_FILE="$1"
             fi
             shift ;;
@@ -50,7 +43,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$JSON_FILE" ]]; then
-    echo "Usage: $0 <market-file.json> [--dry-run|--now|--spot|--client-only] [--duration minutes] [--server-duration minutes]"
+    echo "Usage: $0 <market-file.json> [--dry-run|--now|--browser] [--duration minutes]"
     exit 1
 fi
 
@@ -61,71 +54,52 @@ fi
 
 # --- Parse eventStartTime from JSON ---
 if [[ "$RUN_NOW" == true || "$FORCE" == true ]]; then
-    # Replicate prod delay: Launch +1m, Start +11m
-    LAUNCH_EPOCH=$(date -d "+1 minute" +%s)
-    START_EPOCH=$((LAUNCH_EPOCH + 10 * 60))
+    START_EPOCH=$(date -d "+1 minute" +%s)
     EVENT_START_TIME=$(date -d "@$START_EPOCH" '+%Y-%m-%dT%H:%M:%S')
-    echo "Forcing schedule to replicate prod env:"
-    echo "  - GPU Launch: $(date -d "@$LAUNCH_EPOCH" '+%H:%M:%S')"
-    echo "  - Client Run: $(date -d "@$START_EPOCH" '+%H:%M:%S') (+11m from now)"
+    echo "Forcing immediate schedule:"
+    echo "  - Client Run: $(date -d "@$START_EPOCH" '+%H:%M:%S')"
 else
     EVENT_START_TIME=$(jq -r '.eventStartTime' "$JSON_FILE")
     if [[ -z "$EVENT_START_TIME" || "$EVENT_START_TIME" == "null" ]]; then
         echo "Error: No 'eventStartTime' field found in $JSON_FILE"
         exit 1
     fi
-    # Convert to epoch seconds
     START_EPOCH=$(date -d "$EVENT_START_TIME" +%s)
-    # Compute launch time = 10 minutes before start
-    LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 fi
 
 NOW_EPOCH=$(date +%s)
 
-# Shutdown delay = given duration (default 30) + 10 minutes for early launch
 DURATION_MINUTES=${DURATION_MINUTES:-30}
 SHUTDOWN_MINUTES=$((DURATION_MINUTES + 10))
 
-# Server shutdown delay = given server duration (defaults to DURATION_MINUTES) + 10 minutes
-SERVER_DURATION_MINUTES=${SERVER_DURATION_MINUTES:-$DURATION_MINUTES}
-SERVER_SHUTDOWN_MINUTES=$((SERVER_DURATION_MINUTES + 10))
-
-# Format times for `at` (HH:MM YYYY-MM-DD)
-LAUNCH_AT=$(date -d "@$LAUNCH_EPOCH" '+%H:%M %Y-%m-%d')
-START_AT=$(date -d "@$START_EPOCH" '+%H:%M %Y-%m-%d')
-
-# Human-readable times for logging
 START_HUMAN=$(date -d "@$START_EPOCH" '+%Y-%m-%d %H:%M:%S %Z')
+LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
 LAUNCH_HUMAN=$(date -d "@$LAUNCH_EPOCH" '+%Y-%m-%d %H:%M:%S %Z')
+
+# Extract slug from the JSON file
+SLUG=$(jq -r '.slug' "$JSON_FILE")
 
 echo "========================================"
 echo "  Schedule Run"
 echo "========================================"
 echo "  File:         $JSON_FILE"
+echo "  Slug:         $SLUG"
 echo "  Event start:  $START_HUMAN"
-if [[ "$CLIENT_ONLY" == true ]]; then
-    echo "  Mode:         Client Only (Skipping GPU launch)"
-else
-    echo "  GPU launch:   $LAUNCH_HUMAN (T-10min)"
-    echo "  GPU shutdown:  ${SERVER_DURATION_MINUTES} min after start (${SERVER_SHUTDOWN_MINUTES}min from launch)"
-fi
-echo "  Client dur:   ${DURATION_MINUTES} min after start (${SHUTDOWN_MINUTES}min from launch)"
+echo "  Launch:       $LAUNCH_HUMAN"
+echo "  Duration:     ${DURATION_MINUTES}min"
+echo "  Mode:         NEW Server (dedicated EC2)"
 echo "========================================"
 
 if [[ "$DRY_RUN" == true ]]; then
-    echo ""
-    echo "  BullMQ jobs that would be enqueued:"
-    if [[ "$CLIENT_ONLY" != true ]]; then
-        echo "    1) gpu-server: launch_gpu_server.sh prod $SPOT_ARG --shutdown-minutes $SERVER_SHUTDOWN_MINUTES at $LAUNCH_AT"
-    fi
-
     CMD_PREFIX=""
     BROWSER_ARG=""
     if [[ "$USE_BROWSER" == true ]]; then
         CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
         BROWSER_ARG="--browser"
     fi
-    echo "    2) run-client: cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG at $START_AT"
+    echo ""
+    echo "  BullMQ job that would be enqueued:"
+    echo "    run-client: cd $SCRIPT_DIR && $CMD_PREFIX$BUN run client.js --fromFile $ABS_JSON_FILE --duration $SHUTDOWN_MINUTES $BROWSER_ARG at $LAUNCH_HUMAN"
     echo ""
     echo "  (dry run — nothing enqueued)"
     exit 0
@@ -141,25 +115,13 @@ if [[ "$USE_BROWSER" == true ]]; then
 fi
 
 NOW_MS=$((NOW_EPOCH * 1000))
-GPU_DELAY_MS=$(((LAUNCH_EPOCH - NOW_EPOCH) * 1000))
-CLIENT_DELAY_MS=$(((START_EPOCH - NOW_EPOCH) * 1000))
+CLIENT_DELAY_MS=$(((LAUNCH_EPOCH - NOW_EPOCH) * 1000))
+SERVER_SHUTDOWN_MINUTES=$((DURATION_MINUTES + 20))  # duration + launch buffer + padding
 
-if [[ "$CLIENT_ONLY" != true ]]; then
-    $BUN -e "
-const { gpuServerQueue } = require('./lib/queues');
-gpuServerQueue.add('launch-gpu-server', { shutdownMinutes: $SERVER_SHUTDOWN_MINUTES }, { delay: Math.max(0, $GPU_DELAY_MS) })
-  .then(j => { console.log('GPU server job enqueued:', j.id); process.exit(0); })
-  .catch(e => { console.error(e); process.exit(1); });
-"
-fi
-
-$BUN -e "
-const { runClientQueue } = require('./lib/queues');
-runClientQueue.add('run-client', { marketFile: '$ABS_JSON_FILE', duration: $SHUTDOWN_MINUTES, browser: $BROWSER_FLAG }, { delay: Math.max(0, $CLIENT_DELAY_MS) })
-  .then(j => { console.log('Run client job enqueued:', j.id); process.exit(0); })
-  .catch(e => { console.error(e); process.exit(1); });
-"
-
-echo ""
-echo "Jobs enqueued via BullMQ."
-echo "View dashboard at http://localhost:3000/admin/queues"
+$BUN run enqueue_run_client.js \
+    --marketFile "$ABS_JSON_FILE" \
+    --duration "$SHUTDOWN_MINUTES" \
+    --browser "$BROWSER_FLAG" \
+    --slug "$SLUG" \
+    --shutdownMinutes "$SERVER_SHUTDOWN_MINUTES" \
+    --delay "$CLIENT_DELAY_MS"

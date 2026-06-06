@@ -5,10 +5,9 @@ const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { sendTelegram } = require("./lib/telegram");
 const {
-  loadServerWindows,
   loadManualMatches,
   collectCandidates,
-  processSequences,
+  processCandidates,
 } = require("./lib/scheduling");
 const { connection } = require("./lib/queues");
 const {
@@ -196,7 +195,7 @@ async function main() {
   // 2. Run market-to-media matching
   const { matchedMatches } = runMatching(CACHE_DIR, DATA_DIR);
 
-  // 3. Load manual matches and existing server windows
+  // 3. Load manual matches
   const manualMatches = loadManualMatches(CACHE_DIR);
   const matches = [
     ...manualMatches,
@@ -204,12 +203,10 @@ async function main() {
       (m) => !manualMatches.find((man) => man.market.slug === m.market.slug),
     ),
   ];
-  const matchSlugs = new Set(matches.map((m) => m.market.slug));
-  const serverWindows = loadServerWindows(scheduledDir, opts.force, matchSlugs);
 
-  // 4. Collect candidates and group into sequences
+  // 4. Collect candidates
   const now = new Date();
-  const { sequences } = collectCandidates(matches, {
+  const { candidates } = collectCandidates(matches, {
     targetSlug: opts.targetSlug,
     youtubeOnly: opts.youtubeOnly,
     lookaheadMs: opts.lookaheadMs,
@@ -217,7 +214,7 @@ async function main() {
   });
 
   // 5. Schedule (or dry-run)
-  await processSequences(sequences, matches, serverWindows, {
+  await processCandidates(candidates, matches, {
     force: opts.force,
     dryRun: opts.dryRun,
     scheduledDir,

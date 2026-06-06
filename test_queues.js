@@ -12,7 +12,6 @@
  */
 
 const {
-  gpuServerQueue,
   runClientQueue,
   logSyncQueue,
   schedulingLoopQueue,
@@ -23,7 +22,6 @@ const TEST_PREFIX = "test::";
 const LONG_DELAY = 24 * 60 * 60 * 1000; // 24h — won't actually execute
 
 const queues = {
-  "gpu-server": gpuServerQueue,
   "run-client": runClientQueue,
   "log-sync": logSyncQueue,
   "scheduling-loop": schedulingLoopQueue,
@@ -40,13 +38,6 @@ async function showStats() {
 
 async function addTestJobs() {
   console.log("Adding test jobs (24h delay, won't execute)...\n");
-
-  const gpuJob = await gpuServerQueue.add(
-    `${TEST_PREFIX}launch-gpu`,
-    { shutdownMinutes: 1, spot: false },
-    { delay: LONG_DELAY },
-  );
-  console.log(`  [gpu-server]  Added job: ${gpuJob.id}`);
 
   const clientJob = await runClientQueue.add(
     `${TEST_PREFIX}run-client`,
