@@ -3,12 +3,11 @@ set -e
 FILE="$1"
 
 cd /home/nathan/kalshi
-
 python server.py &
 SERVER_PID=$!
 sleep 60
 
-timeout 10m bun run client.js --local --fromFile "$FILE"
+timeout 10m /home/nathan/.bun/bin/bun run client.js --local --fromFile "$FILE"
 
 bash pull_all_s3_responses.sh
 
