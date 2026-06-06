@@ -377,6 +377,26 @@ app.post("/api/data-entry/:index/retry", (req, res) => {
     }
 });
 
+app.get("/api/data-entry/logs", (req, res) => {
+    try {
+        const logPath = path.join(DATA_DIR, "data-entry.log");
+        if (!fs.existsSync(logPath)) {
+            return res.json([]);
+        }
+        const raw = fs.readFileSync(logPath, "utf-8");
+        const entries = raw.trim().split("\n").filter(Boolean).map((line) => {
+            const tsMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\s/);
+            const ts = tsMatch ? tsMatch[1] : null;
+            const msg = tsMatch ? line.slice(tsMatch[0].length) : line;
+            return { ts, msg, raw: line };
+        });
+        entries.reverse();
+        res.json(entries);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.delete("/api/data-entry/:index", (req, res) => {
     try {
         const index = parseInt(req.params.index);

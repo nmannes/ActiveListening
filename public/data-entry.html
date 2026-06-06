@@ -208,6 +208,29 @@
             color: #f87171;
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
+
+        .log-entry {
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-entry:last-child { border-bottom: none; }
+        .log-entry .ts {
+            color: var(--accent);
+            display: block;
+            margin-bottom: 0.125rem;
+        }
+        .log-empty {
+            text-align: center;
+            color: var(--text-muted);
+            padding: 2rem 0;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 
@@ -251,6 +274,14 @@
 
             </div>
             <div id="entries" class="entry-list"></div>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="font-size: 1.125rem; margin: 0;">Logs</h2>
+                <button onclick="fetchLogs()" style="font-size: 0.75rem; padding: 0.375rem 0.75rem;">Refresh</button>
+            </div>
+            <div id="logs"></div>
         </div>
     </div>
 
@@ -346,7 +377,28 @@
             if (e.key === "Enter") saveEntry();
         });
 
+        async function fetchLogs() {
+            const el = document.getElementById("logs");
+            el.innerHTML = '<div class="log-empty">Loading...</div>';
+            try {
+                const res = await fetch("/api/data-entry/logs");
+                const data = await res.json();
+                if (!data.length) {
+                    el.innerHTML = '<div class="log-empty">No log entries yet.</div>';
+                    return;
+                }
+                el.innerHTML = data.map(e => `
+                    <div class="log-entry">
+                        <span class="ts">${esc(e.ts || "")}</span>${esc(e.msg)}
+                    </div>
+                `).join("");
+            } catch {
+                el.innerHTML = '<div class="log-empty">Failed to load logs.</div>';
+            }
+        }
+
         fetchEntries();
+        fetchLogs();
     </script>
 </body>
 
