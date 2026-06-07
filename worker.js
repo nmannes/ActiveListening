@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { Worker } = require("bullmq");
 const { execSync } = require("child_process");
 const { connection } = require("./lib/queues");
@@ -33,11 +34,24 @@ const runClientWorker = new Worker(
   async (job) => {
     const { marketFile, duration, browser, slug, shutdownMinutes } = job.data;
 
+    // Verify the event date matches today's date in Eastern time
+    const market = JSON.parse(fs.readFileSync(marketFile, "utf8"));
+    const eventStartTime = market.eventStartTime;
+    if (eventStartTime) {
+      const eventDateET = new Date(eventStartTime).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      if (eventDateET !== todayET) {
+        console.log(`[worker] Skipping "${slug}" — event date (${eventDateET} ET) does not match today (${todayET} ET)`);
+        return;
+      }
+    }
+
     // 1. Launch dedicated EC2 instance
     console.log(`[worker] Launching EC2 instance for "${slug}" (shutdown in ${shutdownMinutes}m)...`);
     const env = process.env.KALSHI_ENV || "prod";
+    const title = market.title || slug;
     const launchOutput = spawnCapture(
-      `bash launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug}`,
+      `bash launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug} --title "${title.replace(/"/g, '\\"')}"`,
     );
 
     const deployResult = parseDeployResult(launchOutput);

@@ -69,6 +69,7 @@ for ((i=0; i<${#args[@]}; i++)); do
         --destroy-all) ENV="--destroy-all" ;;
         --duration|--shutdown-minutes) SHUTDOWN_MINUTES="${args[$((i+1))]}"; ((i++)) ;;
         --tag) TAG="${args[$((i+1))]}"; ((i++)) ;;
+        --title) TITLE="${args[$((i+1))]}"; ((i++)) ;;
         --*) ;; # Ignore unknown flags
         *) if [[ -z "$INSTANCE_TYPE_ARG" ]]; then INSTANCE_TYPE_ARG=$arg; fi ;;
     esac
@@ -428,7 +429,7 @@ echo "To delete stack:"
 echo "aws cloudformation delete-stack --region \"$REGION\" --stack-name \"$STACK_NAME\""
 echo "--------------------------------------------------------"
 
-$BUN run lib/telegram.js --message "Kalshi worker launched! (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info
+$BUN run lib/telegram.js --message "Kalshi worker launched! ${TITLE} (Scheduled for ${SHUTDOWN_MINUTES}m)" --channel info
 
 # Machine-readable output for worker parsing
 echo "DEPLOY_RESULT={\"ip\":\"$PUBLIC_IP\",\"instanceId\":\"$INSTANCE_ID\",\"stackName\":\"$STACK_NAME\"}"
