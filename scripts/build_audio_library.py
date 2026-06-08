@@ -109,15 +109,17 @@ def main():
             
     logger.info(f"Found {len(identity_sources)} unique identities.")
     
-    # Copy the largest file for each identity to audio-library/
+    # Copy all samples for each identity to audio-library/ with numeric suffixes.
+    # The largest file gets the base slug; additional files get -1, -2, etc.
+    # This allows multiple voice samples per target — the prefix matching in
+    # speaker_recognition.py treats "donald-trump-1" as a match for "donald-trump".
     for slug, sources in identity_sources.items():
-        # For simplicity and quality, pick the longest (largest size) file as the reference
-        # Alternatively, we could concatenate them, but usually one good quality clip is sufficient.
-        best_source = max(sources, key=lambda p: p.stat().st_size)
-        
-        dest_path = output_dir / f"{slug}.wav"
-        shutil.copy2(best_source, dest_path)
-        logger.info(f"Copied {best_source.name} -> {dest_path.name} (size: {best_source.stat().st_size} bytes)")
+        sources.sort(key=lambda p: p.stat().st_size, reverse=True)
+        for i, source in enumerate(sources):
+            suffix = f"-{i}" if i > 0 else ""
+            dest_path = output_dir / f"{slug}{suffix}.wav"
+            shutil.copy2(source, dest_path)
+            logger.info(f"Copied {source.name} -> {dest_path.name} (size: {source.stat().st_size} bytes)")
         
     logger.info(f"Successfully populated {output_dir} with {len(identity_sources)} reference samples.")
 

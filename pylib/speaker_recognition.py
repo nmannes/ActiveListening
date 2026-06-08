@@ -264,7 +264,11 @@ class SpeakerRecognitionSession:
         entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
         target_has_voice_sample = (
             identifier and identifier._ready
-            and any(slug in identifier.references for slug in entity_slugs)
+            and any(
+                key == slug or key.startswith(slug + '-') or key.startswith(slug + '_')
+                for slug in entity_slugs
+                for key in identifier.references
+            )
         )
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
@@ -401,7 +405,13 @@ class SpeakerRecognitionSession:
                 logger.debug(f"[{self.session_id}] No best name identified for speaker {speaker_id}")
 
             # Only accept if the best match is one of our market entities
-            matched_entity = entity_slugs.get(best_name) if best_name else None
+            # (prefix match: "donald-trump-debate" matches entity slug "donald-trump")
+            matched_entity = None
+            if best_name:
+                for slug, entity in entity_slugs.items():
+                    if best_name == slug or best_name.startswith(slug + '-') or best_name.startswith(slug + '_'):
+                        matched_entity = entity
+                        break
             
             if matched_entity:
                 logger.debug(f"[{self.session_id}] Matched best_name '{best_name}' to entity '{matched_entity}'")

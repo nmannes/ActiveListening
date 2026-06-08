@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+"""
+kalshi — Unified CLI for the Kalshi event monitoring project.
+
+Dispatches to the correct language/runtime under the hood. All commands
+forward extra arguments to the underlying script.
+
+Usage:
+    kalshi discover              Fetch markets + external schedules
+    kalshi schedule              Match markets to events, write scheduled JSONs
+    kalshi listen <file>         Run a one-off listening session
+    kalshi server                Start the WebSocket server
+    kalshi worker                Start the BullMQ worker (Node.js)
+
+    kalshi generate <name>       Generate voice samples for a target
+    kalshi build-library         Build voice sample library from S3 recordings
+    kalshi bot                   Start the persistent Telegram bot
+    kalshi queue-worker          Start the Redis queue worker
+
+    kalshi deploy                Deploy code to remote GPU server
+    kalshi launch-gpu            Launch GPU EC2 instance + start server
+    kalshi destroy               Teardown all EC2 instances
+    kalshi logs                  Pull session logs from remote
+
+    kalshi ui                    Start the market discovery web UI
+    kalshi test                  Run the test suite
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent.resolve()
+
+
+def run(cmd, **kwargs):
+    """Run a command, forwarding stdin/stdout/stderr and returning exit code."""
+    print(f"→ {' '.join(cmd)}", file=sys.stderr)
+    return subprocess.run(cmd, cwd=str(ROOT), **kwargs).returncode
+
+
+def node(script, *args):
+    return run(["node", str(ROOT / script)] + list(args))
+
+
+def python(script, *args):
+    return run([sys.executable, str(ROOT / script)] + list(args))
+
+
+def bash(script, *args):
+    return run(["bash", str(ROOT / script)] + list(args))
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Kalshi CLI — unified entrypoint for all project commands",
+        usage="kalshi <command> [<args>...]",
+    )
+    sub = parser.add_subparsers(dest="command", metavar="command")
+
+    # Core pipeline
+    sub.add_parser("discover", help="Fetch Kalshi markets + external schedules")
+    sub.add_parser("schedule", help="Match discovered markets to events, write scheduled JSONs")
+    sp_listen = sub.add_parser("listen", help="Run a one-off listening session")
+    sp_listen.add_argument("file", help="Path to sample scheduling JSON")
+    sub.add_parser("server", help="Start the WebSocket server")
+    sub.add_parser("js-worker", help="Start the BullMQ worker (Node.js)")
+
+    # Audio / speaker
+    sp_gen = sub.add_parser("generate", help="Generate voice samples for a target")
+    sp_gen.add_argument("target", help="Target speaker name")
+    sp_gen.add_argument("--num-videos", type=int, default=5)
+    sp_gen.add_argument("--max-duration", type=int, default=120)
+    sp_gen.add_argument("--auto-threshold", type=float)
+    sp_gen.add_argument("--skip-verify", action="store_true")
+    sp_gen.add_argument("--dry-run", action="store_true")
+    sub.add_parser("build-library", help="Build voice sample library from S3 recordings")
+    sp_bot = sub.add_parser("bot", help="Start the persistent Telegram bot")
+    sp_bot.add_argument("--debug", action="store_true")
+    sp_qw = sub.add_parser("queue-worker", help="Start the Redis queue worker")
+    sp_qw.add_argument("--debug", action="store_true")
+
+    # Infrastructure
+    sub.add_parser("deploy", help="Deploy code to remote GPU server")
+    sub.add_parser("launch-gpu", help="Launch GPU EC2 instance + deploy + start server")
+    sub.add_parser("destroy", help="Teardown all EC2 instances")
+    sub.add_parser("logs", help="Pull session logs from remote")
+
+    # UI
+    sub.add_parser("ui", help="Start the market discovery web UI")
+
+    # Testing
+    sub.add_parser("test", help="Run the Python test suite")
+
+    args, unknown = parser.parse_known_args()
+
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+
+    # Build extra args to forward (all unknown args)
+    extra = unknown
+
+    # Dispatch
+    cmd = args.command
+
+    if cmd == "discover":
+        sys.exit(node("e2e_discovery.js", *extra))
+
+    elif cmd == "schedule":
+        sys.exit(node("schedule_matches.js", *extra))
+
+    elif cmd == "listen":
+        sys.exit(bash("run_sample.sh", args.file, *extra))
+
+    elif cmd == "server":
+        sys.exit(python("server.py", *extra))
+
+    elif cmd == "js-worker":
+        sys.exit(node("worker.js", *extra))
+
+    elif cmd == "generate":
+        gen_args = [args.target]
+        if args.num_videos != 5:
+            gen_args += ["--num-videos", str(args.num_videos)]
+        if args.max_duration != 120:
+            gen_args += ["--max-duration", str(args.max_duration)]
+        if args.auto_threshold is not None:
+            gen_args += ["--auto-threshold", str(args.auto_threshold)]
+        if args.skip_verify:
+            gen_args.append("--skip-verify")
+        if args.dry_run:
+            gen_args.append("--dry-run")
+        sys.exit(python("scripts/generate_samples.py", *(gen_args + extra)))
+
+    elif cmd == "build-library":
+        sys.exit(python("scripts/build_audio_library.py", *extra))
+
+    elif cmd == "bot":
+        bot_args = []
+        if getattr(args, "debug", False):
+            bot_args.append("--debug")
+        sys.exit(python("scripts/telegram_bot.py", *(bot_args + extra)))
+
+    elif cmd == "queue-worker":
+        qw_args = []
+        if getattr(args, "debug", False):
+            qw_args.append("--debug")
+        sys.exit(python("scripts/queue_worker.py", *(qw_args + extra)))
+
+    elif cmd == "deploy":
+        sys.exit(bash("sync_code.sh", *extra))
+
+    elif cmd == "launch-gpu":
+        sys.exit(bash("launch_gpu_server.sh", *extra))
+
+    elif cmd == "destroy":
+        sys.exit(bash("destroy_all_instances.sh", *extra))
+
+    elif cmd == "logs":
+        sys.exit(bash("sync_logs.sh", *extra))
+
+    elif cmd == "ui":
+        sys.exit(node("market_ui.js", *extra))
+
+    elif cmd == "test":
+        sys.exit(python("-m", "pytest", "tests", *extra))
+
+    else:
+        parser.print_help()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

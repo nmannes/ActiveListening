@@ -121,9 +121,100 @@ def send_telegram_photo(photo, caption=None, channel="info"):
     return response.json()
 
 
-if __name__ == "__main__":
-    import json
+def build_inline_keyboard(buttons):
+    """
+    Build an inline keyboard markup dict for Telegram.
 
+    buttons is a list of rows: each row is a list of (text, callback_data) tuples.
+    Example:
+        build_inline_keyboard([
+            [("Approve", "approve:0"), ("Reject", "reject:0")],
+            [("Auto-approve all", "auto_all")],
+        ])
+    """
+    inline_keyboard = []
+    for row in buttons:
+        inline_keyboard.append([
+            {"text": text, "callback_data": data}
+            for text, data in row
+        ])
+    return {"inline_keyboard": inline_keyboard}
+
+
+def send_telegram_audio(audio_path, caption=None, reply_markup=None, channel="info"):
+    """Send an audio file via Telegram sendAudio endpoint."""
+    token, chat_id = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/sendAudio"
+
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    with open(audio_path, "rb") as f:
+        files = {"audio": f}
+        response = requests.post(url, data=data, files=files)
+
+    return response.json()
+
+
+def send_telegram_voice(voice_path, caption=None, reply_markup=None, channel="info"):
+    """Send a voice message (OGG OPUS) via Telegram sendVoice endpoint."""
+    token, chat_id = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/sendVoice"
+
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    with open(voice_path, "rb") as f:
+        files = {"voice": f}
+        response = requests.post(url, data=data, files=files)
+
+    return response.json()
+
+
+def answer_callback_query(callback_query_id, text=None, channel="info"):
+    """Acknowledge a callback query, optionally showing a toast/alert."""
+    token, _ = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    data = {"callback_query_id": callback_query_id}
+    if text:
+        data["text"] = text
+    return requests.post(url, json=data).json()
+
+
+def poll_telegram_callbacks(timeout=30, channel="info"):
+    """
+    Poll for pending callback queries. Returns list of dicts with keys:
+      callback_id, data, chat_id, message_id
+    """
+    token, _ = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/getUpdates"
+    response = requests.post(url, json={"timeout": timeout, "allowed_updates": ["callback_query"]})
+    result = response.json()
+
+    callbacks = []
+    if result.get("ok"):
+        for update in result.get("result", []):
+            cq = update.get("callback_query")
+            if cq:
+                callbacks.append({
+                    "callback_id": cq["id"],
+                    "data": cq.get("data", ""),
+                    "chat_id": cq["message"]["chat"]["id"],
+                    "message_id": cq["message"]["message_id"],
+                    "update_id": update["update_id"],
+                })
+    return callbacks
+
+
+import json
+
+if __name__ == "__main__":
     # Run a test similar to the JS main block
     print("Testing Python Telegram Library...")
     # Using the same test image as JS
