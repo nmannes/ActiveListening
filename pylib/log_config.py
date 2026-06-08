@@ -2,14 +2,29 @@ import contextvars
 import json
 import logging
 import sys
+import threading
 from datetime import datetime, timezone
 
 run_uuid_var = contextvars.ContextVar("run_uuid", default="-")
+_run_uuid_lock = threading.Lock()
+_run_uuid_global = "-"
+
+
+def set_run_uuid(value):
+    """Set run_uuid for async context (via ContextVar) and global fallback for threads."""
+    run_uuid_var.set(value)
+    global _run_uuid_global
+    with _run_uuid_lock:
+        _run_uuid_global = value
 
 
 class RunUUIDFilter(logging.Filter):
     def filter(self, record):
-        record.run_uuid = run_uuid_var.get()
+        ru = run_uuid_var.get()
+        if ru == "-":
+            with _run_uuid_lock:
+                ru = _run_uuid_global
+        record.run_uuid = ru
         return True
 
 
@@ -39,8 +54,8 @@ def setup_logging():
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.handlers.clear()
+    stream_handler.addFilter(RunUUIDFilter())
     root_logger.addHandler(stream_handler)
-    root_logger.addFilter(RunUUIDFilter())
 
     # Dedicated transcript logger
     transcript_logger = logging.getLogger("transcript")
@@ -48,7 +63,9 @@ def setup_logging():
     if not transcript_logger.handlers:
         transcript_handler = logging.StreamHandler(sys.stdout)
         transcript_handler.setFormatter(json_formatter)
+        transcript_handler.addFilter(RunUUIDFilter())
         transcript_logger.addHandler(transcript_handler)
+    transcript_logger.propagate = False
 
     logger = logging.getLogger("remote_server")
 
