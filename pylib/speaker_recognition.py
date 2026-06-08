@@ -257,16 +257,19 @@ class SpeakerRecognitionSession:
 
         logger.info(f"Running identity inference for session {self.session_id}")
 
-        # Try audio-based identification first if the identifier has references loaded.
-        # All loaded references (including non-market ones) act as negatives —
-        # we only accept a match if the best-scoring reference is a market entity.
+        # If any market entity has a voice sample, use audio-based identification
+        # only — don't fall through to Bedrock. Bedrock inference is reserved for
+        # announcers and targets we don't have voice samples for.
         identifier = self.listening_session.server.speaker_identifier
-        if identifier and identifier._ready and identifier.references:
-            entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
-            logger.info(f"Audio ID: {len(identifier.references)} references loaded, market entities: {self.market_entities}")
-            result = await self._run_audio_identification(entity_slugs)
-            if result:
-                return
+        entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
+        target_has_voice_sample = (
+            identifier and identifier._ready
+            and any(slug in identifier.references for slug in entity_slugs)
+        )
+        if target_has_voice_sample:
+            logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
+            await self._run_audio_identification(entity_slugs)
+            return
 
         # Access transcript from session
         if not hasattr(self.listening_session, "transcript"):
