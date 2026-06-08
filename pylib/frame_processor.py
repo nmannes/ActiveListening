@@ -51,19 +51,9 @@ class FrameProcessor:
                     last_result_state = current_result
                     consecutive_results = 1
 
-                if (
-                    consecutive_results >= 3
-                    and self.session.is_content_visible != current_result
-                ):
-                    logger.info(
-                        f"[{sid}][clip] State flip: content_visible changed to {current_result} after {consecutive_results} consecutive matches"
-                    )
-                    self.session.is_content_visible = current_result
-
                 logger.info(
                     f"[{sid}][clip] raw_visible={current_result} "
                     f"(streak={consecutive_results}) "
-                    f"active_state={self.session.is_content_visible} "
                     f"profile={result['content_profile']} "
                     f"conf={result['confidence']:.2f} "
                     f"({result['elapsed_ms']}ms)"

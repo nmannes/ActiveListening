@@ -102,12 +102,6 @@ class TradeProcessor:
                     )
                     continue
 
-                if not self.session.is_content_visible:
-                    logger.info(
-                        f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because desired content not on screen"
-                    )
-                    continue
-
                 if self.session.server.config.trade_for_real:
 
                     order_amount = self.session.market.get("orderAmount", 0)

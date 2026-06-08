@@ -119,7 +119,6 @@ class ClientSession:
         self.transcript = defaultdict(list)  # {speaker_id: [token_dicts]}
         self.transcript_lock = asyncio.Lock()
 
-        self.is_content_visible = False
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
         self.last_proc_time = [0.0]
 
@@ -185,9 +184,6 @@ class ClientSession:
         logger.info(
             f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
         )
-
-        if self.audio_only:
-            self.is_content_visible = True
 
         # Build keyword index
         self.keyword_index = build_keyword_index(self.market.get("keywords", {}))

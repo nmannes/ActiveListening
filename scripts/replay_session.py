@@ -62,7 +62,6 @@ class ReplaySession:
         self.session_id = session_id
         self.transcript = defaultdict(list)
         self.transcript_lock = asyncio.Lock()
-        self.is_content_visible = True  # Always visible in replay
         self.keyword_index = build_keyword_index(market.get("keywords", {}) if market else {})
         self.market = market or {}
         self.server = MockServer()

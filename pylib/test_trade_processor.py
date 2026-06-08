@@ -60,8 +60,6 @@ class MockSession:
         self.transcript_lock = AsyncMock()
         self.server = MockServer()
         self.websocket = AsyncMock()
-        self.is_content_visible = True
-
         self.market = {
             "title": "Cherry Blossom Prediction",
             "orderAmount": 1,
@@ -140,33 +138,3 @@ def test_trade_processor_without_whitelist_only_notifies():
     asyncio.run(run_test())
 
 
-def test_trade_processor_no_trade_when_content_invisible():
-    """Verify that if content isn't visible, order is skipped but notification is sent."""
-
-    async def run_test():
-        session = MockSession()
-        session.is_content_visible = False
-        with patch("asyncio.get_running_loop") as mock_get_loop, patch(
-            "pylib.trade_processor.send_telegram"
-        ) as mock_telegram:
-            mock_loop = MagicMock()
-            mock_get_loop.return_value = mock_loop
-            mock_loop.run_in_executor.side_effect = lambda executor, func, *args: func(
-                *args
-            )
-
-            processor = TradeProcessor(session)
-            processor.add_trading_speaker("0")
-
-            tokens = [
-                {"text": "cherry", "start": 0.1},
-                {"text": "blossom", "start": 0.6},
-            ]
-            await processor.process_tokens(tokens, speaker_id="0")
-
-            # Verify Telegram notification STILL sent
-            mock_telegram.assert_called()
-            # Verify Kalshi order NOT triggered
-            session.server.kalshi.place_fill_or_kill_order.assert_not_called()
-
-    asyncio.run(run_test())

@@ -22,7 +22,7 @@ from pylib.prompt_templates import (
 )
 
 logger = logging.getLogger("remote_server")
-from pylib.telegram import send_telegram
+from pylib.telegram import send_telegram, send_telegram_audio
 
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
@@ -331,6 +331,24 @@ class SpeakerRecognitionSession:
                     if hasattr(self.listening_session, "trade_processor"):
                         self.listening_session.trade_processor.add_trading_speaker(sid)
                         logger.info(f"Added speaker {sid} ({label}) to trading whitelist.")
+
+                    # Send Telegram notification for Bedrock identification
+                    try:
+                        market = getattr(self.listening_session, "market", {}) or {}
+                        market_title = market.get("title", "Unknown Market")
+                        channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
+                        msg = (
+                            f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}\n"
+                            f"Speaker ID: {sid}\n"
+                            f"Entity: {label}\n"
+                            f"Channel: {channel_name}\n"
+                            f"Session ID: {self.session_id}"
+                        )
+                        asyncio.get_running_loop().run_in_executor(
+                            None, send_telegram, msg, "info"
+                        )
+                    except Exception as e:
+                        logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
             
             # Check if mapping is stable across the last 3 rounds
             if len(self.identification_history) >= 3:
@@ -396,7 +414,7 @@ class SpeakerRecognitionSession:
                 continue
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
-            best_name, scores = await identifier.identify_file(wav_path)
+            best_name, scores = await identifier.identify_file(wav_path, threshold=-1.0)
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
 
             if best_name:
@@ -426,22 +444,24 @@ class SpeakerRecognitionSession:
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
 
-                # Send Telegram notification
+                # Send Telegram notification with audio sample
                 try:
                     market = getattr(self.listening_session, "market", {}) or {}
                     market_title = market.get("title", "Unknown Market")
                     channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
-                    msg = (
+                    top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
+                    scores_str = "\n".join(f"  {name}: {score:.4f}" for name, score in top_scores)
+                    caption = (
                         f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}\n"
                         f"Speaker ID: {speaker_id}\n"
                         f"Entity: {matched_entity}\n"
-                        f"Score: {scores.get(best_name, 0.0):.4f}\n"
                         f"Channel: {channel_name}\n"
-                        f"Session ID: {self.session_id}"
+                        f"Session ID: {self.session_id}\n"
+                        f"Top scores:\n{scores_str}"
                     )
-                    asyncio.get_running_loop().run_in_executor(
-                        None, send_telegram, msg, "info"
-                    )
+                    loop = asyncio.get_running_loop()
+                    loop.run_in_executor(None, send_telegram, caption, "info")
+                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")
                 except Exception as e:
                     logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
 

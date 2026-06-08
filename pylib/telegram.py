@@ -1,10 +1,13 @@
 import os
 import sys
 import atexit
+import logging
 import requests
 from dotenv import load_dotenv
 import threading
 from pathlib import Path
+
+logger = logging.getLogger("remote_server")
 
 
 def setup_env():
@@ -74,11 +77,23 @@ def send_telegram(message, channel="info"):
             message = batched_message
 
     token, chat_id = get_bot(channel)
-    response = requests.post(
-        f"https://api.telegram.org/bot{token}/sendMessage",
-        json={"chat_id": chat_id, "text": message},
-    )
-    return response.json()
+    if not token or not chat_id:
+        logger.error(f"[telegram] Missing token or chat_id for '{channel}' channel — message not sent: {message[:100]}")
+        return {"ok": False, "description": "Missing token or chat_id"}
+
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": message},
+            timeout=10,
+        )
+        result = response.json()
+        if not result.get("ok"):
+            logger.error(f"[telegram] API error ({channel}): {result.get('description', 'unknown')} — message: {message[:100]}")
+        return result
+    except requests.RequestException as e:
+        logger.error(f"[telegram] Request failed ({channel}): {e} — message: {message[:100]}")
+        return {"ok": False, "description": str(e)}
 
 
 def flush_telegram(channel="debug"):
