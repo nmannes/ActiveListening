@@ -265,11 +265,12 @@ class ClientSession:
             frame_data = message[1:]
             logger.info(f"[{self.session_id}] frame received ({len(frame_data)} bytes)")
 
-            # Save debug frame
-            debug_dir = Path(__file__).parent / "debug"
-            debug_dir.mkdir(exist_ok=True)
-            if self.session_id:
-                (debug_dir / f"frame-{self.session_id}.jpg").write_bytes(frame_data)
+            # Save debug frame (only when env var is set)
+            if os.environ.get("DEBUG_SAVE_FRAMES"):
+                debug_dir = Path(__file__).parent / "debug"
+                debug_dir.mkdir(exist_ok=True)
+                if self.session_id:
+                    (debug_dir / f"frame-{self.session_id}.jpg").write_bytes(frame_data)
         else:
             # Audio PCM data
             with self.audio_inbox_lock:

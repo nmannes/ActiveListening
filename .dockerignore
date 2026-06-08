@@ -1,0 +1,15 @@
+s3/
+node_modules/
+.git/
+__pycache__/
+.pytest_cache/
+debug/
+cache/
+*.log
+nohup.out
+.env*
+*.embedding
+cookies
+recordings/
+markets/
+logs/

@@ -2,7 +2,6 @@ import contextvars
 import json
 import logging
 import sys
-import os
 from datetime import datetime, timezone
 
 run_uuid_var = contextvars.ContextVar("run_uuid", default="-")
@@ -33,8 +32,6 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging():
-    os.makedirs("debug", exist_ok=True)
-
     json_formatter = JsonFormatter()
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(json_formatter)

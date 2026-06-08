@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 import base64
 from pathlib import Path
@@ -68,31 +69,33 @@ class FrameProcessor:
                     f"({result['elapsed_ms']}ms)"
                 )
 
-                # Save frame and result for debugging
-                frames_dir = Path(__file__).parent.parent / "debug" / "frames"
-                frames_dir.mkdir(exist_ok=True, parents=True)
+                # Save frame and result for debugging (only when env var is set)
+                if os.environ.get("DEBUG_SAVE_FRAMES"):
+                    frames_dir = Path(__file__).parent.parent / "debug" / "frames"
+                    frames_dir.mkdir(exist_ok=True, parents=True)
 
-                # Use a timestamp to keep them ordered
-                ts = int(time.time() * 1000)
-                prefix = f"{sid}_{ts}"
+                    # Use a timestamp to keep them ordered
+                    ts = int(time.time() * 1000)
+                    prefix = f"{sid}_{ts}"
 
-                (frames_dir / f"{prefix}.jpg").write_bytes(data)
-                (frames_dir / f"{prefix}.json").write_text(json.dumps(result, indent=2))
+                    (frames_dir / f"{prefix}.jpg").write_bytes(data)
+                    (frames_dir / f"{prefix}.json").write_text(json.dumps(result, indent=2))
 
-                # Send to Telegram debug channel
-                caption = (
-                    f"[{sid}][{result['content_profile']}] "
-                    f"visible={current_result} "
-                    f"conf={result['confidence']:.2f} "
-                    f"({result['elapsed_ms']}ms)"
-                )
-                asyncio.get_running_loop().run_in_executor(
-                    None,
-                    send_telegram_photo,
-                    str(frames_dir / f"{prefix}.jpg"),
-                    caption,
-                    "debug",
-                )
+                # Send to Telegram debug channel (only when frame was saved to disk)
+                if os.environ.get("DEBUG_SAVE_FRAMES"):
+                    caption = (
+                        f"[{sid}][{result['content_profile']}] "
+                        f"visible={current_result} "
+                        f"conf={result['confidence']:.2f} "
+                        f"({result['elapsed_ms']}ms)"
+                    )
+                    asyncio.get_running_loop().run_in_executor(
+                        None,
+                        send_telegram_photo,
+                        str(frames_dir / f"{prefix}.jpg"),
+                        caption,
+                        "debug",
+                    )
 
                 # Send to client with image data for debugging
                 img_b64 = base64.b64encode(data).decode("utf-8")
