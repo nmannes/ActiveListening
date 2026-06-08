@@ -93,7 +93,7 @@ class TradeProcessor:
                 )
 
                 asyncio.get_running_loop().run_in_executor(
-                    None, send_telegram, msg, "debug"
+                    None, send_telegram, msg, "info"
                 )
 
                 if speaker_id not in self.trading_speakers:
@@ -121,16 +121,21 @@ class TradeProcessor:
                         f"[{self.session.session_id}][TRADE] Order result: {order_result}"
                     )
                     # Send Telegram notification for trade result
-                    order = order_result.order
-                    msg = (
-                        f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
-                        f"Ticker: {matched['value']}\n"
-                        f"Word: {matched['key']}\n"
-                        f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
-                        f"Status: {order.status}\n"
-                        f"Taker fill cost: ${order.taker_fill_cost_dollars}"
-                    )
-                    asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
+                    if order_result is None:
+                        logger.error(
+                            f"[{self.session.session_id}][TRADE] Order failed, no result returned for {matched['key']}"
+                        )
+                    else:
+                        order = order_result.order
+                        msg = (
+                            f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
+                            f"Ticker: {matched['value']}\n"
+                            f"Word: {matched['key']}\n"
+                            f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
+                            f"Status: {order.status}\n"
+                            f"Taker fill cost: ${order.taker_fill_cost_dollars}"
+                        )
+                        asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
                 # Notify client
                 try:
@@ -215,9 +220,9 @@ class TradeProcessor:
                 f"[{self.session.session_id}][TRADE] Order result: {order_result}"
             )
 
-        except Exception as e:
-            logger.error(
-                f"[{self.session.session_id}][TRADE] Error placing order. error: {e}, result: {order_result}"
+        except Exception:
+            logger.exception(
+                f"[{self.session.session_id}][TRADE] Error placing order"
             )
 
         return order_result

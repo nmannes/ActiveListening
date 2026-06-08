@@ -113,6 +113,7 @@ class KalshiClient:
     ):
         params = {
             "ticker": ticker,
+            "type": "limit",
             "action": action,
             "side": side.lower(),
             "count": count,
