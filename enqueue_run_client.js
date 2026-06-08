@@ -14,7 +14,8 @@
  *     --delay 600000
  */
 
-const { runClientQueue, connection } = require("./lib/queues");
+const fs = require("fs");
+const { runClientQueue, connection, extractEventId } = require("./lib/queues");
 
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
   if (val.startsWith("--")) {
@@ -38,6 +39,9 @@ async function main() {
     process.exit(1);
   }
 
+  const market = JSON.parse(fs.readFileSync(marketFile, "utf8"));
+  const eventId = extractEventId(market.mediaStreamURL);
+
   const job = await runClientQueue.add(
     "run-client",
     {
@@ -47,7 +51,7 @@ async function main() {
       slug,
       shutdownMinutes,
     },
-    { delay },
+    { delay, jobId: `${slug}-${eventId}` },
   );
 
   console.log("Run client job enqueued:", job.id);
