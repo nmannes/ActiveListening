@@ -194,7 +194,7 @@ async def process_sample_generation(job, job_token):
         gen.embedder = embedder
 
         def run_clustering():
-            return gen.cluster_and_score(embedded)
+            return gen.cluster_and_score(embedded, max_per_video=5)
 
         segments = await run_blocking(run_clustering)
 
@@ -314,11 +314,31 @@ async def process_sample_generation(job, job_token):
         raise
 
 
-def save_to_library_from_segments(segments, approved_idxs, slug, target):
-    """Save approved segments directly to audio-library (sync, called via run_blocking)."""
+def save_to_library_from_segments(segments, approved_idxs, slug, target, max_total=15):
+    """Save approved segments directly to audio-library (sync, called via run_blocking).
+    Enforces max_total cap across all runs for this speaker."""
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
 
     existing = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
+    existing_count = len(existing)
+    remaining = max(0, max_total - existing_count)
+
+    if remaining <= 0:
+        logger.info(f"Speaker '{target}' already has {existing_count} samples (cap: {max_total}). Skipping save.")
+        send_telegram(
+            f"\U0001f4e6 Samples for *{target}*\n"
+            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved."
+        )
+        return 0
+
+    # Only save top-scoring approved up to remaining slots
+    approved_sorted = sorted(approved_idxs, key=lambda i: segments[i]["score"], reverse=True)
+    to_save = approved_sorted[:remaining]
+    skipped = len(approved_idxs) - len(to_save)
+
+    if skipped > 0:
+        logger.info(f"Capping at {max_total} total: saving {len(to_save)}, skipping {skipped} (already have {existing_count})")
+
     next_idx = 0
     if existing:
         for p in existing:
@@ -333,7 +353,7 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target):
                     pass
 
     saved = 0
-    for i in approved_idxs:
+    for i in to_save:
         seg = segments[i]
         suffix = f"-{next_idx}" if next_idx > 0 else ""
         wav_path = AUDIO_LIBRARY / f"{slug}{suffix}.wav"
@@ -349,12 +369,13 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target):
         next_idx += 1
         saved += 1
 
-    logger.info(f"Saved {saved} sample(s) to {AUDIO_LIBRARY}")
+    logger.info(f"Saved {saved} sample(s) to {AUDIO_LIBRARY} (total: {existing_count + saved}/{max_total})")
+    scores = [segments[i]["score"] for i in to_save]
     send_telegram(
         f"\U0001f4e6 Samples saved for *{target}*\n"
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
-        f"Score range: {min(segments[i]['score'] for i in approved_idxs):.3f} – "
-        f"{max(segments[i]['score'] for i in approved_idxs):.3f}"
+        f"Total: {existing_count + saved}/{max_total}\n"
+        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"\U0001f4e6 No samples saved for *{target}*"
     )
     return saved
 

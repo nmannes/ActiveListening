@@ -167,35 +167,57 @@ class TitaNetEmbedder:
 
 def search_and_download(target: str, num_videos: int, max_duration: int, work_dir: Path) -> list:
     """
-    Search YouTube for the target and download audio as WAV.
-    Returns list of downloaded WAV paths.
+    Search YouTube with diverse queries to get varied audio quality/situations.
+    Returns list of downloaded WAV paths (deduplicated across queries).
     """
-    query = f"ytsearch{num_videos}:{target} interview speech"
-    output_template = work_dir / "%(id)s.%(ext)s"
-
-    cmd = [
-        "yt-dlp",
-        "--extract-audio",
-        "--audio-format", "wav",
-        "--audio-quality", "0",
-        "--output", str(output_template),
-        "--no-playlist",
-        "--no-continue",
-        "--socket-timeout", "30",
-        query,
+    queries = [
+        f"{target} speech",
+        f"{target} interview",
+        f"{target} press conference",
+        f"{target} speaking event",
+        f"{target} testimony hearing",
     ]
 
-    logger.info(f"Downloading {num_videos} videos for '{target}' (max {max_duration}s each) …")
-    try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"yt-dlp failed: {e.stderr}")
-    except subprocess.TimeoutExpired:
-        logger.error("yt-dlp timed out after 5 minutes")
+    videos_per_query = max(1, num_videos // len(queries))
+    remainder = num_videos % len(queries)
 
-    wavs = sorted(work_dir.glob("*.wav"))
-    logger.info(f"Downloaded {len(wavs)} audio file(s)")
-    return wavs
+    seen_ids = set()
+    all_wavs = []
+
+    for i, q in enumerate(queries):
+        count = videos_per_query + (1 if i < remainder else 0)
+        query = f"ytsearch{count}:{q}"
+        output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
+
+        cmd = [
+            "yt-dlp",
+            "--extract-audio",
+            "--audio-format", "wav",
+            "--audio-quality", "0",
+            "--output", str(output_template),
+            "--no-playlist",
+            "--no-continue",
+            "--socket-timeout", "30",
+            "--match-filter", f"duration <= {max_duration}",
+            query,
+        ]
+
+        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, max {max_duration}s)")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
+        except subprocess.TimeoutExpired:
+            logger.error(f"yt-dlp timed out for '{q}'")
+
+        for wav in sorted(work_dir.glob(f"q{i}_*.wav")):
+            vid_id = wav.stem.split("_", 1)[1] if "_" in wav.stem else wav.stem
+            if vid_id not in seen_ids:
+                seen_ids.add(vid_id)
+                all_wavs.append(wav)
+
+    logger.info(f"Downloaded {len(all_wavs)} unique audio files across {len(queries)} queries")
+    return all_wavs
 
 
 # ---------------------------------------------------------------------------
@@ -204,13 +226,16 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
 
 class SampleGenerator:
     def __init__(self, target: str, num_videos: int = 5, max_duration: int = 120,
-                 auto_threshold: float | None = None, skip_verify: bool = False):
+                 auto_threshold: float | None = None, skip_verify: bool = False,
+                 max_per_video: int = 5, max_total: int = 15):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
         self.max_duration = max_duration
         self.auto_threshold = auto_threshold
         self.skip_verify = skip_verify
+        self.max_per_video = max_per_video
+        self.max_total = max_total
 
         self.vad = None
         self.embedder = None
@@ -285,11 +310,13 @@ class SampleGenerator:
 
     # ---- step 4 & 5: cluster + score ----
 
-    def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.3):
+    def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.3,
+                          max_per_video: int = 5):
         """
         Cluster embeddings. Largest cluster = target.
         Score each segment by cosine similarity to its cluster centroid.
         Discards segments in clusters smaller than min_cluster_ratio of total.
+        Limits to max_per_video segments per source video for diversity.
         """
         if len(segments) < 2:
             for s in segments:
@@ -344,6 +371,20 @@ class SampleGenerator:
 
         # Sort by score descending
         target_segments.sort(key=lambda s: s["score"], reverse=True)
+
+        # Limit per source video for diversity of audio quality/situations
+        if max_per_video and len(target_segments) > max_per_video:
+            by_source = {}
+            for s in target_segments:
+                src = s.get("source", "unknown")
+                by_source.setdefault(src, []).append(s)
+            diverse = []
+            for src, segs in by_source.items():
+                diverse.extend(segs[:max_per_video])
+            diverse.sort(key=lambda s: s["score"], reverse=True)
+            skipped = len(target_segments) - len(diverse)
+            target_segments = diverse
+            logger.info(f"Per-video cap ({max_per_video}): kept {len(target_segments)} segments across {len(by_source)} videos, dropped {skipped}")
 
         logger.info(
             f"Target cluster has {len(target_segments)} segments above score {min_score}. "
@@ -537,16 +578,37 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
 # Save to library
 # ---------------------------------------------------------------------------
 
-def save_to_library(generator: SampleGenerator, approved_indices: list):
-    """Save approved segments to ~/audio-library/ as WAV + compute .embedding."""
+def save_to_library(generator: SampleGenerator, approved_indices: list, max_total: int = 15):
+    """Save approved segments to ~/audio-library/ as WAV + compute .embedding.
+    Enforces max_total cap across all runs for this speaker."""
     slug = generator.slug
     embedder = generator.embedder
     segments = generator.segments
 
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
 
-    # Find next available suffix
+    # Count existing samples for this slug
     existing = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
+    existing_count = len(existing)
+    remaining = max(0, max_total - existing_count)
+
+    if remaining <= 0:
+        logger.info(f"Speaker '{generator.target}' already has {existing_count} samples (cap: {max_total}). Skipping save.")
+        send_telegram(
+            f"📦 Samples for *{generator.target}*\n"
+            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved."
+        )
+        return 0
+
+    # Only save top-scoring approved up to remaining slots
+    approved_sorted = sorted(approved_indices, key=lambda i: segments[i]["score"], reverse=True)
+    to_save = approved_sorted[:remaining]
+    skipped = len(approved_indices) - len(to_save)
+
+    if skipped > 0:
+        logger.info(f"Capping at {max_total} total: saving {len(to_save)}, skipping {skipped} (already have {existing_count})")
+
+    # Find next available suffix
     next_idx = 0
     if existing:
         for p in existing:
@@ -561,7 +623,7 @@ def save_to_library(generator: SampleGenerator, approved_indices: list):
                     pass
 
     saved = 0
-    for i in approved_indices:
+    for i in to_save:
         seg = segments[i]
         suffix = f"-{next_idx}" if next_idx > 0 else ""
         wav_path = AUDIO_LIBRARY / f"{slug}{suffix}.wav"
@@ -574,14 +636,15 @@ def save_to_library(generator: SampleGenerator, approved_indices: list):
         next_idx += 1
         saved += 1
 
-    logger.info(f"Saved {saved} sample(s) to {AUDIO_LIBRARY}")
+    logger.info(f"Saved {saved} sample(s) to {AUDIO_LIBRARY} (total: {existing_count + saved}/{max_total})")
 
     # Send summary via Telegram
+    scores = [segments[i]["score"] for i in to_save]
     send_telegram(
         f"📦 Samples generated for *{generator.target}*\n"
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
-        f"Score range: {min(s['score'] for i in approved_indices for s in [generator.segments[i]]):.3f} – "
-        f"{max(s['score'] for i in approved_indices for s in [generator.segments[i]]):.3f}"
+        f"Total: {existing_count + saved}/{max_total}\n"
+        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"📦 No samples saved for *{generator.target}*"
     )
 
     return saved
@@ -598,6 +661,12 @@ def print_dry_run_summary(generator: SampleGenerator):
     durations = [s["duration"] for s in segments]
     sources = set(s.get("source", "?") for s in segments)
 
+    # Per-source breakdown
+    by_source = {}
+    for s in segments:
+        src = s.get("source", "?")
+        by_source.setdefault(src, []).append(s)
+
     print()
     print("=" * 60)
     print(f"  DRY RUN — {generator.target}")
@@ -609,6 +678,11 @@ def print_dry_run_summary(generator: SampleGenerator):
           f"(avg {np.mean(durations):.1f}s, total {sum(durations):.0f}s)")
     print(f"  Scores:        {min(scores):.3f} – {max(scores):.3f} "
           f"(mean {np.mean(scores):.3f}, median {np.median(scores):.3f})")
+    print()
+    print(f"  Per video:")
+    for src in sorted(by_source, key=lambda s: len(by_source[s]), reverse=True):
+        src_scores = [s["score"] for s in by_source[src]]
+        print(f"    {src}: {len(by_source[src])} segments, scores {min(src_scores):.3f}–{max(src_scores):.3f}")
     print()
     print(f"  Would save:    {len(segments)} segment(s) to {AUDIO_LIBRARY}")
     print(f"  Would send:    {len(segments)} voice message(s) via Telegram for verification")
@@ -638,6 +712,8 @@ async def main():
                         help="Auto-approve segments above this confidence score (0.0-1.0)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
+    parser.add_argument("--max-per-video", type=int, default=5, help="Max samples to keep per source video (default: 5)")
+    parser.add_argument("--max-total", type=int, default=15, help="Max total samples per speaker across all runs (default: 15)")
     args = parser.parse_args()
 
     # Load trust preferences
@@ -649,6 +725,8 @@ async def main():
         max_duration=args.max_duration,
         auto_threshold=args.auto_threshold,
         skip_verify=args.skip_verify,
+        max_per_video=args.max_per_video,
+        max_total=args.max_total,
     )
 
     # Work in a temp directory
@@ -675,7 +753,7 @@ async def main():
             return
 
         # 4-5. Cluster + score
-        generator.segments = generator.cluster_and_score(embedded)
+        generator.segments = generator.cluster_and_score(embedded, max_per_video=generator.max_per_video)
         if not generator.segments:
             logger.error("No target segments found after clustering.")
             return
@@ -699,7 +777,7 @@ async def main():
         if not approved:
             logger.info("No segments approved. Nothing saved.")
         else:
-            save_to_library(generator, approved)
+            save_to_library(generator, approved, max_total=generator.max_total)
 
     finally:
         # Cleanup
