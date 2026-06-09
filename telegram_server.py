@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-telegram_bot.py — Persistent Telegram bot server (runs on the client).
+telegram_server.py — Persistent Telegram bot server (runs on the client).
 
 Receives commands, enqueues long-running tasks to Redis queues, and handles
 inline keyboard callbacks for voice sample verification.
@@ -14,7 +14,7 @@ Commands:
     /help                — show available commands
 
 Usage:
-    python3 scripts/telegram_bot.py [--debug]
+    python3 telegram_server.py [--debug]
 """
 
 import argparse
@@ -27,7 +27,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-ROOT = Path(__file__).parent.parent
+ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 # Auto-load .env.prod (or --env override) so TELEGRAM_KEY is available
@@ -42,22 +42,25 @@ load_dotenv(dotenv_path=ROOT / f".env.{_env}")
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-from pylib.redis_queue import (
-    enqueue,
-    all_queue_lengths,
+from bullmq import Queue
+
+from pylib.verification_state import (
     get_verification_state,
     update_verification_state,
     get_all_verification_states,
     clear_verification_state,
     pending_verifications,
-    get_job,
 )
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(Path(__file__).resolve().parent / "logs" / "generate-samples.log"),
+    ],
 )
-logger = logging.getLogger("telegram_bot")
+logger = logging.getLogger("telegram_server")
 
 CALLBACK_PREFIX = "gs"  # must match generate_samples.py / worker
 
@@ -88,28 +91,33 @@ async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage: `/generate Donald Trump`", parse_mode="Markdown")
         return
 
-    job_id = enqueue("sample-generation", {
-        "type": "generate_samples",
+    queue = context.application.bot_data["gen_queue"]
+    job = await queue.add("generate_samples", {
         "target": target,
         "chat_id": update.effective_chat.id,
     })
+    counts = await queue.getJobCounts()
 
     await update.message.reply_text(
         f"📥 Enqueued sample generation for *{target}*\n"
-        f"Job: `{job_id}`\n"
-        f"Queue depth: {all_queue_lengths().get('sample-generation', 0)}",
+        f"Job: `{job.id}`\n"
+        f"Queue depth: {counts.get('waiting', 0) + counts.get('active', 0)}",
         parse_mode="Markdown",
     )
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lengths = all_queue_lengths()
+    gen_queue = context.application.bot_data["gen_queue"]
+    save_queue = context.application.bot_data["save_queue"]
+    gen_counts = await gen_queue.getJobCounts()
+    save_counts = await save_queue.getJobCounts()
     pending = pending_verifications()
 
     lines = ["📊 *Queue Status*", ""]
-    for name, count in sorted(lengths.items()):
-        lines.append(f"• `{name}`: {count} job(s)")
-    if not lengths:
+    for name, counts in [("sample-generation", gen_counts), ("save-samples", save_counts)]:
+        total = sum(counts.values())
+        lines.append(f"• `{name}`: {total} job(s)")
+    if not gen_counts and not save_counts:
         lines.append("• (no active queues)")
 
     lines.append("")
@@ -269,22 +277,20 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target = vdata.get("target", slug.replace("-", " ").title()) if vdata else slug
 
         # Enqueue save job
-        job_id = enqueue("save-samples", {
-            "type": "save_samples",
+        save_queue = context.application.bot_data["save_queue"]
+        job = await save_queue.add("save_samples", {
             "slug": slug,
             "target": target,
             "approved_indices": approved_idxs,
             "chat_id": query.message.chat.id,
         })
 
-        clear_verification_state(slug)
-
         await context.bot.send_message(
             chat_id=query.message.chat.id,
             text=(
                 f"✅ Verification complete for *{target}*\n"
                 f"Approved: {len(approved_idxs)}/{len(all_states)} segment(s)\n"
-                f"Save job: `{job_id}`"
+                f"Save job: `{job.id}`"
             ),
             parse_mode="Markdown",
         )
@@ -308,6 +314,13 @@ def main():
         sys.exit(1)
 
     app = Application.builder().token(token).build()
+
+    # BullMQ queues (constructor is sync, async methods used in handlers)
+    redis_host = os.environ.get("REDIS_HOST", "127.0.0.1")
+    redis_port = int(os.environ.get("REDIS_PORT", "6379"))
+    connection = {"host": redis_host, "port": redis_port}
+    app.bot_data["gen_queue"] = Queue("sample-generation", {"connection": connection})
+    app.bot_data["save_queue"] = Queue("save-samples", {"connection": connection})
 
     # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))

@@ -10,7 +10,7 @@ const {
   collectCandidates,
   processCandidates,
 } = require("./lib/scheduling");
-const { connection } = require("./lib/queues");
+const { connection, sampleGenQueue } = require("./lib/queues");
 const {
   MAX_SCHEDULED_FILE_AGE_MS,
   DEFAULT_LOOKAHEAD_HOURS,
@@ -182,6 +182,44 @@ function runMatching(CACHE_DIR, DATA_DIR) {
 
 // ── Main ─────────────────────────────────────────────────────────────────
 
+function slugify(name) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+const MIN_SAMPLES = 5;
+const os = require("os");
+const AUDIO_LIB = path.join(os.homedir(), "audio-library");
+
+async function enqueueMissingSamples(matches) {
+  if (!fs.existsSync(AUDIO_LIB)) return;
+
+  const speakers = new Set();
+  for (const m of matches) {
+    const entities = m.market?.speakerEntities;
+    if (!entities) continue;
+    for (const name of entities) {
+      if (name && name !== "announcer" && name !== "panelist" && name !== "contestant") {
+        speakers.add(name);
+      }
+    }
+  }
+
+  for (const name of speakers) {
+    const slug = slugify(name);
+    const files = fs.readdirSync(AUDIO_LIB);
+    const wavs = files.filter((f) => f.startsWith(slug) && f.endsWith(".wav"));
+    if (wavs.length < MIN_SAMPLES) {
+      console.log(`Enqueuing sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
+      await sampleGenQueue.add("generate_samples", { target: name });
+    }
+  }
+}
+
 async function main() {
   const opts = parseArgs(process.argv);
 
@@ -205,7 +243,10 @@ async function main() {
     ),
   ];
 
-  // 4. Collect candidates
+  // 4. Enqueue sample generation for speakers with fewer than 5 embeddings
+  await enqueueMissingSamples(matches);
+
+  // 5. Collect candidates
   const now = new Date();
   const { candidates } = collectCandidates(matches, {
     targetSlug: opts.targetSlug,
@@ -214,7 +255,7 @@ async function main() {
     now,
   });
 
-  // 5. Schedule (or dry-run)
+  // 6. Schedule (or dry-run)
   await processCandidates(candidates, matches, {
     force: opts.force,
     dryRun: opts.dryRun,

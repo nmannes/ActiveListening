@@ -784,7 +784,7 @@ app.get("/api/session/:slug", (req, res) => {
 const { createBullBoard } = require("@bull-board/api");
 const { BullMQAdapter } = require("@bull-board/api/bullMQAdapter");
 const { ExpressAdapter } = require("@bull-board/express");
-const { runClientQueue, logSyncQueue, schedulingLoopQueue } = require("./lib/queues");
+const { runClientQueue, logSyncQueue, schedulingLoopQueue, sampleGenQueue, saveSamplesQueue } = require("./lib/queues");
 
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath("/admin/queues");
@@ -793,6 +793,8 @@ createBullBoard({
     new BullMQAdapter(runClientQueue),
     new BullMQAdapter(logSyncQueue),
     new BullMQAdapter(schedulingLoopQueue),
+    new BullMQAdapter(sampleGenQueue),
+    new BullMQAdapter(saveSamplesQueue),
   ],
   serverAdapter,
 });

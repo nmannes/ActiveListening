@@ -2,10 +2,16 @@ const { spawn } = require("child_process");
 const { schedulingLoopQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
 
+const PYTHON = "/home/nathan/.pyenv/shims/python";
+
+process.env.HF_HUB_DISABLE_PROMPT = "1";
+
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 async function start() {
   console.log("Starting Kalshi Main Event Loop...");
+
+  const children = [];
 
   // 1. Start UI Server in background
   console.log("Starting Market Manager UI...");
@@ -14,6 +20,7 @@ async function start() {
     stdio: "inherit",
   });
   uiProc.on("error", (err) => console.error("Failed to start UI server:", err));
+  children.push(uiProc);
 
   // 2. Start BullMQ Worker in background
   console.log("Starting BullMQ Worker...");
@@ -22,6 +29,27 @@ async function start() {
     stdio: "inherit",
   });
   workerProc.on("error", (err) => console.error("Failed to start BullMQ worker:", err));
+  children.push(workerProc);
+
+  // 2b. Start Telegram bot server
+  const tgProc = spawn(PYTHON, ["telegram_server.py"], {
+    cwd: __dirname,
+    stdio: "inherit",
+  });
+  tgProc.on("error", (err) => console.error("Failed to start Telegram server:", err));
+  children.push(tgProc);
+
+  // 2c. Start Redis queue worker (sample generation + save)
+  const qwProc = spawn(PYTHON, ["scripts/queue_worker.py"], {
+    cwd: __dirname,
+    stdio: "inherit",
+  });
+  qwProc.on("error", (err) => console.error("Failed to start queue worker:", err));
+  children.push(qwProc);
+
+  // Kill children on exit so orphans don't clash with restarts
+  process.on("exit", () => children.forEach((c) => c.kill("SIGTERM")));
+  ["SIGINT", "SIGTERM"].forEach((sig) => process.on(sig, () => process.exit()));
 
   // 3. Initial scheduling loop with discovery
   console.log("Enqueuing initial scheduling loop...");

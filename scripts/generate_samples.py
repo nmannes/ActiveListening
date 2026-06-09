@@ -51,6 +51,10 @@ from pylib.telegram import (
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(Path(__file__).resolve().parent.parent / "logs" / "generate-samples.log"),
+    ],
 )
 logger = logging.getLogger("generate_samples")
 
@@ -105,6 +109,7 @@ class VAD:
         model, utils = torch.hub.load(
             repo_or_dir="snakers4/silero-vad",
             model="silero_vad",
+            trust_repo=True,
         )
         self.model = model
         self.utils = utils
@@ -173,7 +178,6 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
         "--extract-audio",
         "--audio-format", "wav",
         "--audio-quality", "0",
-        "--max-duration", str(max_duration),
         "--output", str(output_template),
         "--no-playlist",
         "--no-continue",

@@ -142,7 +142,7 @@ def main():
         bot_args = []
         if getattr(args, "debug", False):
             bot_args.append("--debug")
-        sys.exit(python("scripts/telegram_bot.py", *(bot_args + extra)))
+        sys.exit(python("telegram_server.py", *(bot_args + extra)))
 
     elif cmd == "queue-worker":
         qw_args = []

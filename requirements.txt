@@ -3,6 +3,8 @@ dotenv
 websockets
 librosa==0.9.2
 markupsafe==2.0.1
+bullmq
+redis
 requests
 cryptography
 boto3==1.42.77
