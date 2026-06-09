@@ -16,10 +16,23 @@ Job lifecycle:
 
 import json
 import os
+import sys
 import time
 import uuid
 import logging
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Auto-load .env.prod so REDIS_HOST/TELEGRAM_KEY etc. are available
+_env = "prod"
+for i, arg in enumerate(sys.argv):
+    if arg == "--env" and i + 1 < len(sys.argv):
+        _env = sys.argv[i + 1]
+    elif arg.startswith("--env="):
+        _env = arg.split("=", 1)[1]
+load_dotenv(dotenv_path=Path(__file__).parent.parent / f".env.{_env}")
 
 import redis
 

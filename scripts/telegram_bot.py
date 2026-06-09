@@ -25,8 +25,19 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
+
+# Auto-load .env.prod (or --env override) so TELEGRAM_KEY is available
+_env = "prod"
+for i, arg in enumerate(sys.argv):
+    if arg == "--env" and i + 1 < len(sys.argv):
+        _env = sys.argv[i + 1]
+    elif arg.startswith("--env="):
+        _env = arg.split("=", 1)[1]
+load_dotenv(dotenv_path=ROOT / f".env.{_env}")
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
