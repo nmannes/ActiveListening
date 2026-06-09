@@ -245,6 +245,13 @@ if [[ "$FORCE" == true ]]; then
     STACK_NAME="${STACK_NAME}-forced"
 fi
 
+# Notify that we're creating a stack
+WHAT_FOR="${TITLE:-$TAG}"
+if [[ -z "$WHAT_FOR" ]]; then
+    WHAT_FOR="unknown event"
+fi
+$BUN run lib/telegram.js --message "Creating stack for ${WHAT_FOR} (${STACK_NAME})..." --channel info
+
 # Blueprint assembly via Jinja2
 BLUEPRINT_DIR="$LOCAL_DIR/ec2-instance"
 TMP_TEMPLATE="/tmp/assembled_template.yaml"
