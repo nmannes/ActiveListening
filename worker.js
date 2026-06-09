@@ -100,7 +100,7 @@ const schedulingLoopWorker = new Worker(
     spawn(`/home/nathan/.bun/bin/bun run schedule_matches.js`, job);
     spawn(`/home/nathan/.bun/bin/bun run signal_vs_no_closeout.js`, job);
   },
-  { connection, concurrency: 1 },
+  { connection, concurrency: 1, stalledInterval: 10 * 60 * 1000 },
 );
 
 console.log("[worker] BullMQ worker started — listening on run-client, log-sync, scheduling-loop");
