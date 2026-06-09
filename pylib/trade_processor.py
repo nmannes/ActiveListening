@@ -83,14 +83,15 @@ class TradeProcessor:
                 
                 # Send Telegram notification regardless of trading status
                 market_title = self.session.market.get("title", matched["key"])
-                msg = (
-                    f"🔔 [SIGNAL] {market_title}\n"
-                    f"Keyword: \"{matched['key']}\"\n"
-                    f"Speaker: {speaker_id}\n"
-                    f"Ticker: {matched['value']}\n"
-                    f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
-                    f"Trading: {self.session.server.config.trade_for_real}"
-                )
+                msg = "\n".join([
+                    f"🔔 [SIGNAL] {market_title}",
+                    f"Keyword: \"{matched['key']}\"",
+                    f"Speaker: {speaker_id}",
+                    f"Ticker: {matched['value']}",
+                    f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
+                    f"Source: {self.session.market.get('mediaStreamURL', '')}",
+                    f"Trading: {self.session.server.config.trade_for_real}",
+                ])
 
                 asyncio.get_running_loop().run_in_executor(
                     None, send_telegram, msg, "info"
@@ -127,14 +128,15 @@ class TradeProcessor:
                         )
                     else:
                         order = order_result.order
-                        msg = (
-                            f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}\n"
-                            f"Ticker: {matched['value']}\n"
-                            f"Word: {matched['key']}\n"
-                            f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}\n"
-                            f"Status: {order.status}\n"
-                            f"Taker fill cost: ${order.taker_fill_cost_dollars}"
-                        )
+                        msg = "\n".join([
+                            f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}",
+                            f"Ticker: {matched['value']}",
+                            f"Word: {matched['key']}",
+                            f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
+                            f"Source: {self.session.market.get('mediaStreamURL', '')}",
+                            f"Status: {order.status}",
+                            f"Taker fill cost: ${order.taker_fill_cost_dollars}",
+                        ])
                         asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
 
                 # Notify client

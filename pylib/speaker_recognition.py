@@ -337,13 +337,14 @@ class SpeakerRecognitionSession:
                         market = getattr(self.listening_session, "market", {}) or {}
                         market_title = market.get("title", "Unknown Market")
                         channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
-                        msg = (
-                            f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}\n"
-                            f"Speaker ID: {sid}\n"
-                            f"Entity: {label}\n"
-                            f"Channel: {channel_name}\n"
-                            f"Session ID: {self.session_id}"
-                        )
+                        msg = "\n".join([
+                            f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}",
+                            f"Speaker ID: {sid}",
+                            f"Entity: {label}",
+                            f"Channel: {channel_name}",
+                            f"Source: {market.get('mediaStreamURL', '')}",
+                            f"Session ID: {self.session_id}",
+                        ])
                         asyncio.get_running_loop().run_in_executor(
                             None, send_telegram, msg, "info"
                         )
@@ -451,14 +452,16 @@ class SpeakerRecognitionSession:
                     channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
                     top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
                     scores_str = "\n".join(f"  {name}: {score:.4f}" for name, score in top_scores)
-                    caption = (
-                        f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}\n"
-                        f"Speaker ID: {speaker_id}\n"
-                        f"Entity: {matched_entity}\n"
-                        f"Channel: {channel_name}\n"
-                        f"Session ID: {self.session_id}\n"
-                        f"Top scores:\n{scores_str}"
-                    )
+                    caption = "\n".join([
+                        f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}",
+                        f"Speaker ID: {speaker_id}",
+                        f"Entity: {matched_entity}",
+                        f"Channel: {channel_name}",
+                        f"Source: {market.get('mediaStreamURL', '')}",
+                        f"Session ID: {self.session_id}",
+                        f"Top scores:",
+                        scores_str,
+                    ])
                     loop = asyncio.get_running_loop()
                     loop.run_in_executor(None, send_telegram, caption, "info")
                     loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")

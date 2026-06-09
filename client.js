@@ -226,7 +226,11 @@ logger.info(`Remote: ${REMOTE_URL}`);
 const { startOrderbookTracking } = require("./lib/orderbook_tracking");
 const orderbook = startOrderbookTracking(market);
 const channelDisplay = market.mediaSourceCommonName || STREAM_URL;
-const msg = `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes\nChannel: ${channelDisplay}`;
+const msg = [
+  `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes`,
+  `Channel: ${channelDisplay}`,
+  `Source: ${STREAM_URL}`,
+].join("\n");
 logger.info(msg);
 sendTelegram(msg).catch((err) =>
   logger.error(`[client] Failed to send Telegram: ${err.message}`),
