@@ -1,6 +1,6 @@
 # Common Entrypoints
 
-All commands go through `./kalshi <command>`. It dispatches to the right language
+All commands go through `./bin/kalshi <command>`. It dispatches to the right language
 (Python, Node, Bash) under the hood.
 
 ## Core Pipeline

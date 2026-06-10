@@ -33,6 +33,6 @@ RUN npm ci 2>/dev/null || npm install
 COPY . .
 
 # kalshi CLI on PATH
-RUN chmod +x /workspace/kalshi && ln -sf /workspace/kalshi /usr/local/bin/kalshi
+RUN chmod +x /workspace/bin/kalshi && ln -sf /workspace/bin/kalshi /usr/local/bin/kalshi
 
 CMD ["kalshi", "--help"]

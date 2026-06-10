@@ -1,103 +1,162 @@
-# kalshi
+# Kalshi Event Monitoring
 
-## Getting started
+Real-time audio/video monitoring system for Kalshi prediction markets. Discovers markets, matches them to live events, transcribes and identifies speakers via Deepgram + TitaNet, detects keyword signals, and executes trades.
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Quick start
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-- [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-- [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
-```
-cd existing_repo
-git remote add origin https://gitlab.com/nmannes/kalshi.git
-git branch -M main
-git push -uf origin main
+```bash
+./bin/kalshi discover          # Fetch markets + external schedules
+./bin/kalshi schedule          # Match markets to events, enqueue jobs
+./bin/kalshi server            # Start the WebSocket server
+./bin/kalshi bot               # Start the Telegram bot
+./bin/kalshi queue-worker      # Start the Redis queue worker
 ```
 
-## Integrate with your tools
+All commands dispatch through `./bin/kalshi <command>` which routes to the correct runtime (Python, Node, or Bash).
 
-- [Set up project integrations](https://gitlab.com/nmannes/kalshi/-/settings/integrations)
+## Architecture
 
-## Collaborate with your team
+```
+┌─────────────┐     ┌──────────────┐     ┌───────────────┐
+│  Discovery   │────▶│  Scheduling   │────▶│  Listening     │
+│  (markets,   │     │  (matching    │     │  (Deepgram,    │
+│   schedules) │     │   to events)  │     │   speaker ID,  │
+└─────────────┘     └──────────────┘     │   keyword sig) │
+                                          └───────┬───────┘
+                                                  │
+                    ┌──────────────┐              │
+                    │  Telegram    │◀─────────────┤
+                    │  bot + queue │              │
+                    │  worker      │              │
+                    └──────┬───────┘     ┌───────┴───────┐
+                           │             │  Trading       │
+                           ▼             │  (Kalshi API)  │
+                    ┌──────────────┐     └───────────────┘
+                    │  Audio       │
+                    │  Library     │
+                    │  (~/audio-   │
+                    │   library/)  │
+                    └──────────────┘
+```
 
-- [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-- [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-- [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-- [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-- [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+## Core pipeline
 
-## Test and Deploy
+### Discovery & scheduling
 
-Use the built-in continuous integration in GitLab.
+| Command | Description |
+|---------|-------------|
+| `./bin/kalshi discover` | Fetch Kalshi markets via API, scrape external event schedules (ESPN, earnings calendars, etc.) |
+| `./bin/kalshi schedule` | Match discovered markets to upcoming events, write per-session scheduling JSONs, enqueue BullMQ jobs |
+| `./bin/kalshi ui` | Interactive web UI for browsing discovered markets and schedules |
 
-- [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-- [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-- [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-- [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-- [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+The scheduling loop (`main_loop.js`) runs discovery + scheduling hourly, then starts listening sessions at the scheduled times.
 
----
+### Live monitoring
 
-# Editing this README
+| Command | Description |
+|---------|-------------|
+| `./bin/kalshi server` | WebSocket server accepting PCM audio + video frames from clients |
+| `./bin/kalshi listen <file>` | One-off listening session from a scheduling JSON file |
+| `./bin/kalshi js-worker` | Node.js BullMQ worker for session lifecycle |
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+The server streams audio to Deepgram for transcription + diarization, runs speaker identification against a voice sample library, detects pre-configured keyword signals, and executes trades on Kalshi when whitelisted speakers say trigger phrases.
 
-## Suggestions for a good README
+### Speaker identification
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Two-stage identification:
 
-## Name
+1. **Audio-based (TitaNet-Large):** Computes 192-dim speaker embeddings from per-speaker WAV segments, compares against a reference library via cosine similarity.
+2. **Transcript-based (Bedrock LLM):** Falls back to LLM inference on the transcript when no voice sample exists for a target entity.
 
-Choose a self-explaining name for your project.
+Whitelisted speakers trigger trades when their keywords are detected. All other speaker ID details route to the debug Telegram channel.
 
-## Description
+### Audio library & sample generation
 
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+| Command | Description |
+|---------|-------------|
+| `./bin/kalshi generate "Name"` | Download YouTube videos, extract target speaker voice via VAD + TitaNet clustering, send candidates for Telegram verification |
+| `./bin/kalshi generate "Name" --dry-run` | Full pipeline without saving — prints per-video breakdown |
+| `./bin/kalshi build-library` | Build voice sample library from `speaker_labels.json` + S3 recordings |
 
-## Badges
+The sample generation pipeline:
+1. Searches YouTube with diverse queries (speech, interview, press conference, speaking event, hearing)
+2. Downloads audio, runs Silero VAD to extract 4–25s speech segments
+3. Computes TitaNet embeddings, clusters to isolate the target speaker's voice
+4. Caps at 5 segments per source video for diversity, 30 total per speaker
+5. Sends candidates to Telegram for approve/reject verification
+6. Saves approved samples to `~/audio-library/{slug}.wav` + `.embedding`
 
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Pre-approved segments (confidence >= 0.85) are auto-accepted. The total cap is enforced across all runs — existing samples are counted before saving.
 
-## Visuals
+### Trading
 
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Keyword signals are configured per market in `lib/word_configurations.js`. When a whitelisted speaker says a trigger phrase, the trade processor places fill-or-kill orders on Kalshi. Signal detection and trade execution notifications go to the info Telegram channel.
 
-## Installation
+## Telegram integration
 
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+The Telegram bot (`./bin/kalshi bot`) runs persistently and handles:
+- `/generate <name>` — enqueue voice sample generation
+- `/samples <name>` — list voice samples in library
+- `/trust <name>` — manage auto-approve preferences
+- `/status` — show queue and worker status
+- Inline keyboard callbacks for sample approve/reject/auto-approve-all
 
-## Usage
+Two separate bot tokens are used:
+- **Info channel** (`TELEGRAM_KEY`): whitelist additions, trades, market scheduling
+- **Debug channel** (`TELEGRAM_KEY_DEBUG`): speaker ID details, audio clips, sample generation lifecycle, transcripts
 
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+Both channels use the same chat ID (`TELEGRAM_MY_ID`).
 
-## Support
+## Infrastructure
 
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+| Command | Description |
+|---------|-------------|
+| `./bin/kalshi deploy` | Deploy code changes to remote GPU server via rsync |
+| `./bin/kalshi launch-gpu` | Launch EC2 GPU instance, deploy code, start server |
+| `./bin/kalshi destroy` | Teardown all EC2 instances |
+| `./bin/kalshi logs` | Pull session logs from remote server |
 
-## Roadmap
+The server runs on AWS EC2 GPU instances. Audio processing (TitaNet embeddings, CLIP frame classification) uses the GPU. Configuration lives in `.env.prod`.
 
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Configuration
 
-## Contributing
+Key environment variables (from `.env.prod`):
 
-State if you are open to contributions and what your requirements are for accepting them.
+| Variable | Purpose |
+|----------|---------|
+| `REDIS_HOST`, `REDIS_PORT` | Redis connection for BullMQ queues and verification state |
+| `S3_BUCKET` | S3 bucket for recordings and speaker embeddings |
+| `TELEGRAM_KEY` | Info channel bot token |
+| `TELEGRAM_KEY_DEBUG` | Debug channel bot token |
+| `TELEGRAM_MY_ID` | Chat ID for both channels |
+| `KALSHI_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH` | Kalshi trading API credentials |
+| `DEEPGRAM_API_KEY` | Deepgram transcription + diarization |
+| `DEVICE` | Torch device (`cpu` or `cuda`) |
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+## Project layout
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```
+.
+├── bin/kalshi              # Unified CLI dispatcher
+├── lib/                    # JavaScript libraries (discovery, scheduling, trading, signals)
+├── pylib/                  # Python libraries (audio processing, speaker ID, trading, Telegram)
+├── scripts/                # Standalone Python scripts (sample generation, queue worker, library builder)
+├── server.py               # WebSocket server entrypoint
+├── client.js               # WebSocket client (PCM audio + video frames)
+├── main_loop.js            # Main orchestration loop (discovery → scheduling → listening)
+├── telegram_server.py      # Persistent Telegram bot
+├── worker.js               # Node.js BullMQ worker
+├── sample-scheduling/      # Per-speaker sample scheduling JSONs
+├── speaker_labels.json     # Session speaker identity labels
+├── .env.prod               # Production environment variables
+├── Dockerfile              # Container definition
+└── ~/audio-library/        # Voice sample library (WAV + embeddings)
+```
 
-## Authors and acknowledgment
+## Testing
 
-Show your appreciation to those who have contributed to the project.
-
-## License
-
-For open source projects, say how it is licensed.
-
-## Project status
-
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+```bash
+./bin/kalshi test           # Run Python test suite
+node matching.test.js       # Run matching tests
+node lib/speaker_identification.test.js  # Speaker entity extraction tests
+```
