@@ -18,6 +18,9 @@ Usage:
 import argparse
 import asyncio
 import hashlib
+import shutil
+
+YT_DLP = shutil.which("yt-dlp") or "yt-dlp"
 import json
 import logging
 import os
@@ -190,7 +193,7 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
         output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
 
         cmd = [
-            "yt-dlp",
+            YT_DLP,
             "--extract-audio",
             "--audio-format", "wav",
             "--audio-quality", "0",
