@@ -175,7 +175,7 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
         f"{target} interview",
         f"{target} press conference",
         f"{target} speaking event",
-        f"{target} testimony hearing",
+        f"{target} hearing",
     ]
 
     videos_per_query = max(1, num_videos // len(queries))
@@ -227,7 +227,7 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
 class SampleGenerator:
     def __init__(self, target: str, num_videos: int = 5, max_duration: int = 120,
                  auto_threshold: float | None = None, skip_verify: bool = False,
-                 max_per_video: int = 5, max_total: int = 15):
+                 max_per_video: int = 5, max_total: int = 30):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
@@ -473,9 +473,14 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
             seg["auto_approved"] = True
             continue
 
+        source = seg.get("source", "").replace(".wav", "")
+        vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
+        source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
+
         caption = (
             f"🎙️ {target} — sample {i + 1}/{len(segments)}\n"
-            f"Confidence: {score:.3f} | Duration: {duration:.1f}s"
+            f"Confidence: {score:.3f} | Duration: {duration:.1f}s\n"
+            f"Source: {source_url}"
         )
 
         # Build inline keyboard
@@ -578,7 +583,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
 # Save to library
 # ---------------------------------------------------------------------------
 
-def save_to_library(generator: SampleGenerator, approved_indices: list, max_total: int = 15):
+def save_to_library(generator: SampleGenerator, approved_indices: list, max_total: int = 30):
     """Save approved segments to ~/audio-library/ as WAV + compute .embedding.
     Enforces max_total cap across all runs for this speaker."""
     slug = generator.slug
@@ -596,7 +601,8 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
         logger.info(f"Speaker '{generator.target}' already has {existing_count} samples (cap: {max_total}). Skipping save.")
         send_telegram(
             f"📦 Samples for *{generator.target}*\n"
-            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved."
+            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved.",
+            "debug",
         )
         return 0
 
@@ -644,7 +650,8 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
         f"📦 Samples generated for *{generator.target}*\n"
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
         f"Total: {existing_count + saved}/{max_total}\n"
-        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"📦 No samples saved for *{generator.target}*"
+        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"📦 No samples saved for *{generator.target}*",
+        "debug",
     )
 
     return saved
@@ -713,7 +720,7 @@ async def main():
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
     parser.add_argument("--max-per-video", type=int, default=5, help="Max samples to keep per source video (default: 5)")
-    parser.add_argument("--max-total", type=int, default=15, help="Max total samples per speaker across all runs (default: 15)")
+    parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
     args = parser.parse_args()
 
     # Load trust preferences

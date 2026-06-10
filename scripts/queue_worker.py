@@ -118,7 +118,7 @@ async def process_sample_generation(job, job_token):
         if not wav_paths:
             await job.updateProgress({"stage": "failed", "error": "No audio downloaded"})
             await run_blocking(
-                send_telegram, f"❌ Failed to download audio for *{target}*"
+                send_telegram, f"❌ Failed to download audio for *{target}*", "debug"
             )
             return
 
@@ -163,7 +163,7 @@ async def process_sample_generation(job, job_token):
         if not raw_segments:
             await job.updateProgress({"stage": "failed", "error": "No speech segments found"})
             await run_blocking(
-                send_telegram, f"❌ No speech segments found for *{target}*"
+                send_telegram, f"❌ No speech segments found for *{target}*", "debug"
             )
             return
 
@@ -184,7 +184,7 @@ async def process_sample_generation(job, job_token):
         if not embedded:
             await job.updateProgress({"stage": "failed", "error": "No embeddings computed"})
             await run_blocking(
-                send_telegram, f"❌ Failed to compute embeddings for *{target}*"
+                send_telegram, f"❌ Failed to compute embeddings for *{target}*", "debug"
             )
             return
 
@@ -201,7 +201,7 @@ async def process_sample_generation(job, job_token):
         if not segments:
             await job.updateProgress({"stage": "failed", "error": "No target segments found"})
             await run_blocking(
-                send_telegram, f"❌ No target voice segments found for *{target}*"
+                send_telegram, f"❌ No target voice segments found for *{target}*", "debug"
             )
             return
 
@@ -262,11 +262,13 @@ async def process_sample_generation(job, job_token):
             })
 
             pre_label = " (pre-approved)" if is_pre_approved else ""
-            source_name = seg.get("source", "").replace(".wav", "")
+            source = seg.get("source", "").replace(".wav", "")
+            vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
+            source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
             caption = (
                 f"\U0001f399️ {target} — sample {i + 1}/{len(segments)}\n"
                 f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s{pre_label}\n"
-                f"Source: {source_name}"
+                f"Source: {source_url}"
             )
             if is_pre_approved:
                 pre_approved_idxs.append(i)
@@ -303,18 +305,19 @@ async def process_sample_generation(job, job_token):
             send_telegram,
             f"\U0001f50d *{target}* — {sent_count} segment(s) sent for review\n"
             f"{len(pre_approved_idxs)} pre-approved\n"
-            f"Job: `{job_id}`"
+            f"Job: `{job_id}`",
+            "debug",
         )
 
     except Exception as e:
         logger.exception(f"[{job_id}] Sample generation failed: {e}")
         await run_blocking(
-            send_telegram, f"❌ Sample generation failed for *{target}*: {e}"
+            send_telegram, f"❌ Sample generation failed for *{target}*: {e}", "debug"
         )
         raise
 
 
-def save_to_library_from_segments(segments, approved_idxs, slug, target, max_total=15):
+def save_to_library_from_segments(segments, approved_idxs, slug, target, max_total=30):
     """Save approved segments directly to audio-library (sync, called via run_blocking).
     Enforces max_total cap across all runs for this speaker."""
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
@@ -327,7 +330,8 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target, max_tot
         logger.info(f"Speaker '{target}' already has {existing_count} samples (cap: {max_total}). Skipping save.")
         send_telegram(
             f"\U0001f4e6 Samples for *{target}*\n"
-            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved."
+            f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved.",
+            "debug",
         )
         return 0
 
@@ -375,7 +379,8 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target, max_tot
         f"\U0001f4e6 Samples saved for *{target}*\n"
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
         f"Total: {existing_count + saved}/{max_total}\n"
-        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"\U0001f4e6 No samples saved for *{target}*"
+        f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"\U0001f4e6 No samples saved for *{target}*",
+        "debug",
     )
     return saved
 
@@ -393,7 +398,7 @@ async def process_save_samples(job, job_token):
     states = get_all_verification_states(slug)
     if not states:
         await run_blocking(
-            send_telegram, f"❌ Failed to save samples for *{target}*: verification state expired"
+            send_telegram, f"❌ Failed to save samples for *{target}*: verification state expired", "debug"
         )
         raise RuntimeError("No verification state found")
 
@@ -461,7 +466,8 @@ async def process_save_samples(job, job_token):
     await run_blocking(
         send_telegram,
         f"\U0001f4e6 Samples saved for *{target}*\n"
-        f"Saved {saved}/{len(approved_idxs)} segment(s) to `{AUDIO_LIBRARY}`"
+        f"Saved {saved}/{len(approved_idxs)} segment(s) to `{AUDIO_LIBRARY}`",
+        "debug",
     )
 
 

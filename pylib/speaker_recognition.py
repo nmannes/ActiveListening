@@ -332,12 +332,19 @@ class SpeakerRecognitionSession:
                         self.listening_session.trade_processor.add_trading_speaker(sid)
                         logger.info(f"Added speaker {sid} ({label}) to trading whitelist.")
 
-                    # Send Telegram notification for Bedrock identification
                     try:
                         market = getattr(self.listening_session, "market", {}) or {}
                         market_title = market.get("title", "Unknown Market")
                         channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
-                        msg = "\n".join([
+
+                        # Whitelist addition -> info
+                        whitelist_msg = f"✅ Speaker added to trading whitelist: {label} (ID: {sid}) — {market_title}"
+                        asyncio.get_running_loop().run_in_executor(
+                            None, send_telegram, whitelist_msg, "info"
+                        )
+
+                        # Detailed identification -> debug
+                        debug_msg = "\n".join([
                             f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}",
                             f"Speaker ID: {sid}",
                             f"Entity: {label}",
@@ -346,7 +353,7 @@ class SpeakerRecognitionSession:
                             f"Session ID: {self.session_id}",
                         ])
                         asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, msg, "info"
+                            None, send_telegram, debug_msg, "debug"
                         )
                     except Exception as e:
                         logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
@@ -445,13 +452,21 @@ class SpeakerRecognitionSession:
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
 
-                # Send Telegram notification with audio sample
+                # Send Telegram notifications
                 try:
                     market = getattr(self.listening_session, "market", {}) or {}
                     market_title = market.get("title", "Unknown Market")
                     channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
                     top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
                     scores_str = "\n".join(f"  {name}: {score:.4f}" for name, score in top_scores)
+
+                    loop = asyncio.get_running_loop()
+
+                    # Whitelist addition -> info
+                    whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
+                    loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
+
+                    # Detailed identification + audio -> debug
                     caption = "\n".join([
                         f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}",
                         f"Speaker ID: {speaker_id}",
@@ -462,9 +477,8 @@ class SpeakerRecognitionSession:
                         f"Top scores:",
                         scores_str,
                     ])
-                    loop = asyncio.get_running_loop()
-                    loop.run_in_executor(None, send_telegram, caption, "info")
-                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")
+                    loop.run_in_executor(None, send_telegram, caption, "debug")
+                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "debug")
                 except Exception as e:
                     logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
 
