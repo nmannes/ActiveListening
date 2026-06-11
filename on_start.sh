@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-source ~/.bashrc
+export PATH="$HOME/.bun/bin:$PATH"
 
 cd /home/nathan/kalshi
 
