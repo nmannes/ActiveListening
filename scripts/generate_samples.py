@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 generate_samples.py — Automatically build voice samples for a target speaker.
 
@@ -10,9 +10,9 @@ candidates to the user via Telegram for verification.
 Verified samples are saved to ~/audio-library/ with computed embeddings.
 
 Usage:
-    python3 scripts/generate_samples.py "Donald Trump"
-    python3 scripts/generate_samples.py "Donald Trump" --num-videos 5 --max-duration 120
-    python3 scripts/generate_samples.py "Donald Trump" --auto-threshold 0.85
+    python scripts/generate_samples.py "Donald Trump"
+    python scripts/generate_samples.py "Donald Trump" --num-videos 5
+    python scripts/generate_samples.py "Donald Trump" --auto-threshold 0.85
 """
 
 import argparse
@@ -20,7 +20,7 @@ import asyncio
 import hashlib
 import shutil
 
-YT_DLP = shutil.which("yt-dlp") or "yt-dlp"
+YT_DLP = "yt-dlp"
 import json
 import logging
 import os
@@ -168,9 +168,10 @@ class TitaNetEmbedder:
 # yt-dlp
 # ---------------------------------------------------------------------------
 
-def search_and_download(target: str, num_videos: int, max_duration: int, work_dir: Path) -> list:
+def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     """
     Search YouTube with diverse queries to get varied audio quality/situations.
+    Downloads top results (sorted by relevance/popularity) per query.
     Returns list of downloaded WAV paths (deduplicated across queries).
     """
     queries = [
@@ -189,6 +190,8 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
 
     for i, q in enumerate(queries):
         count = videos_per_query + (1 if i < remainder else 0)
+        if count <= 0:
+            continue
         query = f"ytsearch{count}:{q}"
         output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
 
@@ -201,11 +204,10 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
-            "--match-filter", f"duration <= {max_duration}",
             query,
         ]
 
-        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, max {max_duration}s)")
+        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos)")
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
         except subprocess.CalledProcessError as e:
@@ -228,13 +230,12 @@ def search_and_download(target: str, num_videos: int, max_duration: int, work_di
 # ---------------------------------------------------------------------------
 
 class SampleGenerator:
-    def __init__(self, target: str, num_videos: int = 5, max_duration: int = 120,
+    def __init__(self, target: str, num_videos: int = 5,
                  auto_threshold: float | None = None, skip_verify: bool = False,
                  max_per_video: int = 5, max_total: int = 30):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
-        self.max_duration = max_duration
         self.auto_threshold = auto_threshold
         self.skip_verify = skip_verify
         self.max_per_video = max_per_video
@@ -247,7 +248,7 @@ class SampleGenerator:
     # ---- step 1: download ----
 
     def download(self, work_dir: Path) -> list:
-        return search_and_download(self.target, self.num_videos, self.max_duration, work_dir)
+        return search_and_download(self.target, self.num_videos, work_dir)
 
     # ---- step 2: VAD segment ----
 
@@ -717,7 +718,6 @@ async def main():
     )
     parser.add_argument("target", help="Target speaker name (e.g. 'Donald Trump')")
     parser.add_argument("--num-videos", type=int, default=5, help="Number of YouTube videos to download")
-    parser.add_argument("--max-duration", type=int, default=120, help="Max duration per video in seconds")
     parser.add_argument("--auto-threshold", type=float, default=None,
                         help="Auto-approve segments above this confidence score (0.0-1.0)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
@@ -732,7 +732,6 @@ async def main():
     generator = SampleGenerator(
         target=args.target,
         num_videos=args.num_videos,
-        max_duration=args.max_duration,
         auto_threshold=args.auto_threshold,
         skip_verify=args.skip_verify,
         max_per_video=args.max_per_video,

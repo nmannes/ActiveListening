@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 replay_session.py — Replay saved Deepgram responses offline to test speaker identification.
 
@@ -6,8 +6,8 @@ Processes dg_*.json files from a deepgram_responses/ directory in lexicographic 
 feeding them through the real DiarizedTradeProcessor and SpeakerRecognitionSession.
 
 Usage:
-    PYTHONPATH=. python3 scripts/replay_session.py s3/maddow --verbose
-    PYTHONPATH=. python3 scripts/replay_session.py s3/maddow --infer --target "Rachel Maddow"
+    PYTHONPATH=. python scripts/replay_session.py s3/maddow --verbose
+    PYTHONPATH=. python scripts/replay_session.py s3/maddow --infer --target "Rachel Maddow"
 """
 
 import argparse

@@ -131,7 +131,7 @@ echo "Client log lines: $CLIENT_COUNT"
 # ── Merge and sort by time ────────────────────────────────────────────
 mkdir -p runtime_logs
 
-python3 -c "
+python -c "
 import json, sys
 
 lines = []
@@ -168,7 +168,7 @@ Merged: ${MERGED_COUNT} lines"
 
     curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_KEY}/sendMessage" \
         -H "Content-Type: application/json" \
-        -d "$(echo "$MSG" | python3 -c "import json,sys; print(json.dumps({'chat_id': sys.argv[1], 'text': sys.stdin.read()}))" "$TELEGRAM_MY_ID")" \
+        -d "$(echo "$MSG" | python -c "import json,sys; print(json.dumps({'chat_id': sys.argv[1], 'text': sys.stdin.read()}))" "$TELEGRAM_MY_ID")" \
         > /dev/null
     echo "Telegram notification sent."
 fi

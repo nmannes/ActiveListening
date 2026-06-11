@@ -14,7 +14,7 @@
 
 set -e
 export TZ="America/New_York"
-BUN="/home/nathan/.bun/bin/bun"
+BUN="bun"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -94,7 +94,7 @@ if [[ "$DRY_RUN" == true ]]; then
     CMD_PREFIX=""
     BROWSER_ARG=""
     if [[ "$USE_BROWSER" == true ]]; then
-        CMD_PREFIX="/home/linuxbrew/.linuxbrew/bin/xvfb-run -a "
+        CMD_PREFIX="xvfb-run -a "
         BROWSER_ARG="--browser"
     fi
     echo ""

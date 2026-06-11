@@ -1,8 +1,20 @@
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
+
+// Ensure bashrc env (PATH, etc.) is available even when not launched from on_start.sh
+const bashrcEnv = execSync('bash -c "source ~/.bashrc >/dev/null 2>&1 && env"', {
+  encoding: "utf8",
+  timeout: 5000,
+});
+for (const line of bashrcEnv.split("\n")) {
+  const eq = line.indexOf("=");
+  if (eq > 0) process.env[line.slice(0, eq)] = line.slice(eq + 1);
+}
+
 const { schedulingLoopQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
 
-const PYTHON = "/home/nathan/.pyenv/shims/python";
+const PYTHON = "python";
+const BUN = "bun";
 
 process.env.HF_HUB_DISABLE_PROMPT = "1";
 

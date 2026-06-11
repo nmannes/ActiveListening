@@ -280,6 +280,10 @@ app.get("/speakers", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "speakers.html"));
 });
 
+app.get("/logs", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "logs.html"));
+});
+
 app.get("/data-entry", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "data-entry.html"));
 });
@@ -599,6 +603,110 @@ app.get("/api/runtime-logs/:slug", (req, res) => {
         });
     } catch (e) {
         console.error(`Error in /api/runtime-logs/:slug: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/runtime-logs", (req, res) => {
+    try {
+        const logsDir = path.join(DATA_DIR, "runtime_logs");
+        if (!fs.existsSync(logsDir)) {
+            return res.json({ files: [] });
+        }
+
+        const files = [];
+        const entries = fs.readdirSync(logsDir, { withFileTypes: true });
+        for (const entry of entries) {
+            if (!entry.isFile() || !entry.name.endsWith(".log")) continue;
+            const filePath = path.join(logsDir, entry.name);
+            const stat = fs.statSync(filePath);
+
+            // Parse first line for timestamp
+            let firstTime = null;
+            try {
+                const fd = fs.openSync(filePath, "r");
+                const buf = Buffer.alloc(4096);
+                fs.readSync(fd, buf, 0, 4096, 0);
+                fs.closeSync(fd);
+                const firstLine = buf.toString("utf8").split("\n")[0];
+                const parsed = JSON.parse(firstLine);
+                if (parsed.time) {
+                    firstTime = new Date(parsed.time).toISOString();
+                }
+            } catch (e) {
+                // Can't parse first line, leave firstTime null
+            }
+
+            // Estimate line count from file size
+            const avgLineBytes = 200; // rough estimate
+            const estimatedLines = Math.round(stat.size / avgLineBytes);
+
+            files.push({
+                filename: entry.name,
+                size: stat.size,
+                lines: estimatedLines,
+                firstTime,
+                mtime: stat.mtime.toISOString(),
+            });
+        }
+
+        // Sort by firstTime descending (most recent first, nulls at end)
+        files.sort((a, b) => {
+            if (!a.firstTime) return 1;
+            if (!b.firstTime) return -1;
+            return b.firstTime.localeCompare(a.firstTime);
+        });
+
+        res.json({ files });
+    } catch (e) {
+        console.error(`Error in /api/runtime-logs: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/runtime-logs-view/:filename", (req, res) => {
+    try {
+        const filename = req.params.filename;
+        // Validate to prevent path traversal
+        if (!/^[\w.:-]+\.log$/.test(filename) || filename.includes("..")) {
+            return res.status(400).json({ error: "Invalid filename" });
+        }
+
+        const filePath = path.join(DATA_DIR, "runtime_logs", filename);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        const stat = fs.statSync(filePath);
+        const limit = Math.min(parseInt(req.query.lines) || 5000, 100000);
+
+        // Read last N lines efficiently for large files
+        let content;
+        if (stat.size < 10 * 1024 * 1024) {
+            // Under 10MB: read whole file and take last N lines
+            const raw = fs.readFileSync(filePath, "utf8");
+            const allLines = raw.split("\n").filter(Boolean);
+            content = allLines.slice(-limit).join("\n");
+        } else {
+            // Large file: read last ~N*avgLineBytes bytes
+            const avgLineBytes = 200;
+            const readSize = Math.min(limit * avgLineBytes, stat.size);
+            const fd = fs.openSync(filePath, "r");
+            const buf = Buffer.alloc(readSize);
+            fs.readSync(fd, buf, 0, readSize, stat.size - readSize);
+            fs.closeSync(fd);
+            let text = buf.toString("utf8");
+            // Chop off partial first line
+            const newlineIdx = text.indexOf("\n");
+            if (newlineIdx >= 0) {
+                text = text.slice(newlineIdx + 1);
+            }
+            content = text;
+        }
+
+        res.type("text/plain").send(content);
+    } catch (e) {
+        console.error(`Error in /api/runtime-logs-view/:filename: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });

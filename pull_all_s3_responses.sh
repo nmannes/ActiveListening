@@ -1,6 +1,12 @@
 #!/bin/bash
 # pull_all_s3_responses.sh — Downloads deepgram_responses/ from every session in the S3 bucket
+# Usage: ./pull_all_s3_responses.sh [--no-audio]
 set -e
+
+NO_AUDIO=0
+if [ "${1:-}" = "--no-audio" ]; then
+    NO_AUDIO=1
+fi
 
 BUCKET="${S3_BUCKET:-recordings-846345203908-us-east-1-an}"
 LOCAL_DIR="s3"
@@ -40,13 +46,15 @@ for PREFIX in $PREFIXES; do
     mkdir -p "$LOCAL_PATH"
     aws s3 sync "$S3_PATH" "$LOCAL_PATH"
 
-    PREFIX_LOWER=$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')
-    if [[ "$PREFIX_LOWER" != *"mlb"* && "$PREFIX_LOWER" != *"nhl"* && "$PREFIX_LOWER" != *"nba"* ]]; then
-        S3_AUDIO_PATH="s3://$BUCKET/$PREFIX/audio/"
-        LOCAL_AUDIO_PATH="$LOCAL_DIR/$PREFIX/audio/"
-        echo "🔊 Syncing audio for $PREFIX → $LOCAL_AUDIO_PATH"
-        mkdir -p "$LOCAL_AUDIO_PATH"
-        aws s3 sync "$S3_AUDIO_PATH" "$LOCAL_AUDIO_PATH"
+    if [ "$NO_AUDIO" -eq 0 ]; then
+        PREFIX_LOWER=$(echo "$PREFIX" | tr '[:upper:]' '[:lower:]')
+        if [[ "$PREFIX_LOWER" != *"mlb"* && "$PREFIX_LOWER" != *"nhl"* && "$PREFIX_LOWER" != *"nba"* ]]; then
+            S3_AUDIO_PATH="s3://$BUCKET/$PREFIX/audio/"
+            LOCAL_AUDIO_PATH="$LOCAL_DIR/$PREFIX/audio/"
+            echo "🔊 Syncing audio for $PREFIX → $LOCAL_AUDIO_PATH"
+            mkdir -p "$LOCAL_AUDIO_PATH"
+            aws s3 sync "$S3_AUDIO_PATH" "$LOCAL_AUDIO_PATH"
+        fi
     fi
 
     # Auto-identify speaker if this session matches a sample-scheduling entry
@@ -57,13 +65,15 @@ for PREFIX in $PREFIXES; do
         SPEAKER_NAME=$(jq -r '.speakerName' "$SCHEDULE_FILE")
         if [ -n "$SPEAKER" ] && [ "$SPEAKER" != "null" ] && [ -n "$SPEAKER_NAME" ] && [ "$SPEAKER_NAME" != "null" ]; then
             echo "🏷️  Auto-labeling $PREFIX speaker $SPEAKER → $SPEAKER_NAME"
-            /home/nathan/.pyenv/shims/python "$(dirname "$0")/label_speaker.py" "$PREFIX" "$SPEAKER" "$SPEAKER_NAME"
+            python "$(dirname "$0")/label_speaker.py" "$PREFIX" "$SPEAKER" "$SPEAKER_NAME"
         fi
     fi
 done
 
 echo ""
 echo "✅ Done. All deepgram_responses synced to ./$LOCAL_DIR/"
-echo ""
-echo "🔨 Rebuilding audio library from speaker_labels.json..."
-/home/nathan/.pyenv/shims/python "$(dirname "$0")/scripts/build_audio_library.py"
+if [ "$NO_AUDIO" -eq 0 ]; then
+    echo ""
+    echo "🔨 Rebuilding audio library from speaker_labels.json..."
+    python "$(dirname "$0")/scripts/build_audio_library.py"
+fi

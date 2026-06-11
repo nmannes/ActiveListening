@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Runtime Logs</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; background: #111; color: #ddd; display: flex; height: 100vh; overflow: hidden; }
+#sidebar { width: 360px; min-width: 260px; background: #1a1a1a; border-right: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; resize: horizontal; }
+#sidebar h2 { padding: 12px 16px; font-size: 14px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; }
+#file-list { flex: 1; overflow-y: auto; }
+.file-entry { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid #222; font-size: 12px; transition: background .1s; }
+.file-entry:hover { background: #252525; }
+.file-entry.active { background: #2a3a5c; }
+.file-entry .name { font-size: 13px; color: #cde; font-weight: 600; word-break: break-all; margin-bottom: 2px; }
+.file-entry .meta { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; }
+#toolbar input { flex: 1; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 10px; font-family: inherit; font-size: 13px; border-radius: 4px; }
+#toolbar input:focus { border-color: #68f; outline: none; }
+#toolbar button { background: #333; color: #ddd; border: 1px solid #444; padding: 6px 12px; font-family: inherit; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
+#toolbar button:hover { background: #444; }
+#toolbar .file-info { font-size: 11px; color: #888; white-space: nowrap; }
+#viewer { flex: 1; overflow-y: auto; padding: 0; }
+#viewer table { width: 100%; border-collapse: collapse; }
+#viewer td { padding: 2px 0; font-size: 12px; line-height: 1.4; vertical-align: top; }
+#viewer td.ln { color: #555; text-align: right; padding: 2px 8px 2px 12px; user-select: none; width: 1%; white-space: nowrap; border-right: 1px solid #222; }
+#viewer td.content { padding-left: 12px; padding-right: 12px; white-space: pre-wrap; word-break: break-all; }
+#viewer tr:hover td { background: #1a1a1a; }
+#viewer tr.highlight td.content { background: #332200; }
+#viewer tr.highlight td.ln { background: #332200; }
+#info-bar { border-top: 1px solid #333; padding: 8px 12px; font-size: 11px; color: #666; background: #1a1a1a; flex-shrink: 0; }
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 14px; }
+.spinner { border: 2px solid #333; border-top-color: #68f; border-radius: 50%; width: 16px; height: 16px; animation: spin .6s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>Workspace Logs</h2>
+  <div id="file-list"></div>
+</div>
+<div id="main">
+  <div id="toolbar">
+    <input id="search" type="text" placeholder="Search in current file..." disabled>
+    <button id="toggle-fmt" disabled>Raw JSON</button>
+    <button id="load-all" disabled>Load all</button>
+    <span class="file-info" id="file-info"></span>
+  </div>
+  <div id="viewer">
+    <div class="empty-state">Select a log file to view</div>
+  </div>
+  <div id="info-bar">Ready</div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+const fileList = $("#file-list");
+const viewer = $("#viewer");
+const searchInput = $("#search");
+const loadAllBtn = $("#load-all");
+const fileInfo = $("#file-info");
+const infoBar = $("#info-bar");
+const toggleFmt = $("#toggle-fmt");
+
+let currentFile = null;
+let currentLines = [];
+let activeFileEl = null;
+let showRaw = false; // default: compact (time + msg only)
+
+async function loadFileList() {
+  try {
+    const res = await fetch("/api/runtime-logs");
+    const data = await res.json();
+    fileList.innerHTML = "";
+    for (const f of data.files) {
+      const el = document.createElement("div");
+      el.className = "file-entry";
+      const sizeStr = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+"M" : f.size > 1024 ? (f.size/1024).toFixed(0)+"K" : f.size+"B";
+      const timeStr = f.firstTime ? f.firstTime.replace("T", " ").slice(0, 19) : "unknown start";
+      el.innerHTML = `<div class="name">${f.filename}</div><div class="meta">${sizeStr} · ~${f.lines.toLocaleString()} lines · ${timeStr}</div>`;
+      el.addEventListener("click", () => loadFile(f, el));
+      fileList.appendChild(el);
+    }
+    infoBar.textContent = `${data.files.length} log files`;
+
+    // Auto-load the most recent file (first in sorted list)
+    if (data.files.length > 0) {
+      const firstEntry = fileList.firstElementChild;
+      loadFile(data.files[0], firstEntry);
+    }
+  } catch (e) {
+    infoBar.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function loadFile(file, el) {
+  if (activeFileEl) activeFileEl.classList.remove("active");
+  el.classList.add("active");
+  activeFileEl = el;
+  currentFile = file;
+
+  searchInput.disabled = false;
+  loadAllBtn.disabled = false;
+  toggleFmt.disabled = false;
+  fileInfo.textContent = `~${file.lines.toLocaleString()} lines, ${file.firstTime ? file.firstTime.replace("T"," ").slice(0,19) : "unknown time"}`;
+  infoBar.textContent = "Loading...";
+
+  await loadLines();
+}
+
+async function loadLines(loadAll) {
+  try {
+    const linesParam = loadAll ? "lines=100000" : "lines=5000";
+    const res = await fetch(`/api/runtime-logs-view/${encodeURIComponent(currentFile.filename)}?${linesParam}`);
+    const text = await res.text();
+    currentLines = text.split("\n").filter(Boolean);
+    applySearch(currentLines);
+    infoBar.textContent = `${currentLines.length.toLocaleString()} lines loaded`;
+  } catch (e) {
+    infoBar.textContent = `Error: ${e.message}`;
+  }
+}
+
+function applySearch(lines) {
+  const query = searchInput.value.toLowerCase();
+  viewer.innerHTML = "";
+  if (lines.length === 0) {
+    viewer.innerHTML = '<div class="empty-state">No content</div>';
+    return;
+  }
+
+  const tbody = document.createElement("table");
+  let count = 0;
+  for (const line of lines) {
+    if (query && !line.toLowerCase().includes(query)) continue;
+    count++;
+    const tr = document.createElement("tr");
+    const tdLn = document.createElement("td");
+    tdLn.className = "ln";
+    tdLn.textContent = count;
+    const tdContent = document.createElement("td");
+    tdContent.className = "content";
+    tdContent.textContent = formatLine(line);
+    if (query) {
+      const idx = tdContent.textContent.toLowerCase().indexOf(query);
+      if (idx >= 0) {
+        tr.classList.add("highlight");
+      }
+    }
+    tr.appendChild(tdLn);
+    tr.appendChild(tdContent);
+    tbody.appendChild(tr);
+  }
+  viewer.appendChild(tbody);
+  infoBar.textContent = query
+    ? `${count} matches of ${currentLines.length.toLocaleString()} lines`
+    : `${currentLines.length.toLocaleString()} lines`;
+}
+
+function formatLine(line) {
+  if (showRaw) return line;
+  try {
+    const obj = JSON.parse(line);
+    const time = obj.time ? obj.time.replace("T", " ").slice(0, 23) : "";
+    const msg = obj.msg || obj.message || "";
+    return time ? `${time}  ${msg}` : msg || line;
+  } catch {
+    return line;
+  }
+}
+
+toggleFmt.addEventListener("click", () => {
+  showRaw = !showRaw;
+  toggleFmt.textContent = showRaw ? "Compact" : "Raw JSON";
+  if (currentLines.length) applySearch(currentLines);
+});
+
+searchInput.addEventListener("input", () => {
+  if (currentLines.length) applySearch(currentLines);
+});
+
+loadAllBtn.addEventListener("click", () => loadLines(true));
+
+loadFileList();
+</script>
+</body>
+</html>

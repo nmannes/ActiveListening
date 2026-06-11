@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 queue_worker.py — BullMQ Worker for sample-generation and save-samples queues.
 
@@ -113,7 +113,7 @@ async def process_sample_generation(job, job_token):
     try:
         # 1. Download
         wav_paths = await run_blocking(
-            search_and_download, target, 5, 120, work_dir
+            search_and_download, target, 5, work_dir
         )
         if not wav_paths:
             await job.updateProgress({"stage": "failed", "error": "No audio downloaded"})
@@ -500,11 +500,11 @@ async def main():
 
     gen_worker = Worker(
         "sample-generation", process_sample_generation,
-        {"connection": connection, "concurrency": 1},
+        {"connection": connection, "concurrency": 1, "lockDuration": 30 * 60 * 1000, "stalledInterval": 30 * 60 * 1000},
     )
     save_worker = Worker(
         "save-samples", process_save_samples,
-        {"connection": connection, "concurrency": 1},
+        {"connection": connection, "concurrency": 1, "lockDuration": 10 * 60 * 1000, "stalledInterval": 10 * 60 * 1000},
     )
 
     gen_worker.on("completed", lambda job: logger.info(f"sample-generation job {job.id} completed"))

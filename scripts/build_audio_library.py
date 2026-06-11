@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 build_audio_library.py — Compiles labeled speaker samples into the audio-library/
 

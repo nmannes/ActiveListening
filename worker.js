@@ -65,10 +65,10 @@ const runClientWorker = new Worker(
 
     // 2. Run client against the instance
     try {
-      const prefix = browser ? "/home/linuxbrew/.linuxbrew/bin/xvfb-run -a " : "";
-      const browserArg = browser ? "--browser" : "";
+      const bunCmd = browser ? "xvfb-run -a bun" : "bun";
+      const browserFlag = browser ? " --browser" : "";
       spawn(
-        `cd ${SCRIPT_DIR} && ${prefix}/home/nathan/.bun/bin/bun run client.js --fromFile ${marketFile} --duration ${duration} --ip ${ip} ${browserArg}`,
+        `cd ${SCRIPT_DIR} && ${bunCmd} run client.js --fromFile ${marketFile} --duration ${duration} --ip ${ip}${browserFlag}`,
         job,
       );
     } finally {
@@ -81,7 +81,7 @@ const runClientWorker = new Worker(
       }
     }
   },
-  { connection, concurrency: 5, stalledInterval: 3.5 * 60 * 60 * 1000 },
+  { connection, concurrency: 5, lockDuration: 3.5 * 60 * 60 * 1000, stalledInterval: 3.5 * 60 * 60 * 1000 },
 );
 
 const syncWorker = new Worker(
@@ -90,17 +90,16 @@ const syncWorker = new Worker(
     const { runUUID, sessionId } = job.data;
     spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
   },
-  { connection, concurrency: 1 },
+  { connection, concurrency: 1, lockDuration: 10 * 60 * 1000 },
 );
 
 const schedulingLoopWorker = new Worker(
   "scheduling-loop",
   async (job) => {
-    spawn(`/home/nathan/.bun/bin/bun run e2e_discovery.js`, job);
-    spawn(`/home/nathan/.bun/bin/bun run schedule_matches.js`, job);
-    spawn(`/home/nathan/.bun/bin/bun run signal_vs_no_closeout.js`, job);
+    spawn(`bun run e2e_discovery.js`, job);
+    spawn(`bun run schedule_matches.js`, job);
   },
-  { connection, concurrency: 1, stalledInterval: 10 * 60 * 1000 },
+  { connection, concurrency: 1, lockDuration: 10 * 60 * 1000, stalledInterval: 10 * 60 * 1000 },
 );
 
 console.log("[worker] BullMQ worker started — listening on run-client, log-sync, scheduling-loop");
