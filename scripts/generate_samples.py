@@ -92,11 +92,16 @@ def save_trust(data):
 
 
 def get_trust_for(slug, trust_data):
-    """Return (auto_approve: bool, threshold: float) for a target slug."""
+    """Return (auto_approve: bool, threshold: float) for a target slug.
+
+    Default threshold of 1.0 means nothing is auto-approved unless the user
+    explicitly sets a lower threshold in trust.json. This ensures human review
+    is always required by default.
+    """
     entry = trust_data.get(slug, {})
     default = trust_data.get("default", {})
     auto = entry.get("auto_approve", default.get("auto_approve", False))
-    threshold = entry.get("auto_approve_threshold", default.get("auto_approve_threshold", 0.85))
+    threshold = entry.get("auto_approve_threshold", default.get("auto_approve_threshold", 1.0))
     return auto, threshold
 
 
@@ -204,6 +209,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
+            "--cookies", str(ROOT / "cookies" / "youtube.json"),
             query,
         ]
 
@@ -232,7 +238,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 class SampleGenerator:
     def __init__(self, target: str, num_videos: int = 5,
                  auto_threshold: float | None = None, skip_verify: bool = False,
-                 max_per_video: int = 5, max_total: int = 30):
+                 max_per_video: int = 2, max_total: int = 30):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
@@ -314,18 +320,54 @@ class SampleGenerator:
 
     # ---- step 4 & 5: cluster + score ----
 
+    def _load_reference_embedding(self) -> torch.Tensor | None:
+        """Load existing approved embeddings for this slug and return their
+        L2-normalized mean as a reference centroid. Returns None if no
+        existing embeddings found."""
+        emb_files = sorted(AUDIO_LIBRARY.glob(f"{self.slug}*.embedding"))
+        if not emb_files:
+            return None
+
+        refs = []
+        for ef in emb_files:
+            try:
+                emb = torch.load(str(ef))
+                if emb.dim() == 2:
+                    emb = emb.squeeze(0)
+                refs.append(emb)
+            except Exception as e:
+                logger.warning(f"Failed to load reference embedding {ef}: {e}")
+
+        if not refs:
+            return None
+
+        ref_matrix = torch.stack(refs).numpy()
+        ref_centroid = normalize(ref_matrix.mean(axis=0, keepdims=True), norm="l2")
+        logger.info(f"Loaded {len(refs)} reference embedding(s) for '{self.target}' from {AUDIO_LIBRARY}")
+        return torch.from_numpy(ref_centroid)
+
     def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.3,
                           max_per_video: int = 5):
         """
-        Cluster embeddings. Largest cluster = target.
+        Cluster embeddings. If existing reference embeddings exist, the cluster
+        closest to the reference centroid is chosen as the target. Otherwise the
+        largest cluster is used.
+
         Score each segment by cosine similarity to its cluster centroid.
+        Also computes ref_score (similarity to reference centroid) when available.
         Discards segments in clusters smaller than min_cluster_ratio of total.
         Limits to max_per_video segments per source video for diversity.
         """
+        ref_centroid = self._load_reference_embedding()
+
         if len(segments) < 2:
             for s in segments:
                 s["score"] = 1.0
                 s["is_target"] = True
+                if ref_centroid is not None:
+                    emb_np = s["embedding"].squeeze(0).numpy()
+                    emb_norm = normalize(emb_np.reshape(1, -1), norm="l2")
+                    s["ref_score"] = round(float(emb_norm @ ref_centroid.numpy().T), 4)
             return segments
 
         emb_matrix = torch.stack([s["embedding"].squeeze(0) for s in segments])
@@ -336,7 +378,6 @@ class SampleGenerator:
 
         # Agglomerative clustering
         n = len(segments)
-        # Try distance thresholds to find reasonable clusters
         clustering = AgglomerativeClustering(
             n_clusters=None,
             metric="precomputed",
@@ -345,18 +386,34 @@ class SampleGenerator:
         )
         labels = clustering.fit_predict(dist_matrix)
 
-        # Find largest cluster
         unique, counts = np.unique(labels, return_counts=True)
-        largest_label = unique[counts.argmax()]
-        largest_count = counts.max()
-
-        logger.info(f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, target cluster: {largest_label} ({largest_count} segments)")
 
         # Compute centroids per cluster
         centroids = {}
         for label in unique:
             mask = labels == label
             centroids[label] = normalize(emb_norm[mask].mean(axis=0, keepdims=True), norm="l2")
+
+        # --- Determine target cluster ---
+        if ref_centroid is not None:
+            # Pick cluster whose centroid is closest to the reference
+            ref_np = ref_centroid.numpy()
+            cluster_sims = {}
+            for label in unique:
+                sim = float(centroids[label] @ ref_np.T)
+                cluster_sims[label] = sim
+            largest_label = max(cluster_sims, key=cluster_sims.get)
+            largest_count = counts[unique == largest_label][0]
+            logger.info(
+                f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, "
+                f"reference similarities: {', '.join(f'{k}:{v:.3f}' for k, v in sorted(cluster_sims.items()))}, "
+                f"target cluster (best ref match): {largest_label} ({largest_count} segments)"
+            )
+        else:
+            # Fall back to largest cluster
+            largest_label = unique[counts.argmax()]
+            largest_count = counts.max()
+            logger.info(f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, target cluster (largest): {largest_label} ({largest_count} segments)")
 
         # Score each segment
         for i, s in enumerate(segments):
@@ -365,6 +422,9 @@ class SampleGenerator:
             s["score"] = round(max(0.0, min(1.0, sim)), 4)
             s["cluster"] = int(labels[i])
             s["is_target"] = labels[i] == largest_label
+            if ref_centroid is not None:
+                ref_sim = float(emb_norm[i] @ ref_centroid.numpy().T)
+                s["ref_score"] = round(max(0.0, min(1.0, ref_sim)), 4)
 
         # Filter: keep only target cluster, above score threshold
         min_score = 0.65
@@ -722,7 +782,7 @@ async def main():
                         help="Auto-approve segments above this confidence score (0.0-1.0)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
-    parser.add_argument("--max-per-video", type=int, default=5, help="Max samples to keep per source video (default: 5)")
+    parser.add_argument("--max-per-video", type=int, default=2, help="Max samples to keep per source video (default: 2)")
     parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
     args = parser.parse_args()
 

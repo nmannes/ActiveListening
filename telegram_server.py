@@ -308,9 +308,9 @@ def main():
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
 
-    token = os.environ.get("TELEGRAM_KEY")
+    token = os.environ.get("TELEGRAM_KEY_VOICE_IDS") or os.environ.get("TELEGRAM_KEY")
     if not token:
-        logger.error("TELEGRAM_KEY not set in environment")
+        logger.error("TELEGRAM_KEY_VOICE_IDS or TELEGRAM_KEY not set in environment")
         sys.exit(1)
 
     app = Application.builder().token(token).build()

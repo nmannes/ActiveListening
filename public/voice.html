@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Sample Management</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+            background-image:
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .container { max-width: 1200px; margin: 0 auto; }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 2rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 2rem 0 1rem;
+            color: #cbd5e1;
+        }
+
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        input[type="text"] {
+            flex: 1;
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border);
+            color: white;
+            padding: 0.6rem 0.85rem;
+            border-radius: 0.5rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type="text"]:focus { border-color: var(--accent); }
+
+        button {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.55rem 1.1rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            font-family: 'Inter', sans-serif;
+        }
+        button:hover { background: var(--accent-hover); }
+        button:active { transform: scale(0.95); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .btn-approve { background: var(--success); }
+        .btn-approve:hover { background: #059669; }
+        .btn-reject { background: var(--danger); }
+        .btn-reject:hover { background: #dc2626; }
+        .btn-auto { background: #8b5cf6; }
+        .btn-auto:hover { background: #7c3aed; }
+        .btn-reject-all { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+        .btn-reject-all:hover { background: var(--danger); color: white; }
+        .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 0.35rem 0.7rem; font-size: 0.8rem; }
+        .btn-delete:hover { background: var(--danger); color: white; }
+
+        .inline-form {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .generate-result {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 0.5rem;
+            display: none;
+        }
+        .generate-result.show { display: block; }
+
+        .slug-group {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .slug-header {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+        .slug-header:hover { color: white; }
+
+        .toggle-icon {
+            transition: transform 0.2s;
+        }
+        .slug-header.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+        .segments-list.collapsed { display: none; }
+
+        .segment-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+        }
+        .segment-card:hover { border-color: rgba(255, 255, 255, 0.2); }
+
+        .segment-info {
+            flex: 1;
+            min-width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+        .segment-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .segment-source {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .segment-source a { color: var(--accent); text-decoration: none; }
+
+        .segment-actions {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        audio {
+            height: 36px;
+            min-width: 260px;
+            outline: none;
+        }
+        audio::-webkit-media-controls-panel {
+            background-color: #334155;
+        }
+
+        .badge {
+            padding: 0.2rem 0.55rem;
+            border-radius: 9999px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .badge.approved { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .badge.rejected { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge.pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            background: var(--success);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 0.5rem;
+            font-weight: 500;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            transform: translateY(150%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 50;
+        }
+        .toast.show { transform: translateY(0); }
+
+        .loader {
+            display: inline-block;
+            width: 2rem; height: 2rem;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .center-msg { text-align: center; margin-top: 2rem; color: var(--text-muted); }
+        .empty-msg {
+            text-align: center;
+            padding: 2rem;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 1rem;
+            border: 1px dashed var(--border);
+            color: var(--text-muted);
+        }
+
+        .library-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+        }
+        .library-card {
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .library-card .file-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        .library-card .file-row audio { flex: 1; min-width: 0; }
+        .library-card .file-info {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Voice Sample Management</h1>
+
+        <!-- Generate -->
+        <section id="section-generate">
+            <div class="section-title">Generate Samples</div>
+            <div class="card">
+                <div class="inline-form">
+                    <input type="text" id="generate-input" placeholder="Speaker name, e.g. Donald Trump" style="max-width: 400px;">
+                    <button id="generate-btn" onclick="doGenerate()">Generate</button>
+                </div>
+                <div class="generate-result" id="generate-result"></div>
+            </div>
+        </section>
+
+        <!-- Pending Verifications -->
+        <section id="section-verifications">
+            <div class="section-title">Pending Verifications <span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);" id="verifications-count"></span></div>
+            <div id="verifications-list">
+                <div class="center-msg"><div class="loader"></div><p>Loading...</p></div>
+            </div>
+        </section>
+
+        <!-- Audio Library -->
+        <section id="section-library">
+            <div class="section-title">Audio Library</div>
+            <div id="library-list">
+                <div class="center-msg"><div class="loader"></div><p>Loading...</p></div>
+            </div>
+        </section>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const toast = document.getElementById('toast');
+        const collapsedGroups = {};
+
+        function showToast(msg, isError) {
+            toast.textContent = msg;
+            toast.style.background = isError ? 'var(--danger)' : 'var(--success)';
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function formatDuration(s) {
+            const m = Math.floor(s / 60);
+            const sec = Math.floor(s % 60);
+            return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+        }
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return `${bytes} B`;
+            if (bytes < 1048576) return `${(bytes / 1024).toFixed(0)} KB`;
+            return `${(bytes / 1048576).toFixed(1)} MB`;
+        }
+
+        // ── Generate ──────────────────────────────────────────────────
+
+        async function doGenerate() {
+            const input = document.getElementById('generate-input');
+            const btn = document.getElementById('generate-btn');
+            const target = input.value.trim();
+            if (!target) { showToast('Please enter a speaker name', true); return; }
+
+            btn.disabled = true;
+            btn.textContent = 'Enqueuing...';
+
+            const resultDiv = document.getElementById('generate-result');
+            resultDiv.classList.remove('show');
+
+            try {
+                const res = await fetch('/api/voice/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Failed');
+
+                resultDiv.innerHTML = `
+                    <strong>Job enqueued!</strong><br>
+                    Target: ${target}<br>
+                    Job ID: <code>${data.jobId}</code><br>
+                    Queue depth: ${data.queueDepth}
+                `;
+                resultDiv.classList.add('show');
+                input.value = '';
+                showToast('Generation job enqueued');
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Generate';
+            }
+        }
+
+        document.getElementById('generate-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') doGenerate();
+        });
+
+        // ── Pending Verifications ─────────────────────────────────────
+
+        async function loadVerifications() {
+            const container = document.getElementById('verifications-list');
+            const countEl = document.getElementById('verifications-count');
+
+            try {
+                const res = await fetch('/api/voice/verifications');
+                const verifications = await res.json();
+
+                if (verifications.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">No pending verifications.</div>';
+                    countEl.textContent = '';
+                    return;
+                }
+
+                countEl.textContent = `(${verifications.length} speaker${verifications.length > 1 ? 's' : ''})`;
+
+                let html = '';
+                for (const v of verifications) {
+                    const statusBadge = v.resolved
+                        ? '<span class="badge approved">Resolved</span>'
+                        : `<span class="badge pending">${v.pending} pending</span>`;
+                    html += `
+                        <div class="slug-group" data-slug="${v.slug}">
+                            <div class="slug-header ${collapsedGroups[v.slug] ? 'collapsed' : ''}" data-slug="${v.slug}" onclick="toggleSlug(this)" id="slug-header-${v.slug}">
+                                <span>${v.target} <small style="opacity:0.6;font-weight:400;">(${v.segmentCount} segments)</small></span>
+                                <span style="display:flex;align-items:center;gap:0.75rem;">
+                                    ${statusBadge}
+                                    ${v.pending > 0 ? `<button class="btn-auto" style="padding:0.35rem 0.7rem;font-size:0.75rem;" onclick="event.stopPropagation();autoApprove('${v.slug}')">Approve All</button>
+                                    <button class="btn-reject-all" style="padding:0.35rem 0.7rem;font-size:0.75rem;" onclick="event.stopPropagation();rejectAll('${v.slug}')">Reject All</button>` : ''}
+                                    <span class="toggle-icon">▼</span>
+                                </span>
+                            </div>
+                            <div id="segments-${v.slug}" class="segments-list ${collapsedGroups[v.slug] ? 'collapsed' : ''}">
+                                <div class="center-msg"><div class="loader"></div></div>
+                            </div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+
+                // Load segment details for each non-collapsed slug
+                for (const v of verifications) {
+                    if (!collapsedGroups[v.slug]) {
+                        loadSegments(v.slug);
+                    }
+                }
+            } catch (e) {
+                container.innerHTML = '<div class="empty-msg">Error loading verifications.</div>';
+                console.error(e);
+            }
+        }
+
+        function toggleSlug(header) {
+            const slug = header.getAttribute('data-slug');
+            const isCollapsed = header.classList.toggle('collapsed');
+            const list = document.getElementById(`segments-${slug}`);
+            if (list) list.classList.toggle('collapsed', isCollapsed);
+            collapsedGroups[slug] = isCollapsed;
+
+            if (!isCollapsed && list && list.querySelector('.loader')) {
+                loadSegments(slug);
+            }
+        }
+
+        async function loadSegments(slug) {
+            const container = document.getElementById(`segments-${slug}`);
+            try {
+                const res = await fetch(`/api/voice/verification/${slug}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                if (data.segments.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">No segments found.</div>';
+                    return;
+                }
+
+                let html = '';
+                // Show an "Auto-Approve All" at the top if there are pending segments
+                if (data.pendingCount > 0) {
+                    html += `
+                        <div style="margin-bottom:1rem;display:flex;gap:0.5rem;">
+                            <button class="btn-auto" onclick="autoApprove('${slug}')">Approve All ${data.pendingCount}</button>
+                            <button class="btn-reject-all" onclick="rejectAll('${slug}')">Reject All ${data.pendingCount}</button>
+                        </div>
+                    `;
+                }
+
+                for (const seg of data.segments) {
+                    let badge = '';
+                    let actions = '';
+                    if (seg.approved === true) {
+                        badge = '<span class="badge approved">Approved</span>';
+                    } else if (seg.approved === false) {
+                        badge = '<span class="badge rejected">Rejected</span>';
+                    } else {
+                        badge = '<span class="badge pending">Pending</span>';
+                        actions = `
+                            <button class="btn-approve" onclick="approve('${slug}',${seg.index})">Approve</button>
+                            <button class="btn-reject" onclick="reject('${slug}',${seg.index})">Reject</button>
+                        `;
+                    }
+
+                    const sourceLink = seg.sourceUrl
+                        ? `<span class="segment-source">Source: <a href="${seg.sourceUrl}" target="_blank">${seg.sourceUrl}</a></span>`
+                        : '';
+
+                    html += `
+                        <div class="segment-card" id="seg-${slug}-${seg.index}">
+                            <audio controls preload="none">
+                                <source src="${seg.audioUrl}" type="audio/ogg">
+                            </audio>
+                            <div class="segment-info">
+                                <div style="font-weight:500;">Segment ${seg.index} ${badge}</div>
+                                <div class="segment-meta">
+                                    <span>Score: <strong>${seg.score?.toFixed(3)}</strong></span>
+                                    ${seg.refScore != null ? `<span>Ref: <strong style="color:#60a5fa;">${seg.refScore.toFixed(3)}</strong></span>` : ''}
+                                    <span>Duration: ${formatDuration(seg.duration || 0)}</span>
+                                </div>
+                                ${sourceLink}
+                            </div>
+                            <div class="segment-actions">${actions}</div>
+                        </div>
+                    `;
+                }
+                container.innerHTML = html;
+
+                // Single-audio-at-a-time
+                container.querySelectorAll('audio').forEach(audio => {
+                    audio.addEventListener('play', (e) => {
+                        document.querySelectorAll('audio').forEach(a => {
+                            if (a !== e.target) a.pause();
+                        });
+                    });
+                });
+            } catch (e) {
+                container.innerHTML = `<div class="empty-msg">Error: ${e.message}</div>`;
+            }
+        }
+
+        async function approve(slug, index) {
+            const btn = document.querySelector(`#seg-${slug}-${index} .btn-approve`);
+            if (btn) { btn.disabled = true; btn.textContent = '...'; }
+            try {
+                const res = await fetch(`/api/voice/approve/${slug}/${index}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast('Approved');
+                if (data.saveJobId) showToast(`Save job enqueued: ${data.saveJobId}`);
+                loadSegments(slug);
+                if (data.resolved) loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function reject(slug, index) {
+            const btn = document.querySelector(`#seg-${slug}-${index} .btn-reject`);
+            if (btn) { btn.disabled = true; btn.textContent = '...'; }
+            try {
+                const res = await fetch(`/api/voice/reject/${slug}/${index}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast('Rejected');
+                if (data.saveJobId) showToast(`Save job enqueued: ${data.saveJobId}`);
+                loadSegments(slug);
+                if (data.resolved) loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function autoApprove(slug) {
+            const confirmed = confirm(`Approve ALL remaining segments for ${slug}?`);
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/voice/auto-approve/${slug}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Approved ${data.autoApproved} segments. Save job: ${data.saveJobId}`);
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function rejectAll(slug) {
+            const confirmed = confirm(`Reject ALL remaining segments for ${slug}? This will NOT save any pending samples.`);
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/voice/reject-all/${slug}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Rejected ${data.rejectedCount} segments`);
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        // ── Audio Library ─────────────────────────────────────────────
+
+        async function loadLibrary() {
+            const container = document.getElementById('library-list');
+            try {
+                const res = await fetch('/api/voice/library');
+                const data = await res.json();
+
+                if (!data.speakers || data.speakers.length === 0) {
+                    container.innerHTML = '<div class="empty-msg">Audio library is empty.</div>';
+                    return;
+                }
+
+                let html = '<div class="library-grid">';
+                for (const spk of data.speakers) {
+                    const totalSize = spk.files.reduce((sum, f) => sum + f.size, 0);
+                    html += `
+                        <div class="slug-group" style="margin-bottom:0;">
+                            <div class="slug-header ${collapsedGroups[`lib-${spk.slug}`] !== false ? 'collapsed' : ''}"
+                                 data-slug="lib-${spk.slug}"
+                                 onclick="toggleLibrarySlug(this, '${spk.slug}')">
+                                <span>${spk.slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+                                    <small style="opacity:0.6;font-weight:400;">(${spk.totalCount} files · ${formatSize(totalSize)})</small>
+                                </span>
+                                <span class="toggle-icon">▼</span>
+                            </div>
+                            <div class="segments-list ${collapsedGroups[`lib-${spk.slug}`] !== false ? 'collapsed' : ''}" id="lib-segments-${spk.slug}">
+                    `;
+                    for (const f of spk.files) {
+                        html += `
+                            <div class="library-card">
+                                <div class="file-row">
+                                    <audio controls preload="none">
+                                        <source src="${f.audioUrl}" type="audio/wav">
+                                    </audio>
+                                    <div class="file-info">
+                                        <div>${f.filename}</div>
+                                        <div>${formatSize(f.size)}${f.hasEmbedding ? ' · embed' : ''}</div>
+                                    </div>
+                                </div>
+                                <div style="display:flex;justify-content:flex-end;">
+                                    <button class="btn-delete" onclick="deleteSample('${f.filename}')">Delete</button>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    html += `</div></div>`;
+                }
+                html += '</div>';
+                container.innerHTML = html;
+
+                // Single-audio-at-a-time
+                container.querySelectorAll('audio').forEach(audio => {
+                    audio.addEventListener('play', (e) => {
+                        document.querySelectorAll('audio').forEach(a => {
+                            if (a !== e.target) a.pause();
+                        });
+                    });
+                });
+            } catch (e) {
+                container.innerHTML = '<div class="empty-msg">Error loading library.</div>';
+                console.error(e);
+            }
+        }
+
+        function toggleLibrarySlug(header, slug) {
+            const isCollapsed = header.classList.toggle('collapsed');
+            const list = document.getElementById(`lib-segments-${slug}`);
+            if (list) list.classList.toggle('collapsed', isCollapsed);
+            collapsedGroups[`lib-${slug}`] = isCollapsed ? false : undefined;
+        }
+
+        async function deleteSample(filename) {
+            const confirmed = confirm(`Delete ${filename} and its embedding?`);
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/voice/library/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Deleted ${filename}`);
+                loadLibrary();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        // ── Init ─────────────────────────────────────────────────────
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadVerifications();
+            loadLibrary();
+        });
+
+        // Auto-refresh verifications every 30 seconds
+        setInterval(() => {
+            loadVerifications();
+        }, 30000);
+    </script>
+</body>
+</html>

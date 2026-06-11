@@ -59,6 +59,38 @@ function readJsonFile(filePath, defaultValue = []) {
     }
 }
 
+// ── Redis verification state helpers ──────────────────────────────────────
+const REDIS_TTL = 3600;  // 1 hour, matches verification_state.py
+
+async function getVerificationState(slug, index) {
+    const raw = await connection.hget(`verify:${slug}`, String(index));
+    return raw ? JSON.parse(raw) : null;
+}
+
+async function getAllVerificationStates(slug) {
+    const raw = await connection.hgetall(`verify:${slug}`);
+    const result = {};
+    for (const [k, v] of Object.entries(raw || {})) {
+        result[parseInt(k, 10)] = JSON.parse(v);
+    }
+    return result;
+}
+
+async function updateVerificationState(slug, index, updates) {
+    const data = await getVerificationState(slug, index) || {};
+    Object.assign(data, updates);
+    await connection.hset(`verify:${slug}`, String(index), JSON.stringify(data));
+    await connection.expire(`verify:${slug}`, REDIS_TTL);
+}
+
+async function pendingVerifications() {
+    const keys = await connection.keys("verify:*");
+    return keys.map(k => {
+        const colonIdx = k.indexOf(":");
+        return colonIdx >= 0 ? k.slice(colonIdx + 1) : k;
+    });
+}
+
 app.get("/api/markets", (req, res) => {
     try {
         console.log(`[${new Date().toISOString()}] GET /api/markets`);
@@ -282,6 +314,10 @@ app.get("/speakers", (req, res) => {
 
 app.get("/logs", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "logs.html"));
+});
+
+app.get("/voice", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "voice.html"));
 });
 
 app.get("/data-entry", (req, res) => {
@@ -888,11 +924,352 @@ app.get("/api/session/:slug", (req, res) => {
     }
 });
 
+// ── Voice Sample Management API ──────────────────────────────────────────
+
+const AUDIO_LIBRARY = path.join(require("os").homedir(), "audio-library");
+
+app.post("/api/voice/generate", async (req, res) => {
+    try {
+        const { target } = req.body;
+        if (!target || typeof target !== "string" || !target.trim()) {
+            return res.status(400).json({ error: "Missing or invalid target name" });
+        }
+
+        const slug = target.toLowerCase().trim()
+            .replace(/[^a-z0-9\s-]/g, "")
+            .replace(/[\s]+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "");
+
+        const job = await sampleGenQueue.add("generate_samples", {
+            target: target.trim(),
+        });
+
+        const counts = await sampleGenQueue.getJobCounts();
+        const depth = (counts.waiting || 0) + (counts.active || 0) + (counts.delayed || 0);
+
+        res.json({ success: true, jobId: job.id, slug, queueDepth: depth });
+    } catch (e) {
+        console.error(`Error in POST /api/voice/generate: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/voice/verifications", async (req, res) => {
+    try {
+        const slugs = await pendingVerifications();
+        const results = [];
+
+        for (const slug of slugs) {
+            const states = await getAllVerificationStates(slug);
+            const segmentCount = Object.keys(states).length;
+            let approved = 0, rejected = 0, pending = 0;
+            let target = slug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+            for (const v of Object.values(states)) {
+                if (v.approved === true) approved++;
+                else if (v.approved === false) rejected++;
+                else pending++;
+                if (v.target) target = v.target;
+            }
+
+            results.push({
+                slug, target, segmentCount, approved, rejected, pending,
+                resolved: pending === 0,
+            });
+        }
+
+        res.json(results);
+    } catch (e) {
+        console.error(`Error in GET /api/voice/verifications: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/voice/verification/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const states = await getAllVerificationStates(slug);
+        if (Object.keys(states).length === 0) {
+            return res.status(404).json({ error: "No verification state found for this slug" });
+        }
+
+        const segments = [];
+        for (const [idx, data] of Object.entries(states)) {
+            const source = (data.source || "").replace(/\.wav$/, "");
+            const vidId = source.includes("_") ? source.split("_").pop() : source;
+            segments.push({
+                index: parseInt(idx, 10),
+                target: data.target || "",
+                score: data.score,
+                refScore: data.ref_score ?? null,
+                duration: data.duration,
+                jobId: data.job_id || null,
+                approved: data.approved,
+                sourceUrl: vidId ? `https://youtube.com/watch?v=${vidId}` : null,
+                audioUrl: `/api/voice/audio/${slug}/${idx}`,
+            });
+        }
+        segments.sort((a, b) => a.index - b.index);
+
+        const target = segments[0]?.target || slug;
+        const resolved = segments.every(s => s.approved !== null);
+        const approvedCount = segments.filter(s => s.approved === true).length;
+        const rejectedCount = segments.filter(s => s.approved === false).length;
+
+        res.json({
+            slug, target, segments, resolved, approvedCount, rejectedCount,
+            pendingCount: segments.length - approvedCount - rejectedCount,
+        });
+    } catch (e) {
+        console.error(`Error in GET /api/voice/verification/:slug: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+async function handleSegmentDecision(slug, index, approved) {
+    if (!/^[\w-]+$/.test(slug)) {
+        return { error: "Invalid slug", status: 400 };
+    }
+    const idx = parseInt(index, 10);
+    if (isNaN(idx) || idx < 0) {
+        return { error: "Invalid segment index", status: 400 };
+    }
+
+    const state = await getVerificationState(slug, idx);
+    if (!state) {
+        return { error: "Segment not found or verification expired", status: 404 };
+    }
+
+    await updateVerificationState(slug, idx, { approved });
+
+    const allStates = await getAllVerificationStates(slug);
+    const resolved = Object.values(allStates).every(s => s.approved !== null);
+
+    let saveJob = null;
+    if (resolved && Object.keys(allStates).length > 0) {
+        const approvedIdxs = Object.entries(allStates)
+            .filter(([, v]) => v.approved === true)
+            .map(([k]) => parseInt(k, 10));
+        const target = state.target || slug;
+
+        saveJob = await saveSamplesQueue.add("save_samples", {
+            slug, target, approved_indices: approvedIdxs,
+        });
+    }
+
+    return { success: true, slug, index: idx, approved, resolved, saveJobId: saveJob ? saveJob.id : null };
+}
+
+app.post("/api/voice/approve/:slug/:index", async (req, res) => {
+    try {
+        const result = await handleSegmentDecision(req.params.slug, req.params.index, true);
+        res.status(result.status || 200).json(result);
+    } catch (e) {
+        console.error(`Error in approve: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/voice/reject/:slug/:index", async (req, res) => {
+    try {
+        const result = await handleSegmentDecision(req.params.slug, req.params.index, false);
+        res.status(result.status || 200).json(result);
+    } catch (e) {
+        console.error(`Error in reject: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/voice/auto-approve/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const allStates = await getAllVerificationStates(slug);
+        if (Object.keys(allStates).length === 0) {
+            return res.status(404).json({ error: "No verification state found" });
+        }
+
+        let autoCount = 0;
+        for (const [idx, data] of Object.entries(allStates)) {
+            if (data.approved === null) {
+                await updateVerificationState(slug, parseInt(idx, 10), { approved: true });
+                autoCount++;
+            }
+        }
+
+        const approvedIdxs = Object.entries(allStates)
+            .filter(([, v]) => v.approved === true || v.approved === null)
+            .map(([k]) => parseInt(k, 10));
+        const target = Object.values(allStates)[0]?.target || slug;
+
+        const saveJob = await saveSamplesQueue.add("save_samples", {
+            slug, target, approved_indices: approvedIdxs,
+        });
+
+        res.json({ success: true, slug, autoApproved: autoCount, saveJobId: saveJob.id });
+    } catch (e) {
+        console.error(`Error in auto-approve: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/voice/reject-all/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const allStates = await getAllVerificationStates(slug);
+        if (Object.keys(allStates).length === 0) {
+            return res.status(404).json({ error: "No verification state found" });
+        }
+
+        let rejectedCount = 0;
+        for (const [idx, data] of Object.entries(allStates)) {
+            if (data.approved === null) {
+                await updateVerificationState(slug, parseInt(idx, 10), { approved: false });
+                rejectedCount++;
+            }
+        }
+
+        res.json({ success: true, slug, rejectedCount });
+    } catch (e) {
+        console.error(`Error in reject-all: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/voice/audio/:slug/:index", async (req, res) => {
+    try {
+        const { slug, index } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+        if (!/^\d+$/.test(index)) {
+            return res.status(400).json({ error: "Invalid index" });
+        }
+
+        const state = await getVerificationState(slug, parseInt(index, 10));
+        if (!state || !state.ogg_path) {
+            return res.status(404).json({ error: "Audio not found or verification expired" });
+        }
+
+        if (!fs.existsSync(state.ogg_path)) {
+            return res.status(404).json({ error: "Audio file no longer exists on disk" });
+        }
+
+        res.setHeader("Content-Type", "audio/ogg");
+        res.sendFile(state.ogg_path);
+    } catch (e) {
+        console.error(`Error serving audio: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/voice/library", (req, res) => {
+    try {
+        if (!fs.existsSync(AUDIO_LIBRARY)) {
+            return res.json({ speakers: [] });
+        }
+
+        const files = fs.readdirSync(AUDIO_LIBRARY);
+        const wavFiles = files.filter(f => f.endsWith(".wav"));
+
+        const grouped = {};
+        for (const f of wavFiles) {
+            const stem = f.replace(/\.wav$/, "");
+            const parts = stem.match(/^(.+?)(?:-(\d+))?$/);
+            if (!parts) continue;
+            const baseSlug = parts[1];
+
+            if (!grouped[baseSlug]) {
+                grouped[baseSlug] = { files: [], totalCount: 0 };
+            }
+
+            const filePath = path.join(AUDIO_LIBRARY, f);
+            const embPath = filePath.replace(/\.wav$/, ".embedding");
+            const stat = fs.statSync(filePath);
+
+            grouped[baseSlug].files.push({
+                filename: f,
+                size: stat.size,
+                hasEmbedding: fs.existsSync(embPath),
+                audioUrl: `/api/voice/library-audio/${f}`,
+            });
+            grouped[baseSlug].totalCount++;
+        }
+
+        const speakers = Object.entries(grouped).map(([slug, data]) => {
+            data.files.sort((a, b) => {
+                const aNum = parseInt((a.filename.match(/-(\d+)\.wav$/) || ["", "0"])[1], 10);
+                const bNum = parseInt((b.filename.match(/-(\d+)\.wav$/) || ["", "0"])[1], 10);
+                return aNum - bNum;
+            });
+            return { slug, ...data };
+        });
+
+        speakers.sort((a, b) => a.slug.localeCompare(b.slug));
+        res.json({ speakers });
+    } catch (e) {
+        console.error(`Error listing library: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/voice/library-audio/:file", (req, res) => {
+    const { file } = req.params;
+    if (!/^[\w.-]+\.wav$/.test(file) || file.includes("..")) {
+        return res.status(400).json({ error: "Invalid filename" });
+    }
+    const filePath = path.join(AUDIO_LIBRARY, file);
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "File not found" });
+    }
+    res.setHeader("Content-Type", "audio/wav");
+    res.sendFile(filePath);
+});
+
+app.delete("/api/voice/library/:file", (req, res) => {
+    try {
+        const { file } = req.params;
+        if (!/^[\w.-]+\.(wav|embedding)$/.test(file) || file.includes("..")) {
+            return res.status(400).json({ error: "Invalid filename" });
+        }
+
+        const filePath = path.join(AUDIO_LIBRARY, file);
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ error: "File not found" });
+        }
+
+        fs.unlinkSync(filePath);
+
+        const partnerExt = file.endsWith(".wav") ? ".embedding" : ".wav";
+        const partnerPath = filePath.replace(/\.(wav|embedding)$/, partnerExt);
+        if (fs.existsSync(partnerPath)) {
+            fs.unlinkSync(partnerPath);
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error(`Error deleting library file: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ── Bull Board ────────────────────────────────────────────────────────
 const { createBullBoard } = require("@bull-board/api");
 const { BullMQAdapter } = require("@bull-board/api/bullMQAdapter");
 const { ExpressAdapter } = require("@bull-board/express");
-const { runClientQueue, logSyncQueue, schedulingLoopQueue, sampleGenQueue, saveSamplesQueue } = require("./lib/queues");
+const { runClientQueue, logSyncQueue, schedulingLoopQueue, sampleGenQueue, saveSamplesQueue, connection } = require("./lib/queues");
 
 const serverAdapter = new ExpressAdapter();
 serverAdapter.setBasePath("/admin/queues");

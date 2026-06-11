@@ -194,7 +194,7 @@ async def process_sample_generation(job, job_token):
         gen.embedder = embedder
 
         def run_clustering():
-            return gen.cluster_and_score(embedded, max_per_video=5)
+            return gen.cluster_and_score(embedded, max_per_video=2)
 
         segments = await run_blocking(run_clustering)
 
@@ -254,11 +254,13 @@ async def process_sample_generation(job, job_token):
                 "score": score,
                 "duration": seg["duration"],
                 "job_id": job_id,
+                "source": seg.get("source", ""),
                 "ogg_path": seg["ogg_path"],
                 "wav_path": seg["wav_path"],
                 "emb_path": seg["emb_path"],
                 "work_dir": str(work_dir),
                 "approved": True if is_pre_approved else None,
+                "ref_score": seg.get("ref_score"),
             })
 
             pre_label = " (pre-approved)" if is_pre_approved else ""
