@@ -9,7 +9,13 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  body { font-family: 'SF Mono', 'Menlo', 'Consolas', monospace; background: #0d1117; color: #c9d1d9; margin: 0; padding: 0; display: flex; min-height: 100vh; }
+
+  .sidebar { width: 200px; min-width: 200px; background: #161b22; border-right: 1px solid #30363d; padding: 20px 16px; display: flex; flex-direction: column; gap: 2px; position: fixed; top: 0; left: 0; bottom: 0; overflow-y: auto; z-index: 100; font-size: 12px; }
+  .sidebar .logo { font-size: 14px; font-weight: 600; color: #58a6ff; margin-bottom: 12px; }
+  .sidebar a { color: #8b949e; text-decoration: none; padding: 6px 10px; border-radius: 4px; display: block; }
+  .sidebar a:hover { color: #c9d1d9; background: #1c2128; text-decoration: none; }
+  .main { margin-left: 200px; flex: 1; padding: 24px; min-height: 100vh; }
   h1 { font-size: 18px; color: #58a6ff; margin-bottom: 4px; }
   .subtitle { font-size: 13px; color: #8b949e; margin-bottom: 16px; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; margin-bottom: 20px; }
@@ -65,6 +71,19 @@
 </style>
 </head>
 <body>
+<nav class="sidebar">
+  <div class="logo">Kalshi Market Manager</div>
+  <a href="/">🏠 Dashboard</a>
+  <a href="/voice" target="_blank">🎙️ Voice</a>
+  <a href="/sessions" target="_blank">Sessions</a>
+  <a href="/speakers" target="_blank">Speaker Identification</a>
+  <a href="/signals" style="color: #c9d1d9; background: #1c2128;">📈 Signal Dashboard</a>
+  <a href="/data-entry" target="_blank">📝 Data Entry</a>
+  <a href="/logs" target="_blank">📋 Logs</a>
+  <a href="/admin/queues" target="_blank">📊 Queues</a>
+</nav>
+
+<div class="main">
 <h1>Signal vs Market Change — Timing Analysis</h1>
 <p class="subtitle">Finds the most significant NO-side market change within ±30s of each signal. Delta = market_change_time − signal_time.</p>
 
@@ -6160,5 +6179,6 @@ document.querySelectorAll('th').forEach(th => {
 // Default sort by signal time descending on page load
 sortColumn(document.querySelector('th[data-col="4"]'), false);
 </script>
+</div><!-- .main -->
 </body>
 </html>

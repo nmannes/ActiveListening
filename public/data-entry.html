@@ -26,20 +26,64 @@
             background-color: var(--bg);
             color: var(--text);
             margin: 0;
+            padding: 0;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 200px;
+            min-width: 200px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar .logo {
+            font-size: 1.1rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0 0 1rem 0;
+        }
+
+        .sidebar a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            display: block;
+        }
+
+        .sidebar a:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .main {
+            margin-left: 200px;
+            flex: 1;
             padding: 2rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
-        }
-
-        header {
-            width: 100%;
-            max-width: 700px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
         }
 
         h1 {
@@ -235,11 +279,20 @@
 </head>
 
 <body>
-    <header>
-        <h1>Data Entry</h1>
-        <a href="/" style="color: var(--text-muted); font-size: 0.8125rem; text-decoration: none;">← Markets</a>
-    </header>
+    <nav class="sidebar">
+        <div class="logo">Kalshi Market Manager</div>
+        <a href="/">🏠 Dashboard</a>
+        <a href="/voice" target="_blank">🎙️ Voice</a>
+        <a href="/sessions" target="_blank">Sessions</a>
+        <a href="/speakers" target="_blank">Speaker Identification</a>
+        <a href="/signals" target="_blank">📈 Signal Dashboard</a>
+        <a href="/data-entry" target="_blank" style="color: var(--text); background: rgba(255,255,255,0.05);">📝 Data Entry</a>
+        <a href="/logs" target="_blank">📋 Logs</a>
+        <a href="/admin/queues" target="_blank">📊 Queues</a>
+    </nav>
 
+    <div class="main">
+    <h1>Data Entry</h1>
     <div class="container">
         <div class="card">
             <div id="status" class="status"></div>
@@ -284,6 +337,8 @@
             <div id="logs"></div>
         </div>
     </div>
+
+    </div><!-- .main -->
 
     <script>
         const statusEl = document.getElementById("status");

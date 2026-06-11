@@ -24,12 +24,43 @@
             background-color: var(--bg-dark);
             color: var(--text-main);
             margin: 0;
-            padding: 2rem;
+            padding: 0;
+            display: flex;
             min-height: 100vh;
             background-image:
                 radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
                 radial-gradient(at 100% 100%, rgba(16, 185, 129, 0.15) 0px, transparent 50%);
             background-attachment: fixed;
+        }
+
+        .sidebar {
+            width: 200px; min-width: 200px;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 1rem;
+            display: flex; flex-direction: column; gap: 0.25rem;
+            position: fixed; top: 0; left: 0; bottom: 0;
+            overflow-y: auto; z-index: 100;
+        }
+        .sidebar .logo {
+            font-size: 1rem; font-weight: 600;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text; background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0 0 1rem 0;
+        }
+        .sidebar a {
+            color: var(--text-muted); text-decoration: none;
+            font-size: 0.85rem; font-weight: 500;
+            padding: 0.5rem 0.75rem; border-radius: 0.5rem;
+            transition: all 0.2s; display: block;
+        }
+        .sidebar a:hover { color: var(--text-main); background: rgba(255,255,255,0.05); }
+
+        .main {
+            margin-left: 200px; flex: 1;
+            padding: 2rem; min-height: 100vh;
         }
 
         .container { max-width: 1200px; margin: 0 auto; }
@@ -272,6 +303,19 @@
     </style>
 </head>
 <body>
+    <nav class="sidebar">
+        <div class="logo">Kalshi Market Manager</div>
+        <a href="/">🏠 Dashboard</a>
+        <a href="/voice" style="color: var(--text-main); background: rgba(255,255,255,0.05);">🎙️ Voice</a>
+        <a href="/sessions" target="_blank">Sessions</a>
+        <a href="/speakers" target="_blank">Speaker Identification</a>
+        <a href="/signals" target="_blank">📈 Signal Dashboard</a>
+        <a href="/data-entry" target="_blank">📝 Data Entry</a>
+        <a href="/logs" target="_blank">📋 Logs</a>
+        <a href="/admin/queues" target="_blank">📊 Queues</a>
+    </nav>
+
+    <div class="main">
     <div class="container">
         <h1>Voice Sample Management</h1>
 
@@ -676,5 +720,6 @@
             loadVerifications();
         }, 30000);
     </script>
+</div><!-- .main -->
 </body>
 </html>

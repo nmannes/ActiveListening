@@ -27,20 +27,71 @@
             background-color: var(--bg);
             color: var(--text);
             margin: 0;
+            padding: 0;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 220px;
+            min-width: 220px;
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+            position: fixed;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar .logo {
+            font-size: 1.25rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0 0 1rem 0;
+        }
+
+        .sidebar a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            transition: all 0.2s;
+            display: block;
+        }
+
+        .sidebar a:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .sidebar .status-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: auto;
+            padding: 0.5rem 0.75rem;
+        }
+
+        .main {
+            margin-left: 220px;
+            flex: 1;
             padding: 2rem;
             display: flex;
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
-        }
-
-        header {
-            width: 100%;
-            max-width: 1200px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 3rem;
         }
 
         h1 {
@@ -51,7 +102,7 @@
             -webkit-background-clip: text;
             background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin: 0;
+            margin: 0 0 1.5rem 0;
         }
 
         .container {
@@ -213,32 +264,19 @@
 </head>
 
 <body>
-    <header>
-        <h1>Kalshi Market Manager</h1>
-        <div style="display: flex; align-items: center; gap: 1rem;">
-            <a href="/voice" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Voice 🎙️</a>
-            <a href="/sessions" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Sessions</a>
-            <a href="/speakers" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Speaker
-                Identification </a>
-            <a href="/signals" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Signal
-                Dashboard 📈</a>
-            <a href="/data-entry" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Data
-                Entry 📝</a>
-            <a href="/logs" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Logs
-                📋</a>
-            <a href="/admin/queues" target="_blank"
-                style="color: var(--accent); text-decoration: none; font-size: 0.85rem; font-weight: 600; border: 1px solid var(--accent); padding: 0.4rem 0.8rem; border-radius: 0.5rem; transition: all 0.2s;">Queues
-                📊</a>
-            <div id="status" class="market-meta">Loading data...</div>
-        </div>
-    </header>
+    <nav class="sidebar">
+        <div class="logo">Kalshi Market Manager</div>
+        <a href="/voice" target="_blank">🎙️ Voice</a>
+        <a href="/sessions" target="_blank">Sessions</a>
+        <a href="/speakers" target="_blank">Speaker Identification</a>
+        <a href="/signals" target="_blank">📈 Signal Dashboard</a>
+        <a href="/data-entry" target="_blank">📝 Data Entry</a>
+        <a href="/logs" target="_blank">📋 Logs</a>
+        <a href="/admin/queues" target="_blank">📊 Queues</a>
+        <div class="status-text" id="status">Loading data...</div>
+    </nav>
 
+    <div class="main">
     <div class="container">
         <!-- Upcoming Streams -->
         <section>
@@ -311,6 +349,8 @@
             </div>
         </div>
     </div>
+
+    </div><!-- .main -->
 
     <script>
         let activeEditSlug = null;
