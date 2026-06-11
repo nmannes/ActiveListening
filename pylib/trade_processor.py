@@ -94,7 +94,7 @@ class TradeProcessor:
                 ])
 
                 asyncio.get_running_loop().run_in_executor(
-                    None, send_telegram, msg, "info"
+                    None, send_telegram, msg, "debug"
                 )
 
                 if speaker_id not in self.trading_speakers:

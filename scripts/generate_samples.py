@@ -606,7 +606,7 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
         send_telegram(
             f"📦 Samples for *{generator.target}*\n"
             f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved.",
-            "debug",
+            "voice",
         )
         return 0
 
@@ -655,7 +655,7 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
         f"Total: {existing_count + saved}/{max_total}\n"
         f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"📦 No samples saved for *{generator.target}*",
-        "debug",
+        "voice",
     )
 
     return saved

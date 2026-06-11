@@ -35,11 +35,13 @@ _BATCH_SIZE = 10
 
 def get_bot(channel="info"):
     is_debug = channel == "debug" or channel is True
-    token = (
-        os.environ.get("TELEGRAM_KEY_DEBUG")
-        if is_debug
-        else os.environ.get("TELEGRAM_KEY")
-    )
+    is_voice = channel == "voice"
+    if is_voice:
+        token = os.environ.get("TELEGRAM_KEY_VOICE_IDS", os.environ.get("TELEGRAM_KEY"))
+    elif is_debug:
+        token = os.environ.get("TELEGRAM_KEY_DEBUG")
+    else:
+        token = os.environ.get("TELEGRAM_KEY")
     chat_id = os.environ.get("TELEGRAM_MY_ID")
 
     if not token:

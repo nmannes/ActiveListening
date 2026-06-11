@@ -122,7 +122,8 @@ const { HEADLESS } = require("./lib/args");
           
           normalized.description = item.description;
         } else if (type === "espn") {
-          normalized.title = `${item.awayTeam} vs. ${item.homeTeam} ${item.league || ""}`.trim().toLowerCase();
+          const cleanTeam = (name) => (name || "").replace(/^v\s+/i, "").replace(/ /g, " ").trim();
+          normalized.title = `${cleanTeam(item.awayTeam)} vs. ${cleanTeam(item.homeTeam)} ${item.league || ""}`.trim().toLowerCase();
           normalized.startTime = item.startTime;
 
           const tvChannels = item.tvChannels || [];

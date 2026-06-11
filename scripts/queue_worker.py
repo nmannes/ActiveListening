@@ -118,7 +118,7 @@ async def process_sample_generation(job, job_token):
         if not wav_paths:
             await job.updateProgress({"stage": "failed", "error": "No audio downloaded"})
             await run_blocking(
-                send_telegram, f"❌ Failed to download audio for *{target}*", "debug"
+                send_telegram, f"❌ Failed to download audio for *{target}*", "voice"
             )
             return
 
@@ -163,7 +163,7 @@ async def process_sample_generation(job, job_token):
         if not raw_segments:
             await job.updateProgress({"stage": "failed", "error": "No speech segments found"})
             await run_blocking(
-                send_telegram, f"❌ No speech segments found for *{target}*", "debug"
+                send_telegram, f"❌ No speech segments found for *{target}*", "voice"
             )
             return
 
@@ -184,7 +184,7 @@ async def process_sample_generation(job, job_token):
         if not embedded:
             await job.updateProgress({"stage": "failed", "error": "No embeddings computed"})
             await run_blocking(
-                send_telegram, f"❌ Failed to compute embeddings for *{target}*", "debug"
+                send_telegram, f"❌ Failed to compute embeddings for *{target}*", "voice"
             )
             return
 
@@ -201,7 +201,7 @@ async def process_sample_generation(job, job_token):
         if not segments:
             await job.updateProgress({"stage": "failed", "error": "No target segments found"})
             await run_blocking(
-                send_telegram, f"❌ No target voice segments found for *{target}*", "debug"
+                send_telegram, f"❌ No target voice segments found for *{target}*", "voice"
             )
             return
 
@@ -306,13 +306,13 @@ async def process_sample_generation(job, job_token):
             f"\U0001f50d *{target}* — {sent_count} segment(s) sent for review\n"
             f"{len(pre_approved_idxs)} pre-approved\n"
             f"Job: `{job_id}`",
-            "debug",
+            "voice",
         )
 
     except Exception as e:
         logger.exception(f"[{job_id}] Sample generation failed: {e}")
         await run_blocking(
-            send_telegram, f"❌ Sample generation failed for *{target}*: {e}", "debug"
+            send_telegram, f"❌ Sample generation failed for *{target}*: {e}", "voice"
         )
         raise
 
@@ -331,7 +331,7 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target, max_tot
         send_telegram(
             f"\U0001f4e6 Samples for *{target}*\n"
             f"Already at cap: {existing_count}/{max_total} samples in library. Nothing saved.",
-            "debug",
+            "voice",
         )
         return 0
 
@@ -380,7 +380,7 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target, max_tot
         f"Saved {saved} segment(s) to `{AUDIO_LIBRARY}`\n"
         f"Total: {existing_count + saved}/{max_total}\n"
         f"Score range: {min(scores):.3f} – {max(scores):.3f}" if scores else f"\U0001f4e6 No samples saved for *{target}*",
-        "debug",
+        "voice",
     )
     return saved
 
@@ -398,7 +398,7 @@ async def process_save_samples(job, job_token):
     states = get_all_verification_states(slug)
     if not states:
         await run_blocking(
-            send_telegram, f"❌ Failed to save samples for *{target}*: verification state expired", "debug"
+            send_telegram, f"❌ Failed to save samples for *{target}*: verification state expired", "voice"
         )
         raise RuntimeError("No verification state found")
 
@@ -467,7 +467,7 @@ async def process_save_samples(job, job_token):
         send_telegram,
         f"\U0001f4e6 Samples saved for *{target}*\n"
         f"Saved {saved}/{len(approved_idxs)} segment(s) to `{AUDIO_LIBRARY}`",
-        "debug",
+        "voice",
     )
 
 
