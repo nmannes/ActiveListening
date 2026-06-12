@@ -97,6 +97,7 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   const amazonScheduleFile = path.join(CACHE_DIR, "amazon_nba_search_results.json");
   const cspanScheduleFile = path.join(CACHE_DIR, "cspan_schedule.json");
   const foxnewsScheduleFile = path.join(CACHE_DIR, "foxnews_schedule.json");
+  const msnbcScheduleFile = path.join(CACHE_DIR, "msnbc_schedule.json");
   const youtubeUpcomingFile = path.join(CACHE_DIR, "youtube_upcoming.json");
 
   if (!fs.existsSync(marketsFile)) {
@@ -122,6 +123,9 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   const foxnewsSchedule = fs.existsSync(foxnewsScheduleFile)
     ? computeFoxNewsDurations(JSON.parse(fs.readFileSync(foxnewsScheduleFile, "utf8")))
     : [];
+  const msnbcSchedule = fs.existsSync(msnbcScheduleFile)
+    ? JSON.parse(fs.readFileSync(msnbcScheduleFile, "utf8"))
+    : [];
   const youtubeUpcoming = fs.existsSync(youtubeUpcomingFile)
     ? JSON.parse(fs.readFileSync(youtubeUpcomingFile, "utf8"))
     : [];
@@ -135,6 +139,7 @@ function runMatching(CACHE_DIR, DATA_DIR) {
     cspanSchedule,
     foxnewsSchedule,
     youtubeUpcoming,
+    msnbcSchedule,
   );
 
   const matchedMatches = allResults.filter(

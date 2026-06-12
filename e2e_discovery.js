@@ -8,6 +8,7 @@ const path = require("path");
 const { scrapeAmazonNBA } = require("./lib/scrapers/amazon_video");
 const { scrapeCspanSchedule } = require("./lib/scrapers/cspan_schedule");
 const { scrapeFoxNewsSchedule } = require("./lib/scrapers/foxnews_schedule");
+const { scrapeMsnbcSchedule } = require("./lib/scrapers/msnbc_schedule");
 const { scrapeAllYoutubeUpcoming } = require("./lib/scrapers/youtube_upcoming_multi");
 const puppeteer = require("puppeteer-extra");
 const StealthPlugin = require("puppeteer-extra-plugin-stealth");
@@ -81,13 +82,14 @@ const { HEADLESS } = require("./lib/args");
 
     // Fetch data in parallel
     logger.info("Starting parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule, foxnewsSchedule, youtubeUpcoming] = await Promise.all([
+    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
       findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3),
       scrapeCspanSchedule(browser),
       scrapeFoxNewsSchedule(browser),
+      scrapeMsnbcSchedule(browser),
       scrapeAllYoutubeUpcoming(browser),
     ]);
 
@@ -163,6 +165,12 @@ const { HEADLESS } = require("./lib/args");
           normalized.channel = item.channel || "Fox News";
           normalized.linkURL = item.showUrl || "";
           normalized.description = [item.hosts, item.description].filter(Boolean).join(" | ");
+        } else if (type === "msnbc") {
+          normalized.title = item.title;
+          normalized.startTime = item.startTime;
+          normalized.channel = item.channel || "MS NOW";
+          normalized.linkURL = CHANNEL_MAPPINGS["MS NOW"] || "";
+          normalized.description = item.time || "";
         } else if (type === "youtube_upcoming") {
           normalized.title = item.title;
           normalized.startTime = item.scheduledISO;
@@ -243,6 +251,7 @@ const freshMarkets = marketsResults || [];
       { name: "amazon_nba_search_results.json", data: normalizeSchedule(amazonResults, "amazon") },
       { name: "cspan_schedule.json", data: normalizeSchedule(cspanSchedule, "cspan") },
       { name: "foxnews_schedule.json", data: normalizeSchedule(foxnewsSchedule, "foxnews") },
+      { name: "msnbc_schedule.json", data: normalizeSchedule(msnbcSchedule, "msnbc") },
       { name: "youtube_upcoming.json", data: normalizeSchedule(youtubeUpcoming, "youtube_upcoming") },
     ];
 
@@ -265,6 +274,7 @@ const freshMarkets = marketsResults || [];
       ...normalizeSchedule(amazonResults, "amazon"),
       ...normalizeSchedule(cspanSchedule, "cspan"),
       ...normalizeSchedule(foxnewsSchedule, "foxnews"),
+      ...normalizeSchedule(msnbcSchedule, "msnbc"),
       ...normalizeSchedule(youtubeUpcoming, "youtube_upcoming"),
     ];
     fs.writeFileSync(path.join(cacheDir, "unified_schedule.json"), JSON.stringify(allNormalized, null, 2));
