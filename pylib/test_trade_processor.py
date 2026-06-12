@@ -62,7 +62,6 @@ class MockSession:
         self.websocket = AsyncMock()
         self.market = {
             "title": "Cherry Blossom Prediction",
-            "orderAmount": 1,
             "purchasePrice": 90,
             "purchaseCount": 5,
             "keywordConfigs": {

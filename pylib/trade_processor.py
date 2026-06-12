@@ -5,6 +5,7 @@ import time
 import websockets
 from collections import defaultdict
 from pylib.keyword_matching import find_keyword_match, remove_market_from_index, remove_from_index
+from pylib.ordering_config import get_order_amount
 from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
@@ -105,7 +106,7 @@ class TradeProcessor:
 
                 if self.session.server.config.trade_for_real:
 
-                    order_amount = self.session.market.get("orderAmount", 0)
+                    order_amount = get_order_amount(self.session.market)
                     if order_amount <= 0:
                         logger.info(
                             f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because orderAmount is {order_amount}"
