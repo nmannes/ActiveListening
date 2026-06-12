@@ -113,7 +113,7 @@ async def process_sample_generation(job, job_token):
     try:
         # 1. Download
         wav_paths = await run_blocking(
-            search_and_download, target, 5, work_dir
+            search_and_download, target, 7, work_dir
         )
         if not wav_paths:
             await job.updateProgress({"stage": "failed", "error": "No audio downloaded"})
@@ -194,7 +194,7 @@ async def process_sample_generation(job, job_token):
         gen.embedder = embedder
 
         def run_clustering():
-            return gen.cluster_and_score(embedded, max_per_video=2)
+            return gen.cluster_and_score(embedded, max_per_video=3)
 
         segments = await run_blocking(run_clustering)
 

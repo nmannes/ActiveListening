@@ -250,7 +250,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 class SampleGenerator:
     def __init__(self, target: str, num_videos: int = 5,
                  auto_threshold: float | None = None, skip_verify: bool = False,
-                 max_per_video: int = 2, max_total: int = 30):
+                 max_per_video: int = 3, max_total: int = 30):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
@@ -343,7 +343,7 @@ class SampleGenerator:
         refs = []
         for ef in emb_files:
             try:
-                emb = torch.load(str(ef))
+                emb = torch.load(str(ef), weights_only=False)
                 if emb.dim() == 2:
                     emb = emb.squeeze(0)
                 refs.append(emb)
@@ -794,7 +794,7 @@ async def main():
                         help="Auto-approve segments above this confidence score (0.0-1.0)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
-    parser.add_argument("--max-per-video", type=int, default=2, help="Max samples to keep per source video (default: 2)")
+    parser.add_argument("--max-per-video", type=int, default=3, help="Max samples to keep per source video (default: 3)")
     parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
     args = parser.parse_args()
 
