@@ -382,8 +382,8 @@ setTimeout(async () => {
     });
     const suggestedDuration = waitResult?.suggestedDurationMinutes;
 
-    // Set the fallback duration (CLI arg > sport-based > default 90)
-    const durationMinutes = args.duration || suggestedDuration || 90;
+    // Use the highest available duration estimate as a safety floor
+    const durationMinutes = Math.max(args.duration || 0, suggestedDuration || 0, 90);
     const durationMs = durationMinutes * 60 * 1000;
     logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""}`);
     setTimeout(() => shutdown("Duration reached"), durationMs);
