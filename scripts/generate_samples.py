@@ -18,9 +18,11 @@ Usage:
 import argparse
 import asyncio
 import hashlib
+import random
 import shutil
 
 YT_DLP = "yt-dlp"
+
 import json
 import logging
 import os
@@ -179,13 +181,24 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     Downloads top results (sorted by relevance/popularity) per query.
     Returns list of downloaded WAV paths (deduplicated across queries).
     """
-    queries = [
+    pool = [
         f"{target} speech",
         f"{target} interview",
         f"{target} press conference",
         f"{target} speaking event",
         f"{target} hearing",
+        f"{target} announces",
+        f"{target} remarks",
+        f"{target} address",
+        f"{target} appearance",
     ]
+
+    # Shuffle and pick a random subset so each run uses different search terms.
+    # Use at most num_videos queries (one video per query minimum) but always
+    # use at least a few queries, capped by the pool size.
+    num_queries = min(num_videos, len(pool))
+    random.shuffle(pool)
+    queries = pool[:num_queries]
 
     videos_per_query = max(1, num_videos // len(queries))
     remainder = num_videos % len(queries)
@@ -209,7 +222,6 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
-            "--cookies", str(ROOT / "cookies" / "youtube.json"),
             query,
         ]
 
