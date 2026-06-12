@@ -375,10 +375,18 @@ connectWebSocket();
 // Small delay to let WS connect before starting the provider
 setTimeout(async () => {
   try {
-    // Wait for the event to start if necessary
-    await waitIfNecessary(market, logger).catch((err) => {
+    // Wait for the event to start, get sport-based duration suggestion
+    const waitResult = await waitIfNecessary(market, logger).catch((err) => {
       logger.error(`Error in waitIfNecessary: ${err.message}`);
+      return null;
     });
+    const suggestedDuration = waitResult?.suggestedDurationMinutes;
+
+    // Set the fallback duration (CLI arg > sport-based > default 90)
+    const durationMinutes = args.duration || suggestedDuration || 90;
+    const durationMs = durationMinutes * 60 * 1000;
+    logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""}`);
+    setTimeout(() => shutdown("Duration reached"), durationMs);
 
     await provider.start({
       ws,
@@ -412,16 +420,6 @@ setTimeout(async () => {
 waitUntilEnded(market, logger)
   .then(() => shutdown("Game ended"))
   .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message}`));
-
-// Duration-based auto-shutdown (fallback)
-const isWorldCup = /world cup/i.test(market.title || "") || /world.cup/i.test(market.slug || "");
-const defaultDuration = isWorldCup ? 120 : 90;
-const durationMinutes = args.duration || defaultDuration;
-const durationMs = parseInt(durationMinutes, 10) * 60 * 1000;
-if (!isNaN(durationMs)) {
-  logger.info(`Shutdown scheduled in ${durationMinutes} minutes (fallback)`);
-  setTimeout(() => shutdown("Duration reached"), durationMs);
-}
 
 // ── Cleanup signals ──────────────────────────────────────────────────
 process.on("SIGINT", () => shutdown("Received SIGINT"));
