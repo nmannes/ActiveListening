@@ -20,7 +20,7 @@ const fs = require("fs");
 const WebSocket = require("ws");
 const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
-const { waitIfNecessary } = require("./lib/event_started_yet");
+const { waitIfNecessary, waitUntilEnded } = require("./lib/event_started_yet");
 const { sendTelegram } = require("./lib/telegram");
 
 // ── CLI args ─────────────────────────────────────────────────────────
@@ -408,11 +408,16 @@ setTimeout(async () => {
   }
 }, 500);
 
-// Duration-based auto-shutdown
+// Watch for game end and shut down when it finishes
+waitUntilEnded(market, logger)
+  .then(() => shutdown("Game ended"))
+  .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message}`));
+
+// Duration-based auto-shutdown (fallback)
 const durationMinutes = args.duration || 90;
 const durationMs = parseInt(durationMinutes, 10) * 60 * 1000;
 if (!isNaN(durationMs)) {
-  logger.info(`Shutdown scheduled in ${durationMinutes} minutes`);
+  logger.info(`Shutdown scheduled in ${durationMinutes} minutes (fallback)`);
   setTimeout(() => shutdown("Duration reached"), durationMs);
 }
 
