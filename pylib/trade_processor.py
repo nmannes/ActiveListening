@@ -147,6 +147,7 @@ class TradeProcessor:
                             {
                                 "type": "signal",
                                 "keyword": matched["key"],
+                                "ticker": matched["value"],
                                 "start": t.get("start"),
                             }
                         )

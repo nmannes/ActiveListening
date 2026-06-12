@@ -150,6 +150,7 @@ class KalshiClient:
         params = {
             "ticker": ticker,
             "type": "market",
+            "action": "buy",
             "side": side.lower(),
             "buy_max_cost": buy_max_cost,
             "client_order_id": f"auto_{int(time.time() * 1000)}",
