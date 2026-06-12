@@ -414,7 +414,9 @@ waitUntilEnded(market, logger)
   .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message}`));
 
 // Duration-based auto-shutdown (fallback)
-const durationMinutes = args.duration || 90;
+const isWorldCup = /world cup/i.test(market.title || "") || /world.cup/i.test(market.slug || "");
+const defaultDuration = isWorldCup ? 120 : 90;
+const durationMinutes = args.duration || defaultDuration;
 const durationMs = parseInt(durationMinutes, 10) * 60 * 1000;
 if (!isNaN(durationMs)) {
   logger.info(`Shutdown scheduled in ${durationMinutes} minutes (fallback)`);
