@@ -5,7 +5,7 @@ import time
 import websockets
 from collections import defaultdict
 from pylib.keyword_matching import find_keyword_match, remove_market_from_index, remove_from_index
-from pylib.ordering_config import get_order_amount
+from pylib.ordering_config import get_dollar_amount
 from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
@@ -106,16 +106,16 @@ class TradeProcessor:
 
                 if self.session.server.config.trade_for_real:
 
-                    order_amount = get_order_amount(self.session.market)
-                    if order_amount <= 0:
+                    dollar_amount = get_dollar_amount(self.session.market)
+                    if dollar_amount <= 0:
                         logger.info(
-                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because orderAmount is {order_amount}"
+                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because dollarAmount is {dollar_amount}"
                         )
                         continue
                     logger.info(
-                        f"[{self.session.session_id}][TRADE] Placing order for {speaker_id}: \"{matched['key']}\" (orderAmount={order_amount})"
+                        f"[{self.session.session_id}][TRADE] Placing market order for {speaker_id}: \"{matched['key']}\" (up to ${dollar_amount})"
                     )
-                    order_result = await self.place_order(matched, order_amount=order_amount)
+                    order_result = await self.place_order(matched, dollar_amount=dollar_amount)
                     remove_market_from_index(
                         self.session.keyword_index, matched["value"]
                     )
@@ -186,38 +186,27 @@ class TradeProcessor:
             except websockets.exceptions.ConnectionClosed:
                 pass
 
-    async def place_order(self, matched, order_amount=None):
+    async def place_order(self, matched, dollar_amount=None):
         order_result = None
         try:
-            # Check if there are specific word configurations
             keyword_configs = self.session.market.get("keywordConfigs", {})
             word_config = keyword_configs.get(matched["key"], {})
 
-            purchase_price = int(
-                word_config.get(
-                    "purchasePrice", self.session.market.get("purchasePrice", 90)
-                )
-            )
-            purchase_count = int(
-                word_config.get(
-                    "purchaseCount",
-                    order_amount
-                    if order_amount is not None
-                    else self.session.market.get(
-                        "purchaseCount", self.session.server.config.buy_count
-                    ),
-                )
+            dollar_amount = (
+                word_config.get("dollarAmount")
+                or dollar_amount
+                or self.session.market.get("dollarAmount")
+                or self.session.server.config.buy_max_cost
             )
 
             t0_trade = time.time()
-            order_result = self.session.server.kalshi.place_fill_or_kill_order(
-                yes_price=purchase_price,
+            order_result = self.session.server.kalshi.place_market_order(
                 ticker=matched["value"],
-                count=purchase_count,
+                dollar_amount=dollar_amount,
             )
             t1_trade = time.time()
             logger.info(
-                f"[{self.session.session_id}][TRADE] Successfully placed order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)"
+                f"[{self.session.session_id}][TRADE] Successfully placed market order for {matched['value']} (took {t1_trade - t0_trade:.4f}s)"
             )
             logger.info(
                 f"[{self.session.session_id}][TRADE] Order result: {order_result}"
@@ -226,6 +215,17 @@ class TradeProcessor:
         except Exception:
             logger.exception(
                 f"[{self.session.session_id}][TRADE] Error placing order"
+            )
+            msg = "\n".join([
+                f"❌ [ORDER ERROR] {self.session.market.get('title', matched['value'])}",
+                f"Ticker: {matched['value']}",
+                f"Word: {matched['key']}",
+                f"Dollar amount: ${dollar_amount}",
+                f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
+                f"Source: {self.session.market.get('mediaStreamURL', '')}",
+            ])
+            asyncio.get_running_loop().run_in_executor(
+                None, send_telegram, msg, "error"
             )
 
         return order_result

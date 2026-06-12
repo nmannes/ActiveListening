@@ -12,6 +12,7 @@ class MockServerConfig:
     def __init__(self):
         self.trade_for_real = True
         self.buy_count = 10
+        self.buy_max_cost = 5
         self.last_words_count = 5
 
 
@@ -43,6 +44,32 @@ class MockKalshiClient:
                 yes_price_dollars="0.9000",
             )
         ))
+        self.place_market_order = MagicMock(return_value=OrderResponse(
+            order=Order(
+                action="buy",
+                book_side="bid",
+                client_order_id="auto_test",
+                created_time="2026-05-31T01:35:30.727688Z",
+                fill_count_fp="10.00",
+                initial_count_fp="10.00",
+                last_update_time="2026-05-31T01:35:30.727688Z",
+                maker_fees_dollars="0.000000",
+                maker_fill_cost_dollars="0.000000",
+                no_price_dollars="0.1000",
+                order_id="test-order-id",
+                outcome_side="yes",
+                remaining_count_fp="0.00",
+                side="yes",
+                status="filled",
+                subaccount_number=0,
+                taker_fees_dollars="0.000000",
+                taker_fill_cost_dollars="9.000000",
+                ticker="CHERRY-YES",
+                type="market",
+                user_id="test-user-id",
+                yes_price_dollars="0.9000",
+            )
+        ))
 
 
 class MockServer:
@@ -62,10 +89,8 @@ class MockSession:
         self.websocket = AsyncMock()
         self.market = {
             "title": "Cherry Blossom Prediction",
-            "purchasePrice": 90,
-            "purchaseCount": 5,
             "keywordConfigs": {
-                "cherry blossom": {"purchasePrice": 95, "purchaseCount": 10}
+                "cherry blossom": {"dollarAmount": 10}
             },
         }
 
@@ -99,8 +124,8 @@ def test_trade_processor_with_whitelist_notifies_and_trades():
             # Verify Telegram notification
             mock_telegram.assert_called()
             # Verify Kalshi order
-            session.server.kalshi.place_fill_or_kill_order.assert_called_once_with(
-                yes_price=95, ticker="CHERRY-YES", count=10
+            session.server.kalshi.place_market_order.assert_called_once_with(
+                ticker="CHERRY-YES", dollar_amount=10
             )
 
     asyncio.run(run_test())
@@ -132,7 +157,7 @@ def test_trade_processor_without_whitelist_only_notifies():
             # Verify Telegram notification
             mock_telegram.assert_called()
             # Verify Kalshi order was NOT triggered
-            session.server.kalshi.place_fill_or_kill_order.assert_not_called()
+            session.server.kalshi.place_market_order.assert_not_called()
 
     asyncio.run(run_test())
 

@@ -81,6 +81,7 @@ class Config:
         self.env = getattr(args, "env", "prod")
         self.device = getattr(args, "device", os.environ.get("DEVICE", "cpu"))
         self.buy_count = getattr(args, "buy_count", 1)
+        self.buy_max_cost = getattr(args, "buy_max_cost", 5)
         self.last_words_count = getattr(args, "last_words_count", 7)
         self.content_profile = getattr(args, "content_profile", "basketball")
 
@@ -436,6 +437,7 @@ async def main():
         choices=["cpu", "cuda"],
     )
     parser.add_argument("--buy-count", type=int, default=40)
+    parser.add_argument("--buy-max-cost", type=int, default=5, help="Max dollars to spend per market order")
     parser.add_argument("--last-words-count", type=int, default=7)
     parser.add_argument(
         "--content-profile",

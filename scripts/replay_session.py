@@ -43,6 +43,7 @@ class MockConfig:
     def __init__(self):
         self.trade_for_real = False
         self.buy_count = 1
+        self.buy_max_cost = 5
         self.last_words_count = 7
 
 

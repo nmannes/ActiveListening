@@ -134,3 +134,36 @@ class KalshiClient:
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
+
+    def place_market_order(
+        self,
+        ticker: str,
+        dollar_amount: float,
+        side: str = "yes",
+    ):
+        """Place a market order spending up to dollar_amount dollars.
+
+        Uses buy_max_cost (in cents) to cap total spend, with type=market
+        to fill at the best available price.
+        """
+        buy_max_cost = round(dollar_amount * 100)
+        params = {
+            "ticker": ticker,
+            "type": "market",
+            "side": side.lower(),
+            "buy_max_cost": buy_max_cost,
+            "client_order_id": f"auto_{int(time.time() * 1000)}",
+        }
+
+        path = "/portfolio/orders"
+        url = self.base_url + path
+        headers = self._get_auth_headers("POST", url)
+
+        response = self.session.post(url, json=params, headers=headers)
+
+        try:
+            response.raise_for_status()
+            return OrderResponse.model_validate(response.json())
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
+            raise e
