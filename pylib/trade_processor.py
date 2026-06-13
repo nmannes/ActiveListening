@@ -128,7 +128,7 @@ class TradeProcessor:
                             f"[{self.session.session_id}][TRADE] Order failed, no result returned for {matched['key']}"
                         )
                     else:
-                        order = order_result.order
+                        order = order_result
                         msg = "\n".join([
                             f"🚀 [TRADE] {self.session.market.get('title', matched['value'])}",
                             f"Ticker: {matched['value']}",

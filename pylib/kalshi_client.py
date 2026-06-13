@@ -14,33 +14,27 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 from cryptography.hazmat.backends import default_backend
 
 
-class Order(BaseModel):
-    action: str
-    book_side: str
-    client_order_id: str
-    created_time: str
-    fill_count_fp: str
-    initial_count_fp: str
-    last_update_time: str
-    maker_fees_dollars: str
-    maker_fill_cost_dollars: str
-    no_price_dollars: str
+class OrderV2(BaseModel):
+    """Response from POST /portfolio/events/orders (v2)."""
+
     order_id: str
-    outcome_side: str
-    remaining_count_fp: str
-    side: str
-    status: str
-    subaccount_number: int
-    taker_fees_dollars: str
-    taker_fill_cost_dollars: str
-    ticker: str
-    type: str
-    user_id: str
-    yes_price_dollars: str
+    fill_count: str
+    remaining_count: str
+    ts_ms: int
+    client_order_id: str = ""
+    average_fill_price: str = "0"
+    average_fee_paid: str = "0"
 
+    @property
+    def status(self) -> str:
+        filled = float(self.fill_count)
+        if filled > 0:
+            return "filled" if float(self.remaining_count) == 0 else "partially_filled"
+        return "resting"
 
-class OrderResponse(BaseModel):
-    order: Order
+    @property
+    def taker_fill_cost_dollars(self) -> str:
+        return str(float(self.fill_count) * float(self.average_fill_price))
 
 logger = logging.getLogger("remote_server")
 
@@ -107,30 +101,29 @@ class KalshiClient:
         self,
         ticker: str,
         count: int,
-        action: str = "buy",
         side: str = "yes",
-        yes_price: int = 1,
+        price_cents: int = 1,
     ):
+        """Place a fill-or-kill limit order via v2 API.
+
+        side: "yes" (buy YES) or "no" (buy NO via selling YES).
+        price_cents: limit price in cents (1-99).
+        """
+        v2_side, v2_price = self._to_v2_params(side, price_cents)
         params = {
             "ticker": ticker,
-            "type": "limit",
-            "action": action,
-            "side": side.lower(),
-            "count": count,
-            "time_in_force": "immediate_or_cancel",
+            "side": v2_side,
+            "price": v2_price,
+            "count": str(count),
+            "time_in_force": "fill_or_kill",
+            "self_trade_prevention_type": "taker_at_cross",
             "client_order_id": f"auto_{int(time.time() * 1000)}",
-            "yes_price": yes_price,
         }
 
-        path = "/portfolio/orders"
-        url = self.base_url + path
-        headers = self._get_auth_headers("POST", url)
-
-        response = self.session.post(url, json=params, headers=headers)
-
+        response = self._post_order(params)
         try:
             response.raise_for_status()
-            return OrderResponse.model_validate(response.json())
+            return OrderV2.model_validate(response.json())
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
@@ -141,30 +134,45 @@ class KalshiClient:
         dollar_amount: float,
         side: str = "yes",
     ):
-        """Place a market order spending up to dollar_amount dollars.
+        """Place an aggressive limit order spending up to dollar_amount dollars.
 
-        Uses buy_max_cost (in cents) to cap total spend, with type=market
-        to fill at the best available price.
+        Uses an aggressive price (0.99 for bids, 0.01 for asks) to fill
+        at the best available price, simulating a market order in v2.
         """
-        buy_max_cost = round(dollar_amount * 100)
+        price_cents = 99  # aggressive: pay up to 0.99 to get filled
+        v2_side, v2_price = self._to_v2_params(side, price_cents)
+        count = max(1, int(dollar_amount / 0.99))
         params = {
             "ticker": ticker,
-            "type": "market",
-            "action": "buy",
-            "side": side.lower(),
-            "buy_max_cost": buy_max_cost,
+            "side": v2_side,
+            "price": v2_price,
+            "count": str(count),
+            "time_in_force": "immediate_or_cancel",
+            "self_trade_prevention_type": "taker_at_cross",
             "client_order_id": f"auto_{int(time.time() * 1000)}",
         }
 
-        path = "/portfolio/orders"
-        url = self.base_url + path
-        headers = self._get_auth_headers("POST", url)
-
-        response = self.session.post(url, json=params, headers=headers)
-
+        response = self._post_order(params)
         try:
             response.raise_for_status()
-            return OrderResponse.model_validate(response.json())
+            return OrderV2.model_validate(response.json())
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
+
+    def _to_v2_params(self, side: str, price_cents: int) -> tuple[str, str]:
+        """Map legacy side ("yes"/"no") + price in cents to v2 (bid/ask, price string).
+
+        bid = buy YES. ask = sell YES (economically buy NO at 1 - price).
+        """
+        if side.lower() == "yes":
+            return ("bid", f"{price_cents / 100:.2f}")
+        else:
+            # buy NO -> sell YES (ask) at 1 - price
+            return ("ask", f"{(100 - price_cents) / 100:.2f}")
+
+    def _post_order(self, params: dict) -> requests.Response:
+        path = "/portfolio/events/orders"
+        url = self.base_url + path
+        headers = self._get_auth_headers("POST", url)
+        return self.session.post(url, json=params, headers=headers)
