@@ -123,7 +123,7 @@ class KalshiClient:
         response = self._post_order(params)
         try:
             response.raise_for_status()
-            return OrderV2.model_validate(response.json())
+            return OrderV2(**response.json())
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
@@ -155,7 +155,7 @@ class KalshiClient:
         response = self._post_order(params)
         try:
             response.raise_for_status()
-            return OrderV2.model_validate(response.json())
+            return OrderV2(**response.json())
         except requests.exceptions.HTTPError as e:
             logger.error(f"Kalshi API error: {response.status_code} - {response.text}")
             raise e
