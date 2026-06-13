@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from collections import defaultdict
 from pylib.trade_processor import TradeProcessor
 from pylib.keyword_matching import build_keyword_index
-from pylib.kalshi_client import Order, OrderResponse
+from pylib.kalshi_client import OrderV2
 
 
 class MockServerConfig:
@@ -18,57 +18,20 @@ class MockServerConfig:
 
 class MockKalshiClient:
     def __init__(self):
-        self.place_fill_or_kill_order = MagicMock(return_value=OrderResponse(
-            order=Order(
-                action="buy",
-                book_side="bid",
-                client_order_id="auto_test",
-                created_time="2026-05-31T01:35:30.727688Z",
-                fill_count_fp="0.00",
-                initial_count_fp="1.00",
-                last_update_time="2026-05-31T01:35:30.727688Z",
-                maker_fees_dollars="0.000000",
-                maker_fill_cost_dollars="0.000000",
-                no_price_dollars="0.1000",
-                order_id="test-order-id",
-                outcome_side="yes",
-                remaining_count_fp="0.00",
-                side="yes",
-                status="canceled",
-                subaccount_number=0,
-                taker_fees_dollars="0.000000",
-                taker_fill_cost_dollars="0.000000",
-                ticker="CHERRY-YES",
-                type="limit",
-                user_id="test-user-id",
-                yes_price_dollars="0.9000",
-            )
+        self.place_fill_or_kill_order = MagicMock(return_value=OrderV2(
+            order_id="test-order-id",
+            fill_count="0.00",
+            remaining_count="0.00",
+            ts_ms=0,
+            client_order_id="auto_test",
         ))
-        self.place_market_order = MagicMock(return_value=OrderResponse(
-            order=Order(
-                action="buy",
-                book_side="bid",
-                client_order_id="auto_test",
-                created_time="2026-05-31T01:35:30.727688Z",
-                fill_count_fp="10.00",
-                initial_count_fp="10.00",
-                last_update_time="2026-05-31T01:35:30.727688Z",
-                maker_fees_dollars="0.000000",
-                maker_fill_cost_dollars="0.000000",
-                no_price_dollars="0.1000",
-                order_id="test-order-id",
-                outcome_side="yes",
-                remaining_count_fp="0.00",
-                side="yes",
-                status="filled",
-                subaccount_number=0,
-                taker_fees_dollars="0.000000",
-                taker_fill_cost_dollars="9.000000",
-                ticker="CHERRY-YES",
-                type="market",
-                user_id="test-user-id",
-                yes_price_dollars="0.9000",
-            )
+        self.place_market_order = MagicMock(return_value=OrderV2(
+            order_id="test-order-id",
+            fill_count="10.00",
+            remaining_count="0.00",
+            ts_ms=0,
+            client_order_id="auto_test",
+            average_fill_price="0.9000",
         ))
 
 

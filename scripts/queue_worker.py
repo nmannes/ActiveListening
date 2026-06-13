@@ -147,7 +147,7 @@ async def process_sample_generation(job, job_token):
                             merged.append((start_s, end_s))
                     for start_s, end_s in merged:
                         duration = end_s - start_s
-                        if 4.0 <= duration <= 25.0:
+                        if 4.0 <= duration <= 60.0:
                             start_sample = int(start_s * 16000)
                             end_sample = int(end_s * 16000)
                             raw_segments.append({
@@ -194,7 +194,7 @@ async def process_sample_generation(job, job_token):
         gen.embedder = embedder
 
         def run_clustering():
-            return gen.cluster_and_score(embedded, max_per_video=3)
+            return gen.cluster_and_score(embedded)
 
         segments = await run_blocking(run_clustering)
 
@@ -241,12 +241,46 @@ async def process_sample_generation(job, job_token):
 
         auto_approve, threshold = await run_blocking(load_trust_data)
 
+        # Select a diverse review subset: up to 3 segments per source video,
+        # with a minimum of 5 distinct sources.
+        # Segments outside this set are auto-approved and saved immediately.
+        max_per_video = 3
+        min_sources = 5
+        by_source = {}
+        for i, s in enumerate(segments):
+            src = s.get("source", "unknown")
+            by_source.setdefault(src, []).append((i, s))
+        diverse = []
+        for src, entries in by_source.items():
+            entries.sort(key=lambda x: x[1]["score"], reverse=True)
+            diverse.extend(entries[:max_per_video])
+        diverse.sort(key=lambda x: x[1]["score"], reverse=True)
+
+        # Ensure at least min_sources distinct sources
+        seen_sources = {segments[idx].get("source") for idx, _ in diverse}
+        if len(seen_sources) < min_sources:
+            remaining_sources = [src for src in sorted(by_source) if src not in seen_sources]
+            for src in remaining_sources:
+                if len(seen_sources) >= min_sources:
+                    break
+                entries = by_source[src]
+                entries.sort(key=lambda x: x[1]["score"], reverse=True)
+                for idx, s in entries:
+                    if idx not in {i for i, _ in diverse}:
+                        diverse.append((idx, s))
+                        seen_sources.add(src)
+                        break
+            diverse.sort(key=lambda x: x[1]["score"], reverse=True)
+
+        review_set = {idx for idx, _ in diverse}
+
         pre_approved_idxs = []
         sent_count = 0
 
         for i, seg in enumerate(segments):
             score = seg["score"]
-            is_pre_approved = auto_approve or score >= threshold
+            in_review = i in review_set
+            is_pre_approved = auto_approve or score >= threshold or not in_review
             seg["approved"] = True if is_pre_approved else None
 
             set_verification_state(slug, i, {
@@ -264,6 +298,13 @@ async def process_sample_generation(job, job_token):
             })
 
             pre_label = " (pre-approved)" if is_pre_approved else ""
+
+            if is_pre_approved and not in_review:
+                # Auto-saved without sending for review
+                pre_approved_idxs.append(i)
+                logger.info(f"[{job_id}] Segment {i} auto-saved (score={score:.3f}, outside review set)")
+                continue
+
             source = seg.get("source", "").replace(".wav", "")
             vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
             source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
@@ -290,9 +331,14 @@ async def process_sample_generation(job, job_token):
             )
             if result.get("ok"):
                 sent_count += 1
-                logger.info(f"[{job_id}] Sent segment {i} for review (score={score:.3f}{', pre-approved' if is_pre_approved else ''})")
+                logger.info(f"[{job_id}] Sent segment {i} for review (score={score:.3f}{pre_label})")
             else:
                 logger.error(f"[{job_id}] Failed to send segment {i}: {result}")
+
+        logger.info(
+            f"[{job_id}] Verification: {len(pre_approved_idxs)} pre-approved, "
+            f"{sent_count} sent for review, {len(segments)} total"
+        )
 
         await job.updateProgress({
             "stage": "done",
@@ -306,7 +352,7 @@ async def process_sample_generation(job, job_token):
         await run_blocking(
             send_telegram,
             f"\U0001f50d *{target}* — {sent_count} segment(s) sent for review\n"
-            f"{len(pre_approved_idxs)} pre-approved\n"
+            f"{len(pre_approved_idxs)} pre-approved (auto-saved)\n"
             f"Job: `{job_id}`",
             "voice",
         )

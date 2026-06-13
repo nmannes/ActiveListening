@@ -52,6 +52,11 @@ from pylib.telegram import (
     poll_telegram_callbacks,
     answer_callback_query,
 )
+from pylib.verification_state import (
+    set_verification_state,
+    get_all_verification_states,
+    clear_verification_state,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -300,7 +305,7 @@ class SampleGenerator:
                     end_sample = int(end_s * 16000)
                     chunk = audio[start_sample:end_sample]
                     duration = end_s - start_s
-                    if 4.0 <= duration <= 25.0:
+                    if 4.0 <= duration <= 60.0:
                         raw_segments.append({
                             "audio": chunk,
                             "duration": round(duration, 2),
@@ -359,16 +364,16 @@ class SampleGenerator:
         return torch.from_numpy(ref_centroid)
 
     def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.3,
-                          max_per_video: int = 5):
+                          min_ref_similarity: float = 0.2):
         """
-        Cluster embeddings. If existing reference embeddings exist, the cluster
-        closest to the reference centroid is chosen as the target. Otherwise the
-        largest cluster is used.
+        Cluster embeddings. If existing reference embeddings exist, ALL clusters
+        whose centroid similarity to the reference exceeds min_ref_similarity are
+        selected as target (to capture the same speaker across different acoustic
+        conditions). Otherwise the largest cluster is used.
 
         Score each segment by cosine similarity to its cluster centroid.
         Also computes ref_score (similarity to reference centroid) when available.
         Discards segments in clusters smaller than min_cluster_ratio of total.
-        Limits to max_per_video segments per source video for diversity.
         """
         ref_centroid = self._load_reference_embedding()
 
@@ -406,25 +411,33 @@ class SampleGenerator:
             mask = labels == label
             centroids[label] = normalize(emb_norm[mask].mean(axis=0, keepdims=True), norm="l2")
 
-        # --- Determine target cluster ---
+        # --- Determine target cluster(s) ---
         if ref_centroid is not None:
-            # Pick cluster whose centroid is closest to the reference
+            # Select ALL clusters whose centroid similarity to the reference
+            # exceeds min_ref_similarity. A single speaker recorded in different
+            # acoustic conditions often splits across clusters.
             ref_np = ref_centroid.numpy()
             cluster_sims = {}
             for label in unique:
                 sim = float(centroids[label] @ ref_np.T)
                 cluster_sims[label] = sim
-            largest_label = max(cluster_sims, key=cluster_sims.get)
-            largest_count = counts[unique == largest_label][0]
+            target_labels = {label for label, sim in cluster_sims.items()
+                             if sim >= min_ref_similarity}
+            if not target_labels:
+                # Nothing matched — fall back to best match
+                best = max(cluster_sims, key=cluster_sims.get)
+                target_labels = {best}
+            total_target = sum(counts[unique == l][0] for l in target_labels)
             logger.info(
                 f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, "
                 f"reference similarities: {', '.join(f'{k}:{v:.3f}' for k, v in sorted(cluster_sims.items()))}, "
-                f"target cluster (best ref match): {largest_label} ({largest_count} segments)"
+                f"target clusters (ref sim >= {min_ref_similarity}): {sorted(target_labels)} ({total_target} segments)"
             )
         else:
             # Fall back to largest cluster
             largest_label = unique[counts.argmax()]
             largest_count = counts.max()
+            target_labels = {largest_label}
             logger.info(f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, target cluster (largest): {largest_label} ({largest_count} segments)")
 
         # Score each segment
@@ -433,7 +446,7 @@ class SampleGenerator:
             sim = float((emb_norm[i] @ centroid.T).item())
             s["score"] = round(max(0.0, min(1.0, sim)), 4)
             s["cluster"] = int(labels[i])
-            s["is_target"] = labels[i] == largest_label
+            s["is_target"] = labels[i] in target_labels
             if ref_centroid is not None:
                 ref_sim = float(emb_norm[i] @ ref_centroid.numpy().T)
                 s["ref_score"] = round(max(0.0, min(1.0, ref_sim)), 4)
@@ -447,20 +460,6 @@ class SampleGenerator:
 
         # Sort by score descending
         target_segments.sort(key=lambda s: s["score"], reverse=True)
-
-        # Limit per source video for diversity of audio quality/situations
-        if max_per_video and len(target_segments) > max_per_video:
-            by_source = {}
-            for s in target_segments:
-                src = s.get("source", "unknown")
-                by_source.setdefault(src, []).append(s)
-            diverse = []
-            for src, segs in by_source.items():
-                diverse.extend(segs[:max_per_video])
-            diverse.sort(key=lambda s: s["score"], reverse=True)
-            skipped = len(target_segments) - len(diverse)
-            target_segments = diverse
-            logger.info(f"Per-video cap ({max_per_video}): kept {len(target_segments)} segments across {len(by_source)} videos, dropped {skipped}")
 
         logger.info(
             f"Target cluster has {len(target_segments)} segments above score {min_score}. "
@@ -513,10 +512,15 @@ class SampleGenerator:
 # Telegram verification
 # ---------------------------------------------------------------------------
 
-async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
+async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work_dir: Path):
     """
-    Send each candidate segment as a Telegram voice message with inline keyboard.
-    Poll for callback responses. Returns list of approved segments.
+    Persist segments to disk, register verification state in Redis, and send
+    voice messages via Telegram for review. Returns immediately — callbacks are
+    handled asynchronously by telegram_server, which enqueues save jobs when
+    all segments for a slug are resolved.
+
+    Returns (pre_approved_indices, pending_count) where pre_approved_indices
+    are the original segment indices to save immediately.
     """
     segments = generator.segments
     slug = generator.slug
@@ -524,50 +528,118 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
 
     if not segments:
         logger.warning("No segments to verify.")
-        return []
+        return [], 0
 
     auto_approve, trust_threshold = get_trust_for(slug, trust_data)
-
-    if auto_approve:
-        logger.info(f"Auto-approve enabled for '{target}'. Skipping verification.")
-        return list(range(len(segments)))
-
-    # Apply auto-threshold from CLI or trust config
     effective_threshold = generator.auto_threshold or trust_threshold
 
-    # Send each segment
-    sent_messages = {}  # callback_key -> segment_index
-    pending: set = set()
+    # Select a diverse subset for human review: up to max_per_video segments
+    # per source video, sorted by score. Guarantee at least min_sources (5)
+    # distinct sources by pulling in the best segment from additional sources.
+    # All segments remain on generator.segments for reference-centroid use;
+    # only the diverse subset is sent for verification.
+    max_per_video = generator.max_per_video
+    min_sources = 5
+    by_source = {}
+    for i, s in enumerate(segments):
+        src = s.get("source", "unknown")
+        by_source.setdefault(src, []).append((i, s))
+    diverse = []
+    for src, entries in by_source.items():
+        entries.sort(key=lambda x: x[1]["score"], reverse=True)
+        diverse.extend(entries[:max_per_video])
+    diverse.sort(key=lambda x: x[1]["score"], reverse=True)
 
+    # Ensure at least min_sources distinct sources
+    seen_sources = {segments[idx].get("source") for idx, _ in diverse}
+    if len(seen_sources) < min_sources:
+        remaining_sources = [src for src in sorted(by_source) if src not in seen_sources]
+        for src in remaining_sources:
+            if len(seen_sources) >= min_sources:
+                break
+            entries = by_source[src]
+            entries.sort(key=lambda x: x[1]["score"], reverse=True)
+            for idx, s in entries:
+                if idx not in {i for i, _ in diverse}:
+                    diverse.append((idx, s))
+                    seen_sources.add(src)
+                    break
+        diverse.sort(key=lambda x: x[1]["score"], reverse=True)
+
+    review_indices = [idx for idx, _ in diverse]
+    review_set = [(j, segments[idx]) for j, (idx, _) in enumerate(diverse)]
+
+    if len(segments) > len(review_set):
+        logger.info(
+            f"Diverse review: {len(review_set)}/{len(segments)} segments "
+            f"from {len(seen_sources)} video(s) (max {max_per_video}/video, min {min_sources} sources)"
+        )
+
+    # Persist segments to disk so they survive past this process.
+    segments_dir = work_dir / "segments"
+    segments_dir.mkdir(exist_ok=True)
+
+    review_set_indices = set(review_indices)
+    pre_approved_idxs = []
+    needs_approval = 0
+    sent_count = 0
+
+    # Persist ALL segments and register in Redis. Segments outside the
+    # diverse review set are auto-approved and saved immediately.
     for i, seg in enumerate(segments):
         score = seg["score"]
-        duration = seg["duration"]
+        in_review = i in review_set_indices
+        is_pre_approved = auto_approve or score >= effective_threshold or not in_review
 
-        # Auto-approve above threshold
-        if score >= effective_threshold:
-            logger.info(f"  Segment {i}: score={score:.3f} >= {effective_threshold} — auto-approved")
-            seg["auto_approved"] = True
+        # Save WAV + embedding to disk
+        wav_path = segments_dir / f"{slug}_{i}.wav"
+        emb_path = segments_dir / f"{slug}_{i}.embedding"
+        sf.write(str(wav_path), seg["audio"], 16000)
+        torch.save(seg["embedding"], str(emb_path))
+
+        set_verification_state(slug, i, {
+            "target": target,
+            "score": score,
+            "duration": seg["duration"],
+            "source": seg.get("source", ""),
+            "ogg_path": str(seg["ogg_path"]),
+            "wav_path": str(wav_path),
+            "emb_path": str(emb_path),
+            "work_dir": str(work_dir),
+            "approved": True if is_pre_approved else None,
+            "ref_score": seg.get("ref_score"),
+        })
+
+        if is_pre_approved and not in_review:
+            pre_approved_idxs.append(i)
+            logger.info(f"  Segment {i} auto-saved (score={score:.3f}, outside review set)")
             continue
 
+        pre_label = " (pre-approved)" if is_pre_approved else ""
         source = seg.get("source", "").replace(".wav", "")
         vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
         source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
 
+        # Find the review-set display number for this segment
+        display_num = review_indices.index(i) + 1 if i in review_set_indices else i + 1
         caption = (
-            f"🎙️ {target} — sample {i + 1}/{len(segments)}\n"
-            f"Confidence: {score:.3f} | Duration: {duration:.1f}s\n"
+            f"🎙️ {target} — sample {display_num}/{len(review_set_indices)}\n"
+            f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s{pre_label}\n"
             f"Source: {source_url}"
         )
 
-        # Build inline keyboard
-        cb_approve = f"{CALLBACK_PREFIX}:approve:{i}"
-        cb_reject = f"{CALLBACK_PREFIX}:reject:{i}"
-        cb_auto_all = f"{CALLBACK_PREFIX}:auto_all:{i}"
-
-        keyboard = build_inline_keyboard([
-            [("✅ Approve", cb_approve), ("❌ Reject", cb_reject)],
-            [("🤖 Auto-approve all remaining", cb_auto_all)],
-        ])
+        if is_pre_approved:
+            pre_approved_idxs.append(i)
+            keyboard = build_inline_keyboard([
+                [("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
+            ])
+        else:
+            needs_approval += 1
+            keyboard = build_inline_keyboard([
+                [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{i}"),
+                 ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
+                [("🤖 Auto-approve all remaining", f"{CALLBACK_PREFIX}:auto_all:{i}")],
+            ])
 
         result = send_telegram_voice(
             str(seg["ogg_path"]),
@@ -576,83 +648,26 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict):
         )
 
         if result.get("ok"):
-            sent_messages[cb_approve] = i
-            sent_messages[cb_reject] = i
-            sent_messages[cb_auto_all] = i
-            pending.add(i)
-            logger.info(f"  Sent segment {i} (score={score:.3f})")
+            sent_count += 1
+            logger.info(f"  Sent segment {i} (score={score:.3f}{pre_label})")
         else:
             logger.error(f"  Failed to send segment {i}: {result}")
 
-    if not pending:
-        logger.info("All segments auto-approved or failed to send.")
-        return [i for i, s in enumerate(segments) if s.get("auto_approved")]
-
-    # Poll for responses
-    approvals = set(i for i, s in enumerate(segments) if s.get("auto_approved"))
-    rejections = set()
-
-    logger.info(f"Waiting for verification of {len(pending)} segment(s) via Telegram …")
-
-    while pending:
-        callbacks = poll_telegram_callbacks(timeout=30)
-
-        for cb in callbacks:
-            data = cb["data"]
-            if not data.startswith(CALLBACK_PREFIX + ":"):
-                continue
-
-            # Parse callback data
-            parts = data.split(":", 2)
-            if len(parts) < 3:
-                continue
-            action = parts[1]
-            idx_str = parts[2]
-
-            try:
-                idx = int(idx_str)
-            except ValueError:
-                continue
-
-            if idx not in pending:
-                continue
-
-            if action == "approve":
-                approvals.add(idx)
-                pending.discard(idx)
-                answer_callback_query(cb["callback_id"], "Approved ✅")
-                logger.info(f"  Segment {idx} approved")
-
-            elif action == "reject":
-                rejections.add(idx)
-                pending.discard(idx)
-                answer_callback_query(cb["callback_id"], "Rejected ❌")
-                logger.info(f"  Segment {idx} rejected")
-
-            elif action == "auto_all":
-                # Auto-approve all remaining pending
-                for j in list(pending):
-                    if j >= idx:  # from this segment onward
-                        approvals.add(j)
-                        pending.discard(j)
-                answer_callback_query(cb["callback_id"], f"Auto-approving {len(pending) + approvals - len(approvals)} remaining ✅")
-                logger.info(f"  Auto-approving all remaining from segment {idx}")
-
-                # Update trust: bump auto-approve for this target
-                trust_data[slug] = {**trust_data.get(slug, {}), "auto_approve_threshold": effective_threshold}
-                save_trust(trust_data)
-
-        # Small sleep to avoid hammering API
-        await asyncio.sleep(2)
-
-    # Return approved indices
-    all_approved = sorted(approvals)
+    pending = needs_approval
     logger.info(
-        f"Verification complete: {len(all_approved)} approved, "
-        f"{len(rejections)} rejected, "
-        f"{len([i for i, s in enumerate(segments) if s.get('auto_approved')])} auto-approved"
+        f"Verification: {len(pre_approved_idxs)} pre-approved, "
+        f"{pending} sent for review (async)"
     )
-    return all_approved
+
+    if pending > 0:
+        send_telegram(
+            f"🔍 *{target}* — {pending} segment(s) sent for review\n"
+            f"{len(pre_approved_idxs)} pre-approved (saved immediately)\n"
+            f"Approve/reject in this chat to save or discard.",
+            "voice",
+        )
+
+    return pre_approved_idxs, pending
 
 
 # ---------------------------------------------------------------------------
@@ -814,6 +829,8 @@ async def main():
     work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{generator.slug}_"))
     logger.info(f"Working directory: {work_dir}")
 
+    pending = 0
+
     try:
         # 1. Download
         wav_paths = generator.download(work_dir)
@@ -834,7 +851,7 @@ async def main():
             return
 
         # 4-5. Cluster + score
-        generator.segments = generator.cluster_and_score(embedded, max_per_video=generator.max_per_video)
+        generator.segments = generator.cluster_and_score(embedded)
         if not generator.segments:
             logger.error("No target segments found after clustering.")
             return
@@ -847,23 +864,27 @@ async def main():
         # 6. Convert to OGG for Telegram
         generator.convert_to_ogg(generator.segments, work_dir)
 
-        # 7-8. Verify via Telegram
+        # 7-8. Verify via Telegram (non-blocking — callbacks handled by telegram_server)
         if args.skip_verify:
             approved = list(range(len(generator.segments)))
-            logger.info(f"Skipping verification. {len(approved)} segment(s) would be saved.")
+            pending = 0
+            logger.info(f"Skipping verification. {len(approved)} segment(s) will be saved.")
         else:
-            approved = await verify_via_telegram(generator, trust_data)
+            approved, pending = await verify_via_telegram(generator, trust_data, work_dir)
 
-        # 9. Save
-        if not approved:
-            logger.info("No segments approved. Nothing saved.")
-        else:
+        # 9. Save pre-approved segments immediately; pending ones are saved
+        #    asynchronously by telegram_server via the save-samples queue.
+        if approved:
             save_to_library(generator, approved, max_total=generator.max_total)
 
     finally:
-        # Cleanup
-        logger.info(f"Cleaning up {work_dir}")
-        shutil.rmtree(work_dir, ignore_errors=True)
+        # Only clean up if no pending verifications; otherwise the save
+        # job (triggered by telegram_server callbacks) will clean up.
+        if pending > 0:
+            logger.info(f"Keeping {work_dir} — {pending} segment(s) awaiting async verification")
+        else:
+            logger.info(f"Cleaning up {work_dir}")
+            shutil.rmtree(work_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
