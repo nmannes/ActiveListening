@@ -12,7 +12,14 @@ function spawn(command, job) {
 }
 
 function spawnCapture(command) {
-  return execSync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  try {
+    return execSync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  } catch (e) {
+    const stderr = (e.stderr || "").trim();
+    const stdout = (e.stdout || "").trim();
+    const details = [stderr, stdout].filter(Boolean).join("\n");
+    throw new Error(`Command failed: ${command}\n${details}`);
+  }
 }
 
 function parseDeployResult(stdout) {

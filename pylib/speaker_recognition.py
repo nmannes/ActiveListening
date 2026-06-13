@@ -423,8 +423,7 @@ class SpeakerRecognitionSession:
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
             matches, scores = await identifier.identify_file(wav_path, threshold=-1.0)
-            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={
-            matches}, scores={scores}")
+            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={matches}, scores={scores}")
 
             if matches:
                 logger.debug(f"[{self.session_id}] Matches: {matches}. Market slugs: {list(entity_slugs.keys())}")
