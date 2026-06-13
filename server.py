@@ -52,6 +52,7 @@ logger, transcript_logger = setup_logging()
 SPEAKER_RECOGNITION_INTERVAL_SECS = 10
 SPEAKER_RECOGNITION_WORD_STEP = 500
 SPEAKER_RECOGNITION_MAX_WORDS = 10000
+SPEAKER_RECOGNITION_MAX_DURATION_SECS = 600  # 10 minutes
 AUDIO_INBOX_CAP_SECS = 60
 
 LOCK_PATH = Path(tempfile.gettempdir()) / "kalshi-server.lock"
@@ -282,18 +283,27 @@ class ClientSession:
                 )
 
     async def speaker_recognition_loop(self):
-        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {SPEAKER_RECOGNITION_INTERVAL_SECS}s)")
+        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {SPEAKER_RECOGNITION_INTERVAL_SECS}s, max duration: {SPEAKER_RECOGNITION_MAX_DURATION_SECS}s)")
+        loop_start = time.time()
+        inference_stopped = False
         try:
             while True:
                 await asyncio.sleep(SPEAKER_RECOGNITION_INTERVAL_SECS)
-                
+
+                elapsed = time.time() - loop_start
+                if elapsed >= SPEAKER_RECOGNITION_MAX_DURATION_SECS:
+                    if not inference_stopped:
+                        inference_stopped = True
+                        logger.info(f"[{self.session_id}] Speaker inference stopped after {elapsed:.0f}s — sticking with current identifications")
+                    continue
+
                 total_words = 0
                 async with self.transcript_lock:
                     for tokens in self.transcript.values():
                         total_words += len(tokens)
-                
+
                 if (
-                    total_words >= self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP 
+                    total_words >= self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP
                     and total_words < SPEAKER_RECOGNITION_MAX_WORDS
                 ):
                     logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
