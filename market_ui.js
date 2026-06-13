@@ -12,6 +12,7 @@ const {
   parseSignalTs, parseMediaSources,
   formatDelta, formatDeltaHuman, formatPriceChange,
 } = require("./lib/signal_analysis");
+const { getDuration } = require("./lib/market_duration");
 
 const app = express();
 const PORT = 3000;
@@ -133,13 +134,15 @@ app.get("/api/markets", (req, res) => {
 
         const enrich = (m) => {
             const streamInfo = getStreamInfo(m);
+            const duration = getDuration(m.market, m);
             return {
                 ...m,
                 market: {
                     ...m.market,
                     mediaStreamURL: m.market.mediaStreamURL || streamInfo.url,
                     channelName: streamInfo.name,
-                    isScheduled: scheduledSlugs.has(m.market.slug)
+                    isScheduled: scheduledSlugs.has(m.market.slug),
+                    duration,
                 }
             };
         };

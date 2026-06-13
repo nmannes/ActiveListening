@@ -367,6 +367,14 @@
             return d.toLocaleString();
         }
 
+        function formatDuration(minutes) {
+            if (minutes == null || isNaN(minutes)) return "";
+            if (minutes < 60) return `${minutes}m`;
+            const h = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            return m > 0 ? `${h}h ${m}m` : `${h}h`;
+        }
+
         function formatLocalDateTime(d) {
             if (!d || isNaN(d.getTime())) return "";
             const pad = n => String(n).padStart(2, '0');
@@ -569,7 +577,7 @@
                     <div class="market-meta">
                         ${m.manual ? '<span class="badge">Manual</span>' : ''}
                         ${m.market.isScheduled ? '<span class="badge scheduled">Scheduled</span>' : ''}
-                        ${formatEventTime(m.startTime, m.market.eventStartTime)}
+                        ${formatEventTime(m.startTime, m.market.eventStartTime)}${m.market.duration ? ` · ${formatDuration(m.market.duration)}` : ''}
                     </div>
                     ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
                     <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
@@ -623,7 +631,7 @@
                 card.innerHTML = `
                     <div class="market-title">${m.market.title}</div>
                     <div class="market-meta">
-                        ${formatEventTime(m.startTime, m.market.eventStartTime)}
+                        ${formatEventTime(m.startTime, m.market.eventStartTime)}${m.market.duration ? ` · ${formatDuration(m.market.duration)}` : ''}
                     </div>
                     ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
                     <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
