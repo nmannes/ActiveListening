@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { acquireLock } = require("./lib/lockfile");
 const { matchDiscoveryEvents } = require("./lib/discovery_matcher");
-const { computeFoxNewsDurations } = require("./lib/market_duration");
+const { computeTvDurations, setDefaultTvDurations } = require("./lib/market_duration");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { sendTelegram } = require("./lib/telegram");
 const {
@@ -121,10 +121,10 @@ function runMatching(CACHE_DIR, DATA_DIR) {
       : []
   ).filter((event) => event.title && event.title.includes("LIVE"));
   const foxnewsSchedule = fs.existsSync(foxnewsScheduleFile)
-    ? computeFoxNewsDurations(JSON.parse(fs.readFileSync(foxnewsScheduleFile, "utf8")))
+    ? computeTvDurations(JSON.parse(fs.readFileSync(foxnewsScheduleFile, "utf8")))
     : [];
   const msnbcSchedule = fs.existsSync(msnbcScheduleFile)
-    ? JSON.parse(fs.readFileSync(msnbcScheduleFile, "utf8"))
+    ? setDefaultTvDurations(JSON.parse(fs.readFileSync(msnbcScheduleFile, "utf8")))
     : [];
   const youtubeUpcoming = fs.existsSync(youtubeUpcomingFile)
     ? JSON.parse(fs.readFileSync(youtubeUpcomingFile, "utf8"))

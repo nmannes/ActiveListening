@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import librosa
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from nemo.collections.asr.models import EncDecSpeakerLabelModel
 
@@ -121,46 +121,50 @@ class SpeakerIdentifier:
 
     async def identify(
         self, audio: np.ndarray, threshold: Optional[float] = None
-    ) -> Tuple[Optional[str], Dict[str, float]]:
+    ) -> Tuple[List[str], Dict[str, float]]:
         """
         Identify who is speaking in *audio* (16 kHz float32 numpy array).
 
         Returns:
-            (best_name, scores)
-            best_name is None when nothing exceeds threshold.
+            (matches, scores) where matches is a list of names whose
+            cosine similarity meets or exceeds the threshold, sorted by
+            score descending. Empty list when no reference passes threshold.
             scores is a dict of {name: cosine_similarity} for every reference.
         """
         if not self._ready:
             await self.initialize()
 
         if not self.references:
-            return None, {}
+            return [], {}
 
         thr = threshold if threshold is not None else self.threshold
         target = await self._embed(audio)
         if target is None:
-            return None, {}
+            return [], {}
 
         scores: Dict[str, float] = {}
         for name, ref in self.references.items():
             sim = torch.nn.functional.cosine_similarity(target, ref).item()
             scores[name] = round(sim, 4)
 
-        best_name = max(scores, key=scores.get)
-        best_score = scores[best_name]
+        matches = sorted(
+            [name for name, score in scores.items() if score >= thr],
+            key=lambda n: scores[n],
+            reverse=True,
+        )
 
-        if best_score >= thr:
+        if matches:
             logger.info(
-                f"Speaker identified: {best_name} ({best_score:.3f}) | all: {scores}"
+                f"[AUDIO] Speaker identified: {matches} (threshold={thr:.3f}) | all: {scores}"
             )
-            return best_name, scores
+        else:
+            logger.debug(f"No match above {thr}. Scores: {scores}")
 
-        logger.debug(f"No match above {thr}. Scores: {scores}")
-        return None, scores
+        return matches, scores
 
     async def identify_file(
         self, path: Path, threshold: Optional[float] = None
-    ) -> Tuple[Optional[str], Dict[str, float]]:
+    ) -> Tuple[List[str], Dict[str, float]]:
         """Convenience wrapper that accepts a .wav path."""
         loop = asyncio.get_running_loop()
         audio = await loop.run_in_executor(

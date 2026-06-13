@@ -422,29 +422,34 @@ class SpeakerRecognitionSession:
                 continue
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
-            best_name, scores = await identifier.identify_file(wav_path, threshold=-1.0)
-            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: best={best_name}, scores={scores}")
+            matches, scores = await identifier.identify_file(wav_path, threshold=-1.0)
+            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={
+            matches}, scores={scores}")
 
-            if best_name:
-                logger.debug(f"[{self.session_id}] Best name '{best_name}' identified. Market slugs: {list(entity_slugs.keys())}")
+            if matches:
+                logger.debug(f"[{self.session_id}] Matches: {matches}. Market slugs: {list(entity_slugs.keys())}")
             else:
-                logger.debug(f"[{self.session_id}] No best name identified for speaker {speaker_id}")
+                logger.debug(f"[{self.session_id}] No match above threshold for speaker {speaker_id}")
 
-            # Only accept if the best match is one of our market entities
+            # Only accept if a match is one of our market entities
             # (prefix match: "donald-trump-debate" matches entity slug "donald-trump")
             matched_entity = None
-            if best_name:
-                for slug, entity in entity_slugs.items():
-                    if best_name == slug or best_name.startswith(slug + '-') or best_name.startswith(slug + '_'):
-                        matched_entity = entity
+            if matches:
+                for best_name in matches:
+                    for slug, entity in entity_slugs.items():
+                        if best_name == slug or best_name.startswith(slug + '-') or best_name.startswith(slug + '_'):
+                            matched_entity = entity
+                            break
+                    if matched_entity:
                         break
-            
-            if matched_entity:
-                logger.debug(f"[{self.session_id}] Matched best_name '{best_name}' to entity '{matched_entity}'")
-            elif best_name:
-                logger.debug(f"[{self.session_id}] best_name '{best_name}' is not a market entity — treating as negative match")
 
-            if best_name and matched_entity:
+            if matched_entity:
+                matched_name = matches[0]
+                logger.debug(f"[{self.session_id}] Matched '{matched_name}' to entity '{matched_entity}'")
+            elif matches:
+                logger.debug(f"[{self.session_id}] No match is a market entity — treating as negative match")
+
+            if matches and matched_entity:
                 self.set_profile_label(speaker_id, matched_entity)
                 if hasattr(self.listening_session, "trade_processor"):
                     self.listening_session.trade_processor.add_trading_speaker(speaker_id)

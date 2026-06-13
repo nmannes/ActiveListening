@@ -99,7 +99,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         # Mock SpeakerIdentifier
         mock_identifier = MagicMock()
         mock_identifier._ready = True
-        mock_identifier.identify_file = AsyncMock(return_value=("wes-moore", {"wes-moore": 0.85}))
+        mock_identifier.identify_file = AsyncMock(return_value=(["wes-moore"], {"wes-moore": 0.85}))
         session.server.speaker_identifier = mock_identifier
         
         # Mock websocket
