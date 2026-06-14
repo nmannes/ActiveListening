@@ -47,14 +47,18 @@ const runClientWorker = new Worker(
     if (eventStartTime) {
       const eventDateET = new Date(eventStartTime).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-      if (eventDateET !== todayET) {
-        console.log(`[worker] Skipping "${slug}" — event date (${eventDateET} ET) does not match today (${todayET} ET)`);
+      if (eventDateET < todayET) {
+        const msg = `Skipping "${slug}" — event date (${eventDateET} ET) is before today (${todayET} ET)`;
+        console.log(`[worker] ${msg}`);
+        job.log(msg);
         return;
       }
     }
 
     // 1. Launch dedicated EC2 instance
-    console.log(`[worker] Launching EC2 instance for "${slug}" (shutdown in ${shutdownMinutes}m)...`);
+    const launchMsg = `Launching EC2 instance for "${slug}" (shutdown in ${shutdownMinutes}m)`;
+    console.log(`[worker] ${launchMsg}`);
+    job.log(launchMsg);
     const env = process.env.KALSHI_ENV || "prod";
     const title = market.title || slug;
     const launchOutput = spawnCapture(
@@ -69,19 +73,23 @@ const runClientWorker = new Worker(
 
     const { ip, stackName } = deployResult;
     console.log(`[worker] EC2 instance ready at ${ip} (stack: ${stackName})`);
+    job.log(`EC2 ready: ${ip} (stack: ${stackName})`);
 
     // 2. Run client against the instance
     try {
       const bunCmd = browser ? "xvfb-run -a bun" : "bun";
       const browserFlag = browser ? " --browser" : "";
+      job.log(`Starting client: ${slug} (duration: ${duration}m)`);
       spawn(
         `cd ${SCRIPT_DIR} && ${bunCmd} run client.js --fromFile ${marketFile} --duration ${duration} --ip ${ip}${browserFlag}`,
         job,
       );
+      job.log(`Client finished: ${slug}`);
     } finally {
       // 3. Clean up the CloudFormation stack
       try {
         console.log(`[worker] Destroying stack: ${stackName}`);
+        job.log(`Destroying stack: ${stackName}`);
         spawnCapture(`aws cloudformation delete-stack --region us-east-1 --stack-name ${stackName}`);
       } catch (e) {
         console.error(`[worker] Failed to delete stack ${stackName}:`, e.message);
