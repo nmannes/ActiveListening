@@ -340,7 +340,7 @@ class SpeakerRecognitionSession:
                         # Whitelist addition -> info
                         whitelist_msg = f"✅ Speaker added to trading whitelist: {label} (ID: {sid}) — {market_title}"
                         asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, whitelist_msg, "voice"
+                            None, send_telegram, whitelist_msg, "debug"
                         )
 
                         # Detailed identification -> debug
@@ -468,7 +468,7 @@ class SpeakerRecognitionSession:
 
                     # Whitelist addition -> info
                     whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
-                    loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
+                    loop.run_in_executor(None, send_telegram, whitelist_msg, "debug")
 
                     # Detailed identification + audio -> debug
                     caption = "\n".join([
