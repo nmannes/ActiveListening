@@ -422,7 +422,7 @@ class SpeakerRecognitionSession:
                 continue
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
-            matches, scores = await identifier.identify_file(wav_path, threshold=-1.0)
+            matches, scores = await identifier.identify_file(wav_path)
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={matches}, scores={scores}")
 
             if matches:
