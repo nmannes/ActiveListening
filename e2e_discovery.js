@@ -30,14 +30,6 @@ const { HEADLESS } = require("./lib/args");
       fs.mkdirSync(marketCacheDir, { recursive: true });
     }
 
-    browser = await puppeteer.launch({
-      executablePath: "/usr/bin/google-chrome",
-      headless: HEADLESS,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-minimized"],
-      defaultViewport: null,
-    });
-
-
     /**
      * Robust geolocation using multiple providers
      */
@@ -82,13 +74,38 @@ const { HEADLESS } = require("./lib/args");
       "world cup"
     ];
 
-    // Fetch data in parallel
-    logger.info("Starting parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, tvSchedule, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
+    // Run TV scraper first in its own browser to avoid contention with other scrapers
+    let tvSchedule = [];
+    let tvBrowser;
+    try {
+      tvBrowser = await puppeteer.launch({
+        executablePath: "/usr/bin/google-chrome",
+        headless: HEADLESS,
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-minimized"],
+        defaultViewport: null,
+      });
+      logger.info("Starting TV schedule scraper (dedicated browser)...");
+      tvSchedule = await findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, tvBrowser, 3);
+      logger.info(`TV schedule scraper complete: ${tvSchedule.length} programs found`);
+    } catch (e) {
+      logger.error(`TV schedule scraper failed: ${e.message}`);
+    } finally {
+      if (tvBrowser) await tvBrowser.close();
+    }
+
+    // Run remaining scrapers in parallel on a shared browser
+    browser = await puppeteer.launch({
+      executablePath: "/usr/bin/google-chrome",
+      headless: HEADLESS,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--start-minimized"],
+      defaultViewport: null,
+    });
+
+    logger.info("Starting remaining parallel data fetching...");
+    const [marketsResults, espnResults, amazonResults, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
       fetchOpenMarkets(browser),
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
-      findProgramsAcrossZipsAndKeywords([detectedZip], CATEGORIES, browser, 3),
       scrapeCspanSchedule(browser),
       scrapeFoxNewsSchedule(browser),
       scrapeMsnbcSchedule(browser),
