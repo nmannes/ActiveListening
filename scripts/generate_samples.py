@@ -830,6 +830,16 @@ async def main():
     work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{generator.slug}_"))
     logger.info(f"Working directory: {work_dir}")
 
+    # Check if we already have enough samples for this person
+    existing_samples = sorted(AUDIO_LIBRARY.glob(f"{generator.slug}*.wav"))
+    if len(existing_samples) > 10:
+        logger.info(f"'{args.target}' already has {len(existing_samples)} samples (>10). Skipping generation.")
+        send_telegram(
+            f"📦 *{args.target}* already has {len(existing_samples)} samples in library. Skipping generation.",
+            "voice",
+        )
+        return
+
     pending = 0
 
     try:

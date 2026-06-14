@@ -105,6 +105,17 @@ async def process_sample_generation(job, job_token):
     slug = slugify(target)
     job_id = job.id or "?"
 
+    # Check if we already have enough samples for this person
+    existing_samples = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
+    if len(existing_samples) > 10:
+        logger.info(f"[{job_id}] '{target}' already has {len(existing_samples)} samples (>10). Skipping generation.")
+        await run_blocking(
+            send_telegram,
+            f"📦 *{target}* already has {len(existing_samples)} samples in library. Skipping generation.",
+            "voice",
+        )
+        return
+
     await job.updateProgress({"stage": "downloading"})
 
     work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{slug}_"))
