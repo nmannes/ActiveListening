@@ -71,7 +71,8 @@ const { HEADLESS } = require("./lib/args");
       "meet the press",
       "the last word",
       "cbs sunday morning",
-      "world cup"
+      "world cup",
+      "face the nation"
     ];
 
     // Run TV scraper first in its own browser to avoid contention with other scrapers
@@ -132,7 +133,7 @@ const { HEADLESS } = require("./lib/args");
           normalized.title = item.title;
           normalized.startTime = item.startTimestamp;
           normalized.channel = item.station;
-          
+
           const stationUpper = (item.station || "").toUpperCase();
           const isOtaPriority = stationUpper.includes("NBC") || stationUpper.includes("CBS");
           if (isOtaPriority && item.channelURL) {
@@ -140,7 +141,7 @@ const { HEADLESS } = require("./lib/args");
           } else {
             normalized.linkURL = CHANNEL_MAPPINGS[item.station] || item.channelURL;
           }
-          
+
           normalized.description = item.description;
         } else if (type === "espn") {
           const cleanTeam = (name) => (name || "").replace(/^v\s+/i, "").replace(/ /g, " ").trim();
@@ -259,7 +260,7 @@ const { HEADLESS } = require("./lib/args");
       return null;
     }
 
-const freshMarkets = marketsResults || [];
+    const freshMarkets = marketsResults || [];
     const espnSchedule = espnResults || [];
 
     // Write to cache

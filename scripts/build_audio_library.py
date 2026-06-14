@@ -34,6 +34,7 @@ def main():
     s3_dir = root_dir / "s3"
     labels_file = root_dir / "speaker_labels.json"
     output_dir = Path("~/audio-library").expanduser()
+    cache_dir = root_dir / "cache"
 
     if not labels_file.exists():
         logger.error(f"Labels file not found: {labels_file}")
@@ -42,35 +43,25 @@ def main():
     # Ensure output directory exists
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Early check: Skip if there are no new matches/identities locally and all synced to S3
+    # Early exit: skip if nothing has changed since the last successful build
+    state_file = cache_dir / "build_state.json"
     try:
         with open(labels_file, "r") as f:
             labels_data = json.load(f)
-        
-        # Calculate expected unique identities that have audio files
-        expected_slugs = set()
+        expected_count = 0
         for session_id, speaker_map in labels_data.items():
             for speaker_id, identity in speaker_map.items():
                 if not identity:
                     continue
-                slug = slugify(identity)
                 wav_path = s3_dir / session_id / "audio" / f"speaker_{speaker_id}.wav"
                 if wav_path.exists():
-                    expected_slugs.add(slug)
-
-        local_files = sorted(output_dir.glob("*.embedding"))
-
-        import boto3
-        bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
-        s3 = boto3.client("s3")
-        resp = s3.list_objects_v2(Bucket=bucket, Prefix="speaker_embeddings/")
-        contents = resp.get("Contents", [])
-        s3_keys = [obj.get("Key", "") for obj in contents if obj.get("Key", "").endswith(".embedding")]
-
-        logger.info(f"Expected: {len(expected_slugs)} | Local embedding count: {len(local_files)} | S3 embedding count: {len(s3_keys)}")
-        if len(expected_slugs) == len(local_files) == len(s3_keys):
-            logger.info("Counts match up. Skipping local speaker library build and S3 sync.")
-            return
+                    expected_count += 1
+        if state_file.exists():
+            state = json.loads(state_file.read_text())
+            if state.get("last_count") == expected_count:
+                logger.info(f"Expected count unchanged ({expected_count}). Skipping build.")
+                return
+        logger.info(f"Count changed ({state.get('last_count', 0) if state_file.exists() else 0} -> {expected_count}), building...")
     except Exception as e:
         logger.warning(f"Failed early check (proceeding with full build/sync): {e}")
 
@@ -118,8 +109,9 @@ def main():
         for i, source in enumerate(sources):
             suffix = f"-{i}" if i > 0 else ""
             dest_path = output_dir / f"{slug}{suffix}.wav"
-            shutil.copy2(source, dest_path)
-            logger.info(f"Copied {source.name} -> {dest_path.name} (size: {source.stat().st_size} bytes)")
+            if not dest_path.exists():
+                shutil.copy2(source, dest_path)
+                logger.info(f"Copied {source.name} -> {dest_path.name} (size: {source.stat().st_size} bytes)")
         
     logger.info(f"Successfully populated {output_dir} with {len(identity_sources)} reference samples.")
 
@@ -161,6 +153,12 @@ def main():
 
     asyncio.run(compute_embeddings())
     logger.info("Embeddings successfully pre-computed.")
+
+    # Record successful build so future runs can skip if nothing changed
+    try:
+        state_file.write_text(json.dumps({"last_count": len(identity_sources)}))
+    except Exception as e:
+        logger.warning(f"Failed to write build state: {e}")
 
     # Sync pre-computed embeddings to S3 speaker_embeddings folder
     logger.info("Syncing pre-computed embeddings to S3...")
