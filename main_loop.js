@@ -1,9 +1,9 @@
 const { spawn, execSync } = require("child_process");
 
 // Ensure bashrc env (PATH, etc.) is available even when not launched from on_start.sh
-const bashrcEnv = execSync('bash -c "source ~/.bashrc >/dev/null 2>&1 && env"', {
+const bashrcEnv = execSync('bash -l -c "env"', {
   encoding: "utf8",
-  timeout: 5000,
+  timeout: 10000,
 });
 for (const line of bashrcEnv.split("\n")) {
   const eq = line.indexOf("=");
