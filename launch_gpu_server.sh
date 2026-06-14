@@ -8,6 +8,7 @@ git pull || echo "git pull failed, continuing anyway"
 
 # --- Configuration (Defaults) ---
 BUN="bun"
+PYTHON="/home/nathan/.pyenv/shims/python"
 REGION="${REGION:-us-east-1}"
 KEY_NAME="${KEY_NAME:-us-east-1}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
@@ -98,7 +99,7 @@ RUN_ID=$(cat /proc/sys/kernel/random/uuid | cut -d- -f1)
 echo "Deploying to environment: $ENV (Ubuntu)"
 
 echo "Generating local audio-library..."
-/home/nathan/.pyenv/shims/python "$LOCAL_DIR/scripts/build_audio_library.py"
+$PYTHON "$LOCAL_DIR/scripts/build_audio_library.py"
 
 # --- 0. Per-event lock + duplicate check ---
 if [[ -n "$TAG" ]]; then
@@ -256,7 +257,7 @@ $BUN run lib/telegram.js --message "Creating stack for ${WHAT_FOR} (${STACK_NAME
 BLUEPRINT_DIR="$LOCAL_DIR/ec2-instance"
 TMP_TEMPLATE="/tmp/assembled_template.yaml"
 
-/home/nathan/.pyenv/shims/python "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" "$TMP_TEMPLATE" --env "$ENV"
+$PYTHON "$BLUEPRINT_DIR/render_template.py" "$BLUEPRINT_DIR" "template.yaml.j2" "$TMP_TEMPLATE" --env "$ENV"
 
 # S3 bucket for template deployment (required for templates > 51KB)
 S3_BUCKET="deploys"
