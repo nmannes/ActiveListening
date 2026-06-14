@@ -22,15 +22,6 @@ echo "Environment: $ENV"
 # --- Sync Code ---
 echo "Syncing code to remote instance..."
 
-FILES_TO_COPY=(
-    "server.py"
-    ".env.demo"
-    ".env.prod"
-    "demo_private_key.txt"
-    "prod_private_key.txt"
-)
-
-
 # Kill existing python server
 ssh -i "$SSH_KEY_PATH" -o StrictHostKeyChecking=no "$REMOTE_USER@$PUBLIC_IP" "cd kalshi && git pull"
 
