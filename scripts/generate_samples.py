@@ -645,6 +645,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
             str(seg["ogg_path"]),
             caption=caption,
             reply_markup=keyboard,
+            channel="voice",
         )
 
         if result.get("ok"):

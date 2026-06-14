@@ -327,7 +327,7 @@ async def process_sample_generation(job, job_token):
 
             result = await run_blocking(
                 send_telegram_voice, seg["ogg_path"],
-                caption=caption, reply_markup=keyboard
+                caption=caption, reply_markup=keyboard, channel="voice"
             )
             if result.get("ok"):
                 sent_count += 1
