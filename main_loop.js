@@ -24,44 +24,43 @@ async function start() {
   console.log("Starting Kalshi Main Event Loop...");
 
   const children = [];
+  let shuttingDown = false;
+
+  function spawnChild(name, cmd, args) {
+    console.log(`Starting ${name}...`);
+    const proc = spawn(cmd, args, { cwd: __dirname, stdio: "inherit" });
+    proc.on("error", (err) => console.error(`Failed to start ${name}:`, err));
+    proc.on("exit", (code, signal) => {
+      if (shuttingDown) return;
+      console.error(`${name} exited (code=${code}, signal=${signal}). Restarting in 5s...`);
+      sendTelegram(`⚠️ ${name} crashed (code=${code}, signal=${signal}), restarting in 5s`, "debug").catch(() => {});
+      setTimeout(() => {
+        if (!shuttingDown) spawnChild(name, cmd, args);
+      }, 5000);
+    });
+    children.push(proc);
+    return proc;
+  }
 
   // 1. Start UI Server in background
-  console.log("Starting Market Manager UI...");
-  const uiProc = spawn(process.execPath, ["run", "market_ui.js"], {
-    cwd: __dirname,
-    stdio: "inherit",
-  });
-  uiProc.on("error", (err) => console.error("Failed to start UI server:", err));
-  children.push(uiProc);
+  spawnChild("market_ui.js", process.execPath, ["run", "market_ui.js"]);
 
   // 2. Start BullMQ Worker in background
-  console.log("Starting BullMQ Worker...");
-  const workerProc = spawn(process.execPath, ["run", "worker.js"], {
-    cwd: __dirname,
-    stdio: "inherit",
-  });
-  workerProc.on("error", (err) => console.error("Failed to start BullMQ worker:", err));
-  children.push(workerProc);
+  spawnChild("worker.js", process.execPath, ["run", "worker.js"]);
 
   // 2b. Start Telegram bot server
-  const tgProc = spawn(PYTHON, ["telegram_server.py"], {
-    cwd: __dirname,
-    stdio: "inherit",
-  });
-  tgProc.on("error", (err) => console.error("Failed to start Telegram server:", err));
-  children.push(tgProc);
+  spawnChild("telegram_server.py", PYTHON, ["telegram_server.py"]);
 
   // 2c. Start Redis queue worker (sample generation + save)
-  const qwProc = spawn(PYTHON, ["scripts/queue_worker.py"], {
-    cwd: __dirname,
-    stdio: "inherit",
-  });
-  qwProc.on("error", (err) => console.error("Failed to start queue worker:", err));
-  children.push(qwProc);
+  spawnChild("queue_worker.py", PYTHON, ["scripts/queue_worker.py"]);
 
   // Kill children on exit so orphans don't clash with restarts
+  const doShutdown = () => {
+    shuttingDown = true;
+    process.exit();
+  };
   process.on("exit", () => children.forEach((c) => c.kill("SIGTERM")));
-  ["SIGINT", "SIGTERM"].forEach((sig) => process.on(sig, () => process.exit()));
+  ["SIGINT", "SIGTERM"].forEach((sig) => process.on(sig, doShutdown));
 
   // 3. Initial scheduling loop with discovery
   console.log("Enqueuing initial scheduling loop...");

@@ -99,7 +99,7 @@ async def run_blocking(func, *args, **kwargs):
 # Sample generation processor
 # ---------------------------------------------------------------------------
 
-async def process_sample_generation(job, job_token):
+async def _process_sample_generation(job, job_token):
     target = job.data["target"]
     chat_id = job.data.get("chat_id")
     slug = slugify(target)
@@ -252,6 +252,9 @@ async def process_sample_generation(job, job_token):
 
         auto_approve, threshold = await run_blocking(load_trust_data)
 
+        # Never auto-approve samples for a speaker with no existing voice samples
+        is_new_speaker = len(existing_samples) == 0
+
         # Select a diverse review subset: up to 3 segments per source video,
         # with a minimum of 5 distinct sources.
         # Segments outside this set are auto-approved and saved immediately.
@@ -291,7 +294,7 @@ async def process_sample_generation(job, job_token):
         for i, seg in enumerate(segments):
             score = seg["score"]
             in_review = i in review_set
-            is_pre_approved = auto_approve or score >= threshold or not in_review
+            is_pre_approved = not is_new_speaker and (auto_approve or score >= threshold or not in_review)
             seg["approved"] = True if is_pre_approved else None
 
             set_verification_state(slug, i, {
@@ -372,6 +375,23 @@ async def process_sample_generation(job, job_token):
         logger.exception(f"[{job_id}] Sample generation failed: {e}")
         await run_blocking(
             send_telegram, f"❌ Sample generation failed for *{target}*: {e}", "voice"
+        )
+        raise
+
+JOB_TIMEOUT_SEC = 25 * 60  # 25 min — less than the 30 min lockDuration so stalled jobs get picked up
+
+async def process_sample_generation(job, job_token):
+    try:
+        await asyncio.wait_for(
+            _process_sample_generation(job, job_token),
+            timeout=JOB_TIMEOUT_SEC,
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[{job.id}] Job timed out after {JOB_TIMEOUT_SEC}s")
+        await run_blocking(
+            send_telegram,
+            f"⏰ Sample generation timed out for *{job.data.get('target', '?')}* after {JOB_TIMEOUT_SEC // 60} min",
+            "voice",
         )
         raise
 
