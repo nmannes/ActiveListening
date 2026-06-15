@@ -72,7 +72,8 @@ const { HEADLESS } = require("./lib/args");
       "the last word",
       "cbs sunday morning",
       "world cup",
-      "face the nation"
+      "face the nation",
+      "the view"
     ];
 
     // Run TV scraper first in its own browser to avoid contention with other scrapers
