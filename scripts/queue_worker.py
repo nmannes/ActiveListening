@@ -401,7 +401,7 @@ async def process_sample_generation(job, job_token):
             send_telegram,
             f"⏰ Sample generation timed out for *{target}* after {minutes} min\n"
             f"Stage: {stage} | Segments found: {segment_count}\n"
-            f"Check yt-dlp connectivity, VAD model, or TitaNet availability.",
+            f"Check yt-0dlp connectivity, VAD model, or TitaNet availability.",
             "voice",
         )
         raise
