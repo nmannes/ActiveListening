@@ -46,7 +46,7 @@ function readJsonFile(filePath, defaultValue = []) {
 }
 
 // ── Redis verification state helpers ──────────────────────────────────────
-const REDIS_TTL = 3600;  // 1 hour, matches verification_state.py
+const REDIS_TTL = 604800;  // 1 week, matches verification_state.py
 
 async function getVerificationState(slug, index) {
     const raw = await connection.hget(`verify:${slug}`, String(index));

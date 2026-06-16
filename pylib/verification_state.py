@@ -4,7 +4,7 @@ keyboard callbacks. Shared between queue_worker (writes) and telegram_server
 (reads/writes on user approval).
 
 Each slug gets a Redis hash at verify:{slug} mapping segment index → JSON blob.
-Hashes expire after 1 hour.
+Hashes expire after 1 week.
 """
 
 import json
@@ -40,7 +40,7 @@ def get_redis() -> redis.Redis:
 def set_verification_state(slug: str, segment_idx: int, data: dict):
     r = get_redis()
     r.hset(f"verify:{slug}", str(segment_idx), json.dumps(data))
-    r.expire(f"verify:{slug}", 3600)
+    r.expire(f"verify:{slug}", 604800)
 
 
 def get_verification_state(slug: str, segment_idx: int) -> Optional[dict]:
