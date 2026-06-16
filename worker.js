@@ -1,7 +1,10 @@
 const fs = require("fs");
+const os = require("os");
 const { Worker } = require("bullmq");
 const { execSync } = require("child_process");
 const { connection } = require("./lib/queues");
+
+const SCHEDULING_CPU_THRESHOLD = 0.5; // skip scheduling loop when 1m load avg exceeds 50% of cpu count
 
 const SCRIPT_DIR = __dirname;
 
@@ -20,6 +23,10 @@ function spawnCapture(command) {
     const details = [stderr, stdout].filter(Boolean).join("\n");
     throw new Error(`Command failed: ${command}\n${details}`);
   }
+}
+
+function cpuUsage() {
+  return os.loadavg()[0] / os.cpus().length;
 }
 
 function parseDeployResult(stdout) {
@@ -111,6 +118,13 @@ const syncWorker = new Worker(
 const schedulingLoopWorker = new Worker(
   "scheduling-loop",
   async (job) => {
+    const usage = cpuUsage();
+    if (usage > SCHEDULING_CPU_THRESHOLD) {
+      const msg = `Skipping scheduling loop: CPU load ${(usage * 100).toFixed(0)}% > ${(SCHEDULING_CPU_THRESHOLD * 100).toFixed(0)}%`;
+      console.log(`[worker] ${msg}`);
+      job.log(msg);
+      return;
+    }
     spawn(`bun run e2e_discovery.js`, job);
     spawn(`bun run schedule_matches.js`, job);
   },
