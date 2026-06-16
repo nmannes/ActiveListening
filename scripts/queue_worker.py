@@ -378,7 +378,7 @@ async def _process_sample_generation(job, job_token):
         )
         raise
 
-JOB_TIMEOUT_SEC = 25 * 60  # 25 min — less than the 30 min lockDuration so stalled jobs get picked up
+JOB_TIMEOUT_SEC = 20 * 60  # 20 min — less than the 30 min lockDuration so stalled jobs get picked up
 
 async def process_sample_generation(job, job_token):
     try:

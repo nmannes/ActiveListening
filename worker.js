@@ -4,7 +4,8 @@ const { Worker } = require("bullmq");
 const { execSync } = require("child_process");
 const { connection } = require("./lib/queues");
 
-const SCHEDULING_CPU_THRESHOLD = 0.5; // skip scheduling loop when 1m load avg exceeds 50% of cpu count
+const CPU_THRESHOLD = 0.5; // reschedule non-client jobs when 1m load avg exceeds 50% of cpu count
+const RESCHEDULE_DELAY_MS = 30 * 60 * 1000; // 30 minutes
 
 const SCRIPT_DIR = __dirname;
 
@@ -109,6 +110,15 @@ const runClientWorker = new Worker(
 const syncWorker = new Worker(
   "log-sync",
   async (job) => {
+    const usage = cpuUsage();
+    if (usage > CPU_THRESHOLD) {
+      const delayMin = RESCHEDULE_DELAY_MS / 60000;
+      const msg = `Rescheduling log-sync in ${delayMin}m: CPU load ${(usage * 100).toFixed(0)}% > ${(CPU_THRESHOLD * 100).toFixed(0)}%`;
+      console.log(`[worker] ${msg}`);
+      job.log(msg);
+      await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
+      return;
+    }
     const { runUUID, sessionId } = job.data;
     spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
   },
@@ -119,10 +129,12 @@ const schedulingLoopWorker = new Worker(
   "scheduling-loop",
   async (job) => {
     const usage = cpuUsage();
-    if (usage > SCHEDULING_CPU_THRESHOLD) {
-      const msg = `Skipping scheduling loop: CPU load ${(usage * 100).toFixed(0)}% > ${(SCHEDULING_CPU_THRESHOLD * 100).toFixed(0)}%`;
+    if (usage > CPU_THRESHOLD) {
+      const delayMin = RESCHEDULE_DELAY_MS / 60000;
+      const msg = `Rescheduling scheduling loop in ${delayMin}m: CPU load ${(usage * 100).toFixed(0)}% > ${(CPU_THRESHOLD * 100).toFixed(0)}%`;
       console.log(`[worker] ${msg}`);
       job.log(msg);
+      await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
       return;
     }
     spawn(`bun run e2e_discovery.js`, job);

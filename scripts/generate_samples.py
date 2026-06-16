@@ -232,7 +232,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
         logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos)")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=90)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
         except subprocess.TimeoutExpired:
