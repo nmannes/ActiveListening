@@ -21,7 +21,7 @@ import hashlib
 import random
 import shutil
 
-YT_DLP = "yt-dlp"
+YT_DLP = "/home/linuxbrew/.linuxbrew/bin/yt-dlp"
 
 import json
 import logging
