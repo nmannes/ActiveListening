@@ -205,16 +205,22 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     random.shuffle(pool)
     queries = pool[:num_queries]
 
-    videos_per_query = max(1, num_videos // len(queries))
-    remainder = num_videos % len(queries)
+    # Download 3x per query to account for overlap — the same top video
+    # often ranks highly across different search queries for the same speaker.
+    videos_per_query = max(3, (num_videos * 3) // len(queries))
+    remainder = (num_videos * 3) % len(queries)
 
     seen_ids = set()
     all_wavs = []
+    total_requested = 0
 
     for i, q in enumerate(queries):
         count = videos_per_query + (1 if i < remainder else 0)
+        # Cap per-query downloads so we don't waste time on endless scrolling
+        count = min(count, 5)
         if count <= 0:
             continue
+        total_requested += count
         query = f"ytsearch{count}:{q}"
         output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
 
@@ -227,6 +233,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
+            "--download-sections", "*0:00-8:00",
             query,
         ]
 
@@ -244,7 +251,8 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
                 seen_ids.add(vid_id)
                 all_wavs.append(wav)
 
-    logger.info(f"Downloaded {len(all_wavs)} unique audio files across {len(queries)} queries")
+    dupe_count = total_requested - len(all_wavs)
+    logger.info(f"Downloaded {len(all_wavs)} unique videos ({dupe_count} duplicates filtered) across {len(queries)} queries")
     return all_wavs
 
 
