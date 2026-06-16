@@ -100,7 +100,9 @@ async def run_blocking(func, *args, **kwargs):
 # Sample generation processor
 # ---------------------------------------------------------------------------
 
-async def _process_sample_generation(job, job_token):
+async def _process_sample_generation(job, job_token, progress=None):
+    if progress is None:
+        progress = {}
     target = job.data["target"]
     chat_id = job.data.get("chat_id")
     slug = slugify(target)
@@ -117,7 +119,7 @@ async def _process_sample_generation(job, job_token):
         )
         return
 
-    await job.updateProgress({"stage": "downloading"})
+    progress.update({"stage": "downloading"})
 
     work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{slug}_"))
     logger.info(f"[{job_id}] Working directory: {work_dir}")
@@ -128,14 +130,14 @@ async def _process_sample_generation(job, job_token):
             search_and_download, target, 7, work_dir
         )
         if not wav_paths:
-            await job.updateProgress({"stage": "failed", "error": "No audio downloaded"})
+            progress.update({"stage": "failed", "error": "No audio downloaded"})
             await run_blocking(
                 send_telegram, f"❌ Failed to download audio for *{target}*", "voice"
             )
             return
 
         # 2. VAD
-        await job.updateProgress({"stage": "vad"})
+        progress.update({"stage": "vad"})
         import librosa
 
         vad = VAD()
@@ -173,14 +175,14 @@ async def _process_sample_generation(job, job_token):
         await run_blocking(run_vad)
 
         if not raw_segments:
-            await job.updateProgress({"stage": "failed", "error": "No speech segments found"})
+            progress.update({"stage": "failed", "error": "No speech segments found"})
             await run_blocking(
                 send_telegram, f"❌ No speech segments found for *{target}*", "voice"
             )
             return
 
         # 3. Embed
-        await job.updateProgress({"stage": "embedding"})
+        progress.update({"stage": "embedding"})
         embedder = TitaNetEmbedder()
 
         def run_embedding():
@@ -194,14 +196,14 @@ async def _process_sample_generation(job, job_token):
         embedded = [s for s in raw_segments if s.get("embedding") is not None]
 
         if not embedded:
-            await job.updateProgress({"stage": "failed", "error": "No embeddings computed"})
+            progress.update({"stage": "failed", "error": "No embeddings computed"})
             await run_blocking(
                 send_telegram, f"❌ Failed to compute embeddings for *{target}*", "voice"
             )
             return
 
         # 4-5. Cluster + score
-        await job.updateProgress({"stage": "clustering"})
+        progress.update({"stage": "clustering"})
         gen = SampleGenerator(target=target)
         gen.embedder = embedder
 
@@ -211,14 +213,14 @@ async def _process_sample_generation(job, job_token):
         segments = await run_blocking(run_clustering)
 
         if not segments:
-            await job.updateProgress({"stage": "failed", "error": "No target segments found"})
+            progress.update({"stage": "failed", "error": "No target segments found"})
             await run_blocking(
                 send_telegram, f"❌ No target voice segments found for *{target}*", "voice"
             )
             return
 
         # 6. Save WAVs + embeddings to disk, convert to OGG
-        await job.updateProgress({"stage": "converting"})
+        progress.update({"stage": "converting"})
         segments_dir = work_dir / "segments"
         segments_dir.mkdir(exist_ok=True)
         ogg_dir = work_dir / "ogg"
@@ -245,7 +247,7 @@ async def _process_sample_generation(job, job_token):
         await run_blocking(run_conversion)
 
         # 7. Apply trust preferences and send for verification
-        await job.updateProgress({"stage": "verification", "segment_count": len(segments)})
+        progress.update({"stage": "verification", "segment_count": len(segments)})
 
         def load_trust_data():
             trust_data = load_trust()
@@ -355,7 +357,7 @@ async def _process_sample_generation(job, job_token):
             f"{sent_count} sent for review, {len(segments)} total"
         )
 
-        await job.updateProgress({
+        progress.update({
             "stage": "done",
             "status": "awaiting_verification",
             "segment_count": len(segments),
@@ -382,13 +384,13 @@ async def _process_sample_generation(job, job_token):
 JOB_TIMEOUT_SEC = 20 * 60  # 20 min — less than the 30 min lockDuration so stalled jobs get picked up
 
 async def process_sample_generation(job, job_token):
+    progress = {}
     try:
         await asyncio.wait_for(
-            _process_sample_generation(job, job_token),
+            _process_sample_generation(job, job_token, progress),
             timeout=JOB_TIMEOUT_SEC,
         )
     except asyncio.TimeoutError:
-        progress = await job.getProgress() or {}
         stage = progress.get("stage", "unknown")
         target = job.data.get("target", "?")
         segment_count = progress.get("segment_count", "?")
