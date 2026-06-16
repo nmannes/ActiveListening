@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import random
+import re
 import torch
 import numpy as np
 import librosa
@@ -98,17 +100,32 @@ class SpeakerIdentifier:
             except Exception as e:
                 logger.error(f"Failed to sync speaker embeddings from S3: {e}")
 
-            # Load pre-computed embeddings
-            for emb_path in sorted(self.reference_dir.glob("*.embedding")):
-                name = emb_path.stem
-                logger.info(f"  loading pre-computed embedding: {name}")
-                try:
-                    emb = await loop.run_in_executor(
-                        None, lambda p=emb_path: torch.load(str(p), map_location=self.device, weights_only=False)
+            # Load pre-computed embeddings, capped at 10 random per identity
+            all_embeddings = sorted(self.reference_dir.glob("*.embedding"))
+            # Group by base identity: strip trailing "-\d+" suffix
+            by_identity: Dict[str, List[Path]] = {}
+            for emb_path in all_embeddings:
+                base = re.sub(r"-\d+\.embedding$", ".embedding", emb_path.name)
+                base_stem = base[:-10]  # strip ".embedding"
+                by_identity.setdefault(base_stem, []).append(emb_path)
+            for base_stem, emb_paths in by_identity.items():
+                if len(emb_paths) > 10:
+                    selected = random.sample(emb_paths, 10)
+                    logger.info(
+                        f"  capping '{base_stem}' from {len(emb_paths)} to 10 embeddings"
                     )
-                    self.references[name] = emb
-                except Exception as e:
-                    logger.error(f"  Failed to load pre-computed embedding {emb_path}: {e}")
+                else:
+                    selected = emb_paths
+                for emb_path in selected:
+                    name = emb_path.stem
+                    logger.info(f"  loading pre-computed embedding: {name}")
+                    try:
+                        emb = await loop.run_in_executor(
+                            None, lambda p=emb_path: torch.load(str(p), map_location=self.device, weights_only=False)
+                        )
+                        self.references[name] = emb
+                    except Exception as e:
+                        logger.error(f"  Failed to load pre-computed embedding {emb_path}: {e}")
 
             logger.info(
                 f"SpeakerIdentifier ready – {len(self.references)} reference(s) loaded"
