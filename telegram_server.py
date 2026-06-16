@@ -60,6 +60,7 @@ logging.basicConfig(
         logging.FileHandler(Path(__file__).resolve().parent / "logs" / "generate-samples.log"),
     ],
 )
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("telegram_server")
 
 CALLBACK_PREFIX = "gs"  # must match generate_samples.py / worker
