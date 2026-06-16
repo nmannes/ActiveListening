@@ -6,7 +6,7 @@
 # Evaluated at runtime (trade time), not at scheduling time.
 
 ORDER_RULES: list[dict] = [
-    {"match": lambda m: (m.get("slug") or "").startswith("kxwc"), "dollarAmount": 20},
+    {"match": lambda m: (m.get("slug") or "").startswith("kxwc"), "dollarAmount": 25},
 ]
 
 DEFAULT_DOLLAR_AMOUNT = 1

@@ -146,7 +146,7 @@ def build_inline_keyboard(buttons):
     Example:
         build_inline_keyboard([
             [("Approve", "approve:0"), ("Reject", "reject:0")],
-            [("Auto-approve all", "auto_all")],
+            [("Best per source", "auto_best")],
         ])
     """
     inline_keyboard = []

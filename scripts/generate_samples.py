@@ -638,7 +638,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
             keyboard = build_inline_keyboard([
                 [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{i}"),
                  ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
-                [("🤖 Auto-approve all remaining", f"{CALLBACK_PREFIX}:auto_all:{i}")],
+                [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{i}")],
             ])
 
         result = send_telegram_voice(

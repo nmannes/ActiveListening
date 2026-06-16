@@ -248,22 +248,44 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_verification_state(slug, idx, approved=True)
         await query.answer("Approved ✅")
         logger.info(f"Verification: {slug}[{idx}] approved")
+        # Save immediately
+        save_queue = context.application.bot_data["save_queue"]
+        await save_queue.add("save_samples", {
+            "slug": slug,
+            "target": vdata.get("target", slug.replace("-", " ").title()),
+            "approved_indices": [idx],
+            "chat_id": query.message.chat.id,
+        })
 
     elif action == "reject":
         update_verification_state(slug, idx, approved=False)
         await query.answer("Rejected ❌")
         logger.info(f"Verification: {slug}[{idx}] rejected")
 
-    elif action == "auto_all":
-        # Approve ALL remaining from this index onward for this slug
+    elif action == "auto_best":
+        # Approve the best (highest score) unresolved segment from each distinct source video
         all_states = get_all_verification_states(slug)
-        auto_count = 0
+        by_source = {}
         for seg_idx, sdata in all_states.items():
-            if seg_idx >= idx and not sdata.get("approved") and sdata.get("approved") is None:
-                update_verification_state(slug, seg_idx, approved=True)
-                auto_count += 1
-        await query.answer(f"Auto-approved {auto_count} remaining ✅")
-        logger.info(f"Verification: {slug} auto-approved {auto_count} from index {idx}")
+            if sdata.get("approved") is None:
+                src = sdata.get("source", "unknown")
+                by_source.setdefault(src, []).append((seg_idx, sdata))
+        auto_idxs = []
+        for src, entries in by_source.items():
+            entries.sort(key=lambda x: x[1].get("score", 0), reverse=True)
+            best_idx = entries[0][0]
+            update_verification_state(slug, best_idx, approved=True)
+            auto_idxs.append(best_idx)
+        await query.answer(f"Approved best from {len(auto_idxs)} source(s) ✅")
+        logger.info(f"Verification: {slug} auto-approved best per source: {auto_idxs}")
+        if auto_idxs:
+            save_queue = context.application.bot_data["save_queue"]
+            await save_queue.add("save_samples", {
+                "slug": slug,
+                "target": vdata.get("target", slug.replace("-", " ").title()),
+                "approved_indices": auto_idxs,
+                "chat_id": query.message.chat.id,
+            })
 
     else:
         await query.answer(f"Unknown action: {action}")

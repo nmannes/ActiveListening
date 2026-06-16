@@ -32,6 +32,7 @@ from pylib.verification_state import (
     set_verification_state,
     get_all_verification_states,
     clear_verification_state,
+    update_verification_state,
 )
 from pylib.telegram import send_telegram_voice, send_telegram, build_inline_keyboard
 
@@ -336,7 +337,7 @@ async def _process_sample_generation(job, job_token):
                 keyboard = build_inline_keyboard([
                     [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{i}"),
                      ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
-                    [("\U0001f916 Auto-approve all remaining", f"{CALLBACK_PREFIX}:auto_all:{i}")],
+                    [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{i}")],
                 ])
 
             result = await run_blocking(
@@ -387,10 +388,20 @@ async def process_sample_generation(job, job_token):
             timeout=JOB_TIMEOUT_SEC,
         )
     except asyncio.TimeoutError:
-        logger.error(f"[{job.id}] Job timed out after {JOB_TIMEOUT_SEC}s")
+        progress = await job.getProgress() or {}
+        stage = progress.get("stage", "unknown")
+        target = job.data.get("target", "?")
+        segment_count = progress.get("segment_count", "?")
+        minutes = JOB_TIMEOUT_SEC // 60
+        logger.error(
+            f"[{job.id}] Job timed out after {minutes}min — "
+            f"target={target}, stage={stage}, segments_so_far={segment_count}"
+        )
         await run_blocking(
             send_telegram,
-            f"⏰ Sample generation timed out for *{job.data.get('target', '?')}* after {JOB_TIMEOUT_SEC // 60} min",
+            f"⏰ Sample generation timed out for *{target}* after {minutes} min\n"
+            f"Stage: {stage} | Segments found: {segment_count}\n"
+            f"Check yt-dlp connectivity, VAD model, or TitaNet availability.",
             "voice",
         )
         raise
@@ -504,6 +515,9 @@ async def process_save_samples(job, job_token):
             logger.warning(f"No state for segment {idx}, skipping")
             continue
 
+        if state.get("saved"):
+            continue
+
         wav_src = state.get("wav_path")
         emb_src = state.get("emb_path")
 
@@ -528,9 +542,16 @@ async def process_save_samples(job, job_token):
         upload_to_s3(str(wav_dest), f"speaker_embeddings/{wav_dest.name}")
         upload_to_s3(str(emb_dest), f"speaker_embeddings/{emb_dest.name}")
 
+        update_verification_state(slug, idx, saved=True)
+
         logger.info(f"Saved {wav_dest.name} (score={state.get('score', '?')})")
         next_idx += 1
         saved += 1
+
+    # Only cleanup when ALL segments for this slug are resolved
+    all_resolved = all(s.get("approved") is not None for s in states.values())
+    if not all_resolved:
+        return
 
     # Cleanup work directory
     first_state = states.get(approved_idxs[0]) if approved_idxs else None
