@@ -1,7 +1,9 @@
 const fs = require("fs");
 const os = require("os");
 const { Worker } = require("bullmq");
-const { execSync } = require("child_process");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+const execAsync = promisify(exec);
 const { connection } = require("./lib/queues");
 
 const CPU_THRESHOLD = 0.5; // reschedule non-client jobs when 1m load avg exceeds 50% of cpu count
@@ -9,15 +11,16 @@ const RESCHEDULE_DELAY_MS = 30 * 60 * 1000; // 30 minutes
 
 const SCRIPT_DIR = __dirname;
 
-function spawn(command, job) {
+async function spawn(command, job) {
   const jobId = job.id || "unknown";
   console.log(`[worker] [${jobId}] Executing: ${command}`);
-  execSync(command, { cwd: SCRIPT_DIR, stdio: "inherit" });
+  await execAsync(command, { cwd: SCRIPT_DIR, stdio: "inherit" });
 }
 
-function spawnCapture(command) {
+async function spawnCapture(command) {
   try {
-    return execSync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const { stdout } = await execAsync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    return stdout;
   } catch (e) {
     const stderr = (e.stderr || "").trim();
     const stdout = (e.stdout || "").trim();
@@ -69,7 +72,7 @@ const runClientWorker = new Worker(
     job.log(launchMsg);
     const env = process.env.KALSHI_ENV || "prod";
     const title = market.title || slug;
-    const launchOutput = spawnCapture(
+    const launchOutput = await spawnCapture(
       `bash launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug} --title "${title.replace(/"/g, '\\"')}"`,
     );
 
@@ -88,7 +91,7 @@ const runClientWorker = new Worker(
       const bunCmd = browser ? "xvfb-run -a bun" : "bun";
       const browserFlag = browser ? " --browser" : "";
       job.log(`Starting client: ${slug} (duration: ${duration}m)`);
-      spawn(
+      await spawn(
         `cd ${SCRIPT_DIR} && ${bunCmd} run client.js --fromFile ${marketFile} --duration ${duration} --ip ${ip}${browserFlag}`,
         job,
       );
@@ -98,7 +101,7 @@ const runClientWorker = new Worker(
       try {
         console.log(`[worker] Destroying stack: ${stackName}`);
         job.log(`Destroying stack: ${stackName}`);
-        spawnCapture(`aws cloudformation delete-stack --region us-east-1 --stack-name ${stackName}`);
+        await spawnCapture(`aws cloudformation delete-stack --region us-east-1 --stack-name ${stackName}`);
       } catch (e) {
         console.error(`[worker] Failed to delete stack ${stackName}:`, e.message);
       }
@@ -120,7 +123,7 @@ const syncWorker = new Worker(
       return;
     }
     const { runUUID, sessionId } = job.data;
-    spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
+    await spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
   },
   { connection, concurrency: 1, lockDuration: 10 * 60 * 1000 },
 );
@@ -137,8 +140,8 @@ const schedulingLoopWorker = new Worker(
       await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
       return;
     }
-    spawn(`bun run e2e_discovery.js`, job);
-    spawn(`bun run schedule_matches.js`, job);
+    await spawn(`bun run e2e_discovery.js`, job);
+    await spawn(`bun run schedule_matches.js`, job);
   },
   { connection, concurrency: 1, lockDuration: 10 * 60 * 1000, stalledInterval: 10 * 60 * 1000 },
 );
