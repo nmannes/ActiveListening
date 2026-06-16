@@ -13,7 +13,7 @@ for (const line of bashrcEnv.split("\n")) {
 const { schedulingLoopQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
 
-const PYTHON = "python";
+const PYTHON = "/home/nathan/.pyenv/shims/python";
 const BUN = "bun";
 
 process.env.HF_HUB_DISABLE_PROMPT = "1";

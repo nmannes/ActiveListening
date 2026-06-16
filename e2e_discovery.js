@@ -68,12 +68,14 @@ const { HEADLESS } = require("./lib/args");
       "baseball",
       "saturday night live",
       "survivor",
+      "footbal"
       "meet the press",
       "the last word",
       "cbs sunday morning",
       "world cup",
       "face the nation",
-      "the view"
+      "the view",
+      "cbs mornings"
     ];
 
     // Run TV scraper first in its own browser to avoid contention with other scrapers
