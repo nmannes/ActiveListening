@@ -118,7 +118,7 @@ async function runBrowserCapture() {
       "--use-fake-ui-for-media-stream",
       "--disable-web-security",
     ],
-    userDataDir: path.join(__dirname, "..", "cache", "browser_profile"),
+    userDataDir: `/tmp/chrome-${market.slug || Date.now()}`,
   });
 
   const page = await browser.newPage();

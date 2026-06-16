@@ -254,6 +254,7 @@ module.exports = {
       executablePath: "/usr/bin/google-chrome",
       headless: HEADLESS,
       args: [
+        `--user-data-dir=/tmp/chrome-${market.slug || Date.now()}`,
         "--start-maximized",
         "--autoplay-policy=no-user-gesture-required",
         "--no-sandbox",
