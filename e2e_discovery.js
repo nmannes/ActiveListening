@@ -68,7 +68,7 @@ const { HEADLESS } = require("./lib/args");
       "baseball",
       "saturday night live",
       "survivor",
-      "footbal"
+      "footbal",
       "meet the press",
       "the last word",
       "cbs sunday morning",
