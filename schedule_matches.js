@@ -106,9 +106,17 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   }
 
   const rawMarkets = JSON.parse(fs.readFileSync(marketsFile, "utf8"));
-  const tvSchedule = fs.existsSync(tvScheduleFile)
+  const tvSchedule = (fs.existsSync(tvScheduleFile)
     ? JSON.parse(fs.readFileSync(tvScheduleFile, "utf8"))
-    : [];
+    : []
+  ).filter((entry) => {
+    const title = (entry.title || "").toUpperCase();
+    // "CBS News Mornings" is a different show from "CBS Mornings" — the
+    // matcher's NEWS normalization would conflate them, giving the event
+    // a 30-minute duration instead of the correct 2-hour window.
+    if (title === "CBS NEWS MORNINGS") return false;
+    return true;
+  });
   const espnSchedule = fs.existsSync(espnMatchupsFile)
     ? JSON.parse(fs.readFileSync(espnMatchupsFile, "utf8"))
     : [];
