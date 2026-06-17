@@ -822,7 +822,7 @@ const AUDIO_LIBRARY = path.join(require("os").homedir(), "audio-library");
 
 app.post("/api/voice/generate", async (req, res) => {
     try {
-        const { target } = req.body;
+        const { target, urls } = req.body;
         if (!target || typeof target !== "string" || !target.trim()) {
             return res.status(400).json({ error: "Missing or invalid target name" });
         }
@@ -833,9 +833,16 @@ app.post("/api/voice/generate", async (req, res) => {
             .replace(/-+/g, "-")
             .replace(/^-|-$/g, "");
 
-        const job = await sampleGenQueue.add("generate_samples", {
-            target: target.trim(),
-        });
+        const jobData = { target: target.trim() };
+        if (urls && Array.isArray(urls) && urls.length > 0) {
+            // Deduplicate and strip empty strings
+            const deduped = [...new Set(urls.map(u => u.trim()).filter(Boolean))];
+            if (deduped.length > 0) {
+                jobData.urls = deduped;
+            }
+        }
+
+        const job = await sampleGenQueue.add("generate_samples", jobData);
 
         const counts = await sampleGenQueue.getJobCounts();
         const depth = (counts.waiting || 0) + (counts.active || 0) + (counts.delayed || 0);

@@ -86,6 +86,20 @@ def slugify(name: str) -> str:
     return slug.strip("-")
 
 
+def extract_video_id(url_or_id: str) -> str:
+    """Extract YouTube video ID from a URL or return the ID as-is."""
+    patterns = [
+        r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/live/)([a-zA-Z0-9_-]{11})',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url_or_id)
+        if match:
+            return match.group(1)
+    if re.match(r'^[a-zA-Z0-9_-]{11}$', url_or_id):
+        return url_or_id
+    return hashlib.md5(url_or_id.encode()).hexdigest()[:11]
+
+
 def load_trust():
     if TRUST_FILE.exists():
         try:
@@ -270,6 +284,59 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
     dupe_count = total_requested - len(all_wavs)
     logger.info(f"Downloaded {len(all_wavs)} unique videos ({dupe_count} duplicates filtered) across {len(queries)} queries")
+    return all_wavs
+
+
+def download_from_urls(urls: list, work_dir: Path) -> list:
+    """
+    Download specific YouTube videos by URL or video ID (not search).
+    Each URL gets a random 8-minute section for diversity.
+    Returns list of downloaded WAV paths (deduplicated by video ID).
+    """
+    seen_ids = set()
+    all_wavs = []
+
+    for i, url in enumerate(urls):
+        vid_id = extract_video_id(url)
+        if vid_id in seen_ids:
+            logger.info(f"Skipping duplicate video: {vid_id}")
+            continue
+        seen_ids.add(vid_id)
+
+        output_template = work_dir / f"v{i}_%(id)s.%(ext)s"
+
+        section_start = random.randint(0, 240)
+        section_end = section_start + 480
+        section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
+
+        cmd = [
+            YT_DLP,
+            "--extract-audio",
+            "--audio-format", "wav",
+            "--audio-quality", "0",
+            "--output", str(output_template),
+            "--no-playlist",
+            "--no-continue",
+            "--socket-timeout", "30",
+            "--retries", "2",
+            "--download-sections", section,
+            url,
+        ]
+
+        logger.info(f"Downloading [{i + 1}/{len(urls)}]: {url} (section {section})")
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=180)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"yt-dlp failed for '{url}': {e.stderr[:200]}")
+        except subprocess.TimeoutExpired as e:
+            stderr = (e.stderr or b"") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            stderr = stderr[:200] if stderr else "(no output)"
+            logger.error(f"yt-dlp timed out for '{url}': {stderr}")
+
+        for wav in sorted(work_dir.glob(f"v{i}_*.wav")):
+            all_wavs.append(wav)
+
+    logger.info(f"Downloaded {len(all_wavs)} videos from {len(urls)} URLs ({len(urls) - len(all_wavs)} failed)")
     return all_wavs
 
 
@@ -838,6 +905,10 @@ async def main():
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
     parser.add_argument("--max-per-video", type=int, default=3, help="Max samples to keep per source video (default: 3)")
     parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
+    parser.add_argument("--video-url", action="append", default=None,
+                        help="YouTube URL or video ID to download (repeatable, skips search)")
+    parser.add_argument("--videos-file", type=str, default=None,
+                        help="File with one YouTube URL/ID per line (skips search)")
     args = parser.parse_args()
 
     # Serialize runs so only one yt-dlp instance runs at a time.
@@ -849,6 +920,17 @@ async def main():
     except BlockingIOError:
         logger.error("Another generate_samples.py instance is already running. Exiting.")
         sys.exit(1)
+
+    # Collect manual URLs if provided
+    urls = []
+    if args.video_url:
+        urls.extend(args.video_url)
+    if args.videos_file:
+        with open(args.videos_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    urls.append(line)
 
     # Load trust preferences
     trust_data = load_trust()
@@ -880,7 +962,11 @@ async def main():
 
     try:
         # 1. Download
-        wav_paths = generator.download(work_dir)
+        if urls:
+            logger.info(f"Using {len(urls)} provided URL(s) (search disabled)")
+            wav_paths = download_from_urls(urls, work_dir)
+        else:
+            wav_paths = generator.download(work_dir)
         if not wav_paths:
             logger.error("No audio downloaded. Check yt-dlp and target name.")
             return

@@ -44,6 +44,7 @@ from scripts.generate_samples import (
     VAD,
     TitaNetEmbedder,
     search_and_download,
+    download_from_urls,
     AUDIO_LIBRARY,
     CALLBACK_PREFIX,
 )
@@ -126,9 +127,16 @@ async def _process_sample_generation(job, job_token, progress=None):
 
     try:
         # 1. Download
-        wav_paths = await run_blocking(
-            search_and_download, target, 7, work_dir
-        )
+        urls = job.data.get("urls")
+        if urls:
+            logger.info(f"[{job_id}] Using {len(urls)} provided URL(s) (search disabled)")
+            wav_paths = await run_blocking(
+                download_from_urls, urls, work_dir
+            )
+        else:
+            wav_paths = await run_blocking(
+                search_and_download, target, 7, work_dir
+            )
         if not wav_paths:
             progress.update({"stage": "failed", "error": "No audio downloaded"})
             await run_blocking(
