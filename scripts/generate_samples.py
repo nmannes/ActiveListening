@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import fcntl
 import hashlib
 import random
 import shutil
@@ -71,6 +72,7 @@ logger = logging.getLogger("generate_samples")
 AUDIO_LIBRARY = Path("~/audio-library").expanduser()
 TRUST_FILE = AUDIO_LIBRARY / "trust.json"
 CALLBACK_PREFIX = "gs"  # short prefix to save callback_data bytes
+LOCK_FILE = Path("/tmp/generate_samples.lock")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -243,6 +245,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
+            "--retries", "2",
             "--playlist-random",
             "--playlist-end", str(count),
             "--download-sections", section,
@@ -837,6 +840,16 @@ async def main():
     parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
     args = parser.parse_args()
 
+    # Serialize runs so only one yt-dlp instance runs at a time.
+    # Concurrent yt-dlp processes trigger YouTube rate limiting and
+    # JS challenge solving that causes consistent 90s timeouts.
+    lock_fd = open(LOCK_FILE, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        logger.error("Another generate_samples.py instance is already running. Exiting.")
+        sys.exit(1)
+
     # Load trust preferences
     trust_data = load_trust()
 
@@ -912,6 +925,9 @@ async def main():
             save_to_library(generator, approved, max_total=generator.max_total)
 
     finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
         # Only clean up if no pending verifications; otherwise the save
         # job (triggered by telegram_server callbacks) will clean up.
         if pending > 0:
