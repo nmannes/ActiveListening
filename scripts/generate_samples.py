@@ -139,13 +139,15 @@ class VAD:
             audio = audio.astype(np.float32)
 
         tensor = torch.from_numpy(audio)
+        # Jitter VAD thresholds so segment boundaries shift between runs,
+        # producing slightly different crops of the same audio.
         timestamps = self.utils[0](
             tensor,
             self.model,
             sampling_rate=self.sample_rate,
-            min_speech_duration_ms=600,
-            min_silence_duration_ms=600,
-            speech_pad_ms=300,
+            min_speech_duration_ms=500 + random.randint(0, 200),
+            min_silence_duration_ms=500 + random.randint(0, 200),
+            speech_pad_ms=200 + random.randint(0, 200),
         )
         return [(ts["start"], ts["end"]) for ts in timestamps]
 
@@ -221,8 +223,16 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
         if count <= 0:
             continue
         total_requested += count
-        query = f"ytsearch{count}:{q}"
+        # Search for 3x results and pick a random subset via --playlist-random
+        # so different runs download different videos for the same speaker.
+        query = f"ytsearch{count * 3}:{q}"
         output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
+
+        # Pick a random 8-minute window from the first ~12 minutes so each
+        # run samples a different portion of the same video.
+        section_start = random.randint(0, 240)
+        section_end = section_start + 480
+        section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
 
         cmd = [
             YT_DLP,
@@ -233,11 +243,13 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
             "--no-playlist",
             "--no-continue",
             "--socket-timeout", "30",
-            "--download-sections", "*0:00-8:00",
+            "--playlist-random",
+            "--playlist-end", str(count),
+            "--download-sections", section,
             query,
         ]
 
-        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos)")
+        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, section {section})")
         try:
             subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=180)
         except subprocess.CalledProcessError as e:
@@ -301,7 +313,8 @@ class SampleGenerator:
 
                 # Merge adjacent segments that are close together to form
                 # longer utterances — useful for human voice identification.
-                max_gap_s = 1.5  # merge segments within 1.5s of each other
+                # Jitter the gap threshold so merge boundaries vary across runs.
+                max_gap_s = 1.0 + random.random() * 1.0  # 1.0–2.0s
                 merged = []
                 for ts in timestamps:
                     start_s, end_s = ts[0] / 16000, ts[1] / 16000
