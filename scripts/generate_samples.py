@@ -161,9 +161,9 @@ class VAD:
             tensor,
             self.model,
             sampling_rate=self.sample_rate,
-            min_speech_duration_ms=500 + random.randint(0, 200),
-            min_silence_duration_ms=500 + random.randint(0, 200),
-            speech_pad_ms=200 + random.randint(0, 200),
+            min_speech_duration_ms=300 + random.randint(0, 200),
+            min_silence_duration_ms=200 + random.randint(0, 200),
+            speech_pad_ms=100 + random.randint(0, 150),
         )
         return [(ts["start"], ts["end"]) for ts in timestamps]
 
@@ -384,7 +384,7 @@ class SampleGenerator:
                 # Merge adjacent segments that are close together to form
                 # longer utterances — useful for human voice identification.
                 # Jitter the gap threshold so merge boundaries vary across runs.
-                max_gap_s = 1.0 + random.random() * 1.0  # 1.0–2.0s
+                max_gap_s = 0.3 + random.random() * 0.5  # 0.3–0.8s
                 merged = []
                 for ts in timestamps:
                     start_s, end_s = ts[0] / 16000, ts[1] / 16000
@@ -398,7 +398,7 @@ class SampleGenerator:
                     end_sample = int(end_s * 16000)
                     chunk = audio[start_sample:end_sample]
                     duration = end_s - start_s
-                    if 4.0 <= duration <= 60.0:
+                    if 2.0 <= duration <= 60.0:
                         raw_segments.append({
                             "audio": chunk,
                             "duration": round(duration, 2),

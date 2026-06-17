@@ -159,7 +159,7 @@ async def _process_sample_generation(job, job_token, progress=None):
                     if sr != 16000:
                         audio = librosa.resample(audio, orig_sr=sr, target_sr=16000)
                     timestamps = vad.get_speech_segments(audio)
-                    max_gap_s = 1.5
+                    max_gap_s = 0.5
                     merged = []
                     for ts in timestamps:
                         start_s, end_s = ts[0] / 16000, ts[1] / 16000
@@ -169,7 +169,7 @@ async def _process_sample_generation(job, job_token, progress=None):
                             merged.append((start_s, end_s))
                     for start_s, end_s in merged:
                         duration = end_s - start_s
-                        if 4.0 <= duration <= 60.0:
+                        if 2.0 <= duration <= 60.0:
                             start_sample = int(start_s * 16000)
                             end_sample = int(end_s * 16000)
                             raw_segments.append({
