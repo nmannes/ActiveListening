@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -87,24 +88,51 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_generate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    target = " ".join(context.args) if context.args else None
+    args = list(context.args) if context.args else []
+
+    # Separate YouTube URLs from target name words
+    url_pattern = re.compile(r'^(https?://)?(www\.)?(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/|youtube\.com/live/)[\w-]+', re.IGNORECASE)
+    name_words = []
+    urls = []
+    for a in args:
+        if url_pattern.match(a):
+            urls.append(a)
+        else:
+            name_words.append(a)
+
+    target = " ".join(name_words) if name_words else None
     if not target:
-        await update.message.reply_text("Usage: `/generate Donald Trump`", parse_mode="Markdown")
+        await update.message.reply_text(
+            "Usage: `/generate Name [url ...]`\n\n"
+            "Examples:\n"
+            "`/generate Donald Trump` — search YouTube\n"
+            "`/generate Donald Trump https://youtube.com/watch\\?v=...` — use specific video",
+            parse_mode="Markdown",
+        )
         return
 
-    queue = context.application.bot_data["gen_queue"]
-    job = await queue.add("generate_samples", {
+    job_data = {
         "target": target,
         "chat_id": update.effective_chat.id,
-    })
+    }
+    if urls:
+        job_data["urls"] = urls
+
+    queue = context.application.bot_data["gen_queue"]
+    job = await queue.add("generate_samples", job_data)
     counts = await queue.getJobCounts()
 
-    await update.message.reply_text(
+    msg = (
         f"📥 Enqueued sample generation for *{target}*\n"
         f"Job: `{job.id}`\n"
-        f"Queue depth: {counts.get('waiting', 0) + counts.get('active', 0)}",
-        parse_mode="Markdown",
+        f"Queue depth: {counts.get('waiting', 0) + counts.get('active', 0)}"
     )
+    if urls:
+        msg += f"\nUsing {len(urls)} provided URL(s) (no search)"
+    else:
+        msg += "\nSearching YouTube"
+
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):

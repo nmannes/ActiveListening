@@ -822,9 +822,32 @@ const AUDIO_LIBRARY = path.join(require("os").homedir(), "audio-library");
 
 app.post("/api/voice/generate", async (req, res) => {
     try {
-        const { target, urls } = req.body;
+        let { target, urls } = req.body;
         if (!target || typeof target !== "string" || !target.trim()) {
             return res.status(400).json({ error: "Missing or invalid target name" });
+        }
+
+        // Collect URLs from the urls array (if provided)
+        const allUrls = [];
+        if (urls && Array.isArray(urls)) {
+            for (const u of urls) {
+                if (u && typeof u === "string" && u.trim()) {
+                    allUrls.push(u.trim());
+                }
+            }
+        }
+
+        // Also detect YouTube URLs pasted directly into the target name field
+        const urlRegex = /\b(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+|youtube\.com\/(embed|shorts|live)\/[\w-]+)(\S*)?\b/gi;
+        const foundUrls = target.match(urlRegex) || [];
+        for (const u of foundUrls) {
+            allUrls.push(u);
+        }
+        // Remove URLs from the target name so they don't become part of the search
+        target = target.replace(urlRegex, "").replace(/\s+/g, " ").trim();
+
+        if (!target) {
+            return res.status(400).json({ error: "Missing or invalid target name after removing URLs" });
         }
 
         const slug = target.toLowerCase().trim()
@@ -834,12 +857,9 @@ app.post("/api/voice/generate", async (req, res) => {
             .replace(/^-|-$/g, "");
 
         const jobData = { target: target.trim() };
-        if (urls && Array.isArray(urls) && urls.length > 0) {
-            // Deduplicate and strip empty strings
-            const deduped = [...new Set(urls.map(u => u.trim()).filter(Boolean))];
-            if (deduped.length > 0) {
-                jobData.urls = deduped;
-            }
+        const deduped = [...new Set(allUrls)];
+        if (deduped.length > 0) {
+            jobData.urls = deduped;
         }
 
         const job = await sampleGenQueue.add("generate_samples", jobData);
@@ -847,7 +867,7 @@ app.post("/api/voice/generate", async (req, res) => {
         const counts = await sampleGenQueue.getJobCounts();
         const depth = (counts.waiting || 0) + (counts.active || 0) + (counts.delayed || 0);
 
-        res.json({ success: true, jobId: job.id, slug, queueDepth: depth });
+        res.json({ success: true, jobId: job.id, slug, queueDepth: depth, urls: deduped.length });
     } catch (e) {
         console.error(`Error in POST /api/voice/generate: ${e.message}`);
         res.status(500).json({ error: e.message });

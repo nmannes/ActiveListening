@@ -493,7 +493,19 @@
             const input = document.getElementById('generate-input');
             const urlsEl = document.getElementById('generate-urls');
             const btn = document.getElementById('generate-btn');
-            const target = input.value.trim();
+            let target = input.value.trim();
+            if (!target) { showToast('Please enter a speaker name', true); return; }
+
+            // Auto-detect YouTube URLs pasted into the name field and move them to the textarea
+            const urlRegex = /\b(https?:\/\/)?(www\.)?(youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+|youtube\.com\/(embed|shorts|live)\/[\w-]+)(\S*)?\b/gi;
+            const foundUrls = target.match(urlRegex) || [];
+            if (foundUrls.length > 0) {
+                target = target.replace(urlRegex, "").replace(/\s+/g, " ").trim();
+                input.value = target;
+                const existing = urlsEl.value.trim();
+                urlsEl.value = (existing ? existing + "\n" : "") + foundUrls.join("\n");
+                showToast(`Detected ${foundUrls.length} YouTube URL(s) — moved to URL field`);
+            }
             if (!target) { showToast('Please enter a speaker name', true); return; }
 
             const urlsRaw = urlsEl.value.trim();
@@ -516,9 +528,10 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Failed');
 
+                const urlInfo = (data.urls > 0) ? `<br>Using ${data.urls} URL(s) (no search)` : '<br>Searching YouTube';
                 resultDiv.innerHTML = `
                     <strong>Job enqueued!</strong><br>
-                    Target: ${target}${urls.length ? `<br>URLs: ${urls.length}` : ''}<br>
+                    Target: ${target}${urlInfo}<br>
                     Job ID: <code>${data.jobId}</code><br>
                     Queue depth: ${data.queueDepth}
                 `;
