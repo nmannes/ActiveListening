@@ -239,11 +239,13 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
         logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos)")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=90)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=180)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
-        except subprocess.TimeoutExpired:
-            logger.error(f"yt-dlp timed out for '{q}'")
+        except subprocess.TimeoutExpired as e:
+            stderr = (e.stderr or b"") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            stderr = stderr[:200] if stderr else "(no output)"
+            logger.error(f"yt-dlp timed out for '{q}': {stderr}")
 
         for wav in sorted(work_dir.glob(f"q{i}_*.wav")):
             vid_id = wav.stem.split("_", 1)[1] if "_" in wav.stem else wav.stem
