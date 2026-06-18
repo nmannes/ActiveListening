@@ -448,6 +448,17 @@ class SpeakerRecognitionSession:
             elif matches:
                 logger.debug(f"[{self.session_id}] No match is a market entity — treating as negative match")
 
+            # Send scores to client on every identification attempt
+            try:
+                await self.listening_session.websocket.send(json.dumps({
+                    "type": "speaker_identified",
+                    "speaker_id": speaker_id,
+                    "entity": matched_entity,
+                    "scores": scores,
+                }))
+            except Exception as e:
+                logger.error(f"[{self.session_id}] Failed to send speaker_identified to client: {e}")
+
             if matches and matched_entity:
                 self.set_profile_label(speaker_id, matched_entity)
                 if hasattr(self.listening_session, "trade_processor"):
@@ -485,17 +496,6 @@ class SpeakerRecognitionSession:
                     loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "debug")
                 except Exception as e:
                     logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
-
-                # Notify the client
-                try:
-                    await self.listening_session.websocket.send(json.dumps({
-                        "type": "speaker_identified",
-                        "speaker_id": speaker_id,
-                        "entity": matched_entity,
-                        "scores": scores,
-                    }, indent=2))
-                except Exception as e:
-                    logger.error(f"[{self.session_id}] Failed to send speaker_identified to client: {e}")
 
                 matched_any = True
 

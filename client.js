@@ -302,11 +302,16 @@ function connectWebSocket() {
         lastTranscriptTime = Date.now();
         logger.info(`TRANSCRIPT: ${msg.text}`);
       } else if (msg.type === "speaker_identified") {
-        const sortedScores = Object.entries(msg.scores)
+        const topScores = Object.entries(msg.scores)
           .sort(([, a], [, b]) => b - a)
-          .map(([name, score]) => `  ${name}: ${score}`)
+          .slice(0, 10)
+          .map(([name, score]) => `  ${name}: ${score.toFixed(4)}`)
           .join("\n");
-        logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity}\n${sortedScores}`);
+        if (msg.entity) {
+          logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity}\n${topScores}`);
+        } else {
+          logger.info(`SPEAKER SCORES: speaker ${msg.speaker_id} (no match above threshold)\n${topScores}`);
+        }
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
         logger.info(`RTT: ${rtt}ms`);
