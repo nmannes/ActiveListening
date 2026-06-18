@@ -107,19 +107,19 @@ def main():
     cmd = args.command
 
     if cmd == "discover":
-        sys.exit(node("e2e_discovery.js", *extra))
+        sys.exit(node("src/js/e2e_discovery.js", *extra))
 
     elif cmd == "schedule":
-        sys.exit(node("schedule_matches.js", *extra))
+        sys.exit(node("src/js/schedule_matches.js", *extra))
 
     elif cmd == "listen":
-        sys.exit(bash("run_sample.sh", args.file, *extra))
+        sys.exit(bash("src/bash/run_sample.sh", args.file, *extra))
 
     elif cmd == "server":
-        sys.exit(python("server.py", *extra))
+        sys.exit(python("src/python/server.py", *extra))
 
     elif cmd == "js-worker":
-        sys.exit(node("worker.js", *extra))
+        sys.exit(node("src/js/worker.js", *extra))
 
     elif cmd == "generate":
         gen_args = [args.target]
@@ -133,40 +133,40 @@ def main():
             gen_args.append("--skip-verify")
         if args.dry_run:
             gen_args.append("--dry-run")
-        sys.exit(python("scripts/generate_samples.py", *(gen_args + extra)))
+        sys.exit(python("src/python/scripts/generate_samples.py", *(gen_args + extra)))
 
     elif cmd == "build-library":
-        sys.exit(python("scripts/build_audio_library.py", *extra))
+        sys.exit(python("src/python/scripts/build_audio_library.py", *extra))
 
     elif cmd == "bot":
         bot_args = []
         if getattr(args, "debug", False):
             bot_args.append("--debug")
-        sys.exit(python("telegram_server.py", *(bot_args + extra)))
+        sys.exit(python("src/python/telegram_server.py", *(bot_args + extra)))
 
     elif cmd == "queue-worker":
         qw_args = []
         if getattr(args, "debug", False):
             qw_args.append("--debug")
-        sys.exit(python("scripts/queue_worker.py", *(qw_args + extra)))
+        sys.exit(python("src/python/scripts/queue_worker.py", *(qw_args + extra)))
 
     elif cmd == "deploy":
-        sys.exit(bash("sync_code.sh", *extra))
+        sys.exit(bash("src/bash/sync_code.sh", *extra))
 
     elif cmd == "launch-gpu":
-        sys.exit(bash("launch_gpu_server.sh", *extra))
+        sys.exit(bash("src/bash/launch_gpu_server.sh", *extra))
 
     elif cmd == "destroy":
-        sys.exit(bash("destroy_all_instances.sh", *extra))
+        sys.exit(bash("src/bash/destroy_all_instances.sh", *extra))
 
     elif cmd == "logs":
-        sys.exit(bash("sync_logs.sh", *extra))
+        sys.exit(bash("src/bash/sync_logs.sh", *extra))
 
     elif cmd == "ui":
-        sys.exit(node("market_ui.js", *extra))
+        sys.exit(node("src/js/market_ui.js", *extra))
 
     elif cmd == "test":
-        sys.exit(python("-m", "pytest", "tests", *extra))
+        sys.exit(python("-m", "pytest", "src/python/tests", *extra))
 
     else:
         parser.print_help()

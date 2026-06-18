@@ -8,8 +8,8 @@ import json
 import os
 import sys
 
-# Add parent dir to path so we can import kalshi/clip.py
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add src/python to path so we can import pylib/clip.py
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src", "python")))
 
 from pylib.clip import FrameClassifier
 

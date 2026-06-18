@@ -1,0 +1,193 @@
+#!/usr/bin/env python
+"""
+build_audio_library.py — Compiles labeled speaker samples into the audio-library/
+
+Reads speaker_labels.json, maps identities to their .wav files in s3/{session_id}/audio/,
+and copies them into audio-library/ with a standardized slugified filename
+for easy loading by SpeakerIdentifier.
+"""
+
+import json
+import logging
+import os
+import re
+import shutil
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+)
+logger = logging.getLogger(__name__)
+
+def slugify(name: str) -> str:
+    """Convert an identity name to a filename-safe slug. e.g. 'Steve Bannon' -> 'steve-bannon'"""
+    slug = name.lower().strip()
+    slug = re.sub(r'[^a-z0-9\s-]', '', slug)
+    slug = re.sub(r'[\s]+', '-', slug)
+    slug = re.sub(r'-+', '-', slug)
+    return slug.strip('-')
+
+def main():
+    root_dir = Path(__file__).resolve().parent.parent.parent
+    s3_dir = root_dir / "s3"
+    labels_file = root_dir / "speaker_labels.json"
+    output_dir = Path("~/audio-library").expanduser()
+    cache_dir = root_dir / "cache"
+
+    if not labels_file.exists():
+        logger.error(f"Labels file not found: {labels_file}")
+        return
+
+    # Ensure output directory exists
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Early exit: skip if nothing has changed since the last successful build
+    state_file = cache_dir / "build_state.json"
+    try:
+        with open(labels_file, "r") as f:
+            labels_data = json.load(f)
+        expected_count = 0
+        for session_id, speaker_map in labels_data.items():
+            for speaker_id, identity in speaker_map.items():
+                if not identity:
+                    continue
+                wav_path = s3_dir / session_id / "audio" / f"speaker_{speaker_id}.wav"
+                if wav_path.exists():
+                    expected_count += 1
+        if state_file.exists():
+            state = json.loads(state_file.read_text())
+            if state.get("last_count") == expected_count:
+                logger.info(f"Expected count unchanged ({expected_count}). Skipping build.")
+                return
+        logger.info(f"Count changed ({state.get('last_count', 0) if state_file.exists() else 0} -> {expected_count}), building...")
+    except Exception as e:
+        logger.warning(f"Failed early check (proceeding with full build/sync): {e}")
+
+    import argparse
+    import sys
+    sys.path.append(str(root_dir))
+    sys.path.append(str(root_dir / "src" / "python"))
+    from server import Config
+
+    config = Config(argparse.Namespace())
+    output_dir = config.audio_library_path
+    
+    with open(labels_file, "r") as f:
+        labels_data = json.load(f)
+        
+    # Map identity -> list of source wav files
+    identity_sources = {}
+    
+    for session_id, speaker_map in labels_data.items():
+        for speaker_id, identity in speaker_map.items():
+            if not identity:
+                continue
+                
+            slug = slugify(identity)
+            # Find the corresponding wav file
+            # Format: <session_id>_speaker_<speaker_id>.wav
+            wav_path = s3_dir / session_id / "audio" / f"speaker_{speaker_id}.wav"
+            
+            if not wav_path.exists():
+                logger.warning(f"Audio file not found for {identity}: {wav_path}")
+                continue
+                
+            if slug not in identity_sources:
+                identity_sources[slug] = []
+                
+            identity_sources[slug].append(wav_path)
+            
+    logger.info(f"Found {len(identity_sources)} unique identities.")
+    
+    # Copy all samples for each identity to audio-library/ with numeric suffixes.
+    # The largest file gets the base slug; additional files get -1, -2, etc.
+    # This allows multiple voice samples per target — the prefix matching in
+    # speaker_recognition.py treats "donald-trump-1" as a match for "donald-trump".
+    for slug, sources in identity_sources.items():
+        sources.sort(key=lambda p: p.stat().st_size, reverse=True)
+        for i, source in enumerate(sources):
+            suffix = f"-{i}" if i > 0 else ""
+            dest_path = output_dir / f"{slug}{suffix}.wav"
+            if not dest_path.exists():
+                shutil.copy2(source, dest_path)
+                logger.info(f"Copied {source.name} -> {dest_path.name} (size: {source.stat().st_size} bytes)")
+        
+    logger.info(f"Successfully populated {output_dir} with {len(identity_sources)} reference samples.")
+
+    # Pre-compute embeddings locally so we don't have to sync the .wav files
+    logger.info("Pre-computing TitaNet embeddings for the library...")
+    import asyncio
+    import sys
+    import librosa
+    import torch
+    # Add root dir to path so we can import pylib
+    sys.path.append(str(root_dir))
+    from pylib.speaker_identifier import SpeakerIdentifier
+    
+    async def compute_embeddings():
+        identifier = SpeakerIdentifier(audio_library_path=output_dir, device="cpu")
+        await identifier.initialize()
+        
+        loop = asyncio.get_running_loop()
+        for wav_path in sorted(output_dir.glob("*.wav")):
+            name = wav_path.stem
+            emb_path = wav_path.with_suffix(".embedding")
+            if emb_path.exists():
+                logger.info(f"Embedding already exists for {name}, skipping.")
+                continue
+                
+            logger.info(f"Computing reference embedding from wav: {name}")
+            try:
+                audio = await loop.run_in_executor(
+                    None, lambda p=wav_path: librosa.load(str(p), sr=16000, duration=60)[0]
+                )
+                emb = await identifier._embed(audio)
+                if emb is not None:
+                    await loop.run_in_executor(
+                        None, lambda p=emb_path, t=emb: torch.save(t, str(p))
+                    )
+                    logger.info(f"Saved pre-computed embedding to {emb_path}")
+            except Exception as e:
+                logger.error(f"Failed to compute/save embedding for {name}: {e}")
+
+    asyncio.run(compute_embeddings())
+    logger.info("Embeddings successfully pre-computed.")
+
+    # Record successful build so future runs can skip if nothing changed
+    try:
+        state_file.write_text(json.dumps({"last_count": len(identity_sources)}))
+    except Exception as e:
+        logger.warning(f"Failed to write build state: {e}")
+
+    # Sync pre-computed embeddings to S3 speaker_embeddings folder
+    logger.info("Syncing pre-computed embeddings to S3...")
+    try:
+        import boto3
+        bucket = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
+        s3 = boto3.client("s3")
+        
+        local_files = sorted(output_dir.glob("*.embedding"))
+        
+        resp = s3.list_objects_v2(Bucket=bucket, Prefix="speaker_embeddings/")
+        contents = resp.get("Contents", [])
+        s3_keys = [obj.get("Key", "") for obj in contents if obj.get("Key", "").endswith(".embedding")]
+        
+        logger.info(f"Local embedding count: {len(local_files)} | S3 embedding count: {len(s3_keys)}")
+        if len(local_files) == len(s3_keys):
+            logger.info("Counts match up. Skipping S3 sync upload.")
+        else:
+            upload_count = 0
+            for emb_path in local_files:
+                filename = emb_path.name
+                key = f"speaker_embeddings/{filename}"
+                logger.info(f"Uploading {filename} to s3://{bucket}/{key}...")
+                s3.upload_file(str(emb_path), bucket, key)
+                upload_count += 1
+            logger.info(f"Successfully synced {upload_count} embedding(s) to S3.")
+    except Exception as e:
+        logger.error(f"Failed to sync embeddings to S3: {e}")
+
+if __name__ == "__main__":
+    main()
