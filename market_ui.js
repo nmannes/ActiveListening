@@ -25,6 +25,7 @@ const CACHE_DIR = process.env.KALSHI_CACHE_DIR || path.join(DATA_DIR, "cache");
 const MATCHED_PATH = path.join(CACHE_DIR, "matched_markets.json");
 const UNMATCHED_PATH = path.join(CACHE_DIR, "unmatched_markets.json");
 const MANUAL_MATCHES_PATH = path.join(CACHE_DIR, "manual_matches.json");
+const UNSCHEDULED_PATH = path.join(CACHE_DIR, "unscheduled.json");
 const DATA_ENTRIES_PATH = path.join(CACHE_DIR, "data_entries.json");
 const SAMPLES_DIR = path.join(DATA_DIR, "sample-scheduling");
 
@@ -32,6 +33,7 @@ const SAMPLES_DIR = path.join(DATA_DIR, "sample-scheduling");
 [MATCHED_PATH, UNMATCHED_PATH, MANUAL_MATCHES_PATH].forEach(p => {
     if (!fs.existsSync(p)) fs.writeFileSync(p, JSON.stringify([], null, 2));
 });
+if (!fs.existsSync(UNSCHEDULED_PATH)) fs.writeFileSync(UNSCHEDULED_PATH, JSON.stringify([], null, 2));
 if (!fs.existsSync(DATA_ENTRIES_PATH)) fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify([], null, 2));
 if (!fs.existsSync(SAMPLES_DIR)) fs.mkdirSync(SAMPLES_DIR, { recursive: true });
 
@@ -195,6 +197,56 @@ app.delete("/api/manual-match/:slug", (req, res) => {
         manual = manual.filter(m => m.market.slug !== slug);
         fs.writeFileSync(MANUAL_MATCHES_PATH, JSON.stringify(manual, null, 2));
         res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete("/api/scheduled/:slug", async (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const scheduledDir = path.join(DATA_DIR, "scheduled");
+        const filePath = path.join(scheduledDir, `${slug}.json`);
+
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+
+        // Also check the alternate scheduled dir if KALSHI_CACHE_DIR is set
+        if (process.env.KALSHI_CACHE_DIR) {
+            const altDir = path.resolve(process.env.KALSHI_CACHE_DIR, "../scheduled");
+            if (altDir !== scheduledDir) {
+                const altPath = path.join(altDir, `${slug}.json`);
+                if (fs.existsSync(altPath)) {
+                    fs.unlinkSync(altPath);
+                }
+            }
+        }
+
+        // Add to blocklist so the next scheduling run won't re-schedule
+        const blocked = readJsonFile(UNSCHEDULED_PATH, []);
+        if (!blocked.includes(slug)) {
+            blocked.push(slug);
+            fs.writeFileSync(UNSCHEDULED_PATH, JSON.stringify(blocked, null, 2));
+        }
+
+        // Remove pending BullMQ run-client jobs for this slug
+        try {
+            const jobs = await runClientQueue.getJobs(["delayed", "waiting", "paused"]);
+            for (const job of jobs) {
+                if (job.id && job.id.startsWith(`${slug}-`)) {
+                    await job.remove();
+                }
+            }
+        } catch (e) {
+            console.error(`Failed to remove BullMQ jobs for ${slug}: ${e.message}`);
+        }
+
+        res.json({ success: true, unscheduled: slug });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

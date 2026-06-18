@@ -216,7 +216,8 @@ async function enqueueMissingSamples(matches) {
     const entities = m.market?.speakerEntities;
     if (!entities) continue;
     for (const name of entities) {
-      if (name && name !== "announcer" && name !== "panelist" && name !== "contestant") {
+      const lower = name ? name.toLowerCase() : "";
+      if (lower && lower !== "announcer" && lower !== "panelist" && !lower.includes("employee") && !lower.includes("contestant")) {
         speakers.add(name);
       }
     }

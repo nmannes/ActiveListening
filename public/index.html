@@ -583,6 +583,7 @@
                     <div class="market-actions">
                         <button class="secondary" onclick="openEditModal('${m.market.slug}', '${streamUrl}')">Edit</button>
                         ${m.manual ? `<button class="danger" onclick="removeManual('${m.market.slug}')">Revert</button>` : ''}
+                        ${m.market.isScheduled ? `<button class="danger" onclick="unscheduleJob('${m.market.slug}')">Unschedule</button>` : ''}
                     </div>
                 `;
                 container.appendChild(card);
@@ -699,6 +700,17 @@
 
         async function removeManual(slug) {
             await fetch(`/api/manual-match/${slug}`, { method: "DELETE" });
+            fetchMarkets();
+        }
+
+        async function unscheduleJob(slug) {
+            if (!confirm(`Unschedule "${slug}"? This deletes the scheduled job file.`)) return;
+            const res = await fetch(`/api/scheduled/${slug}`, { method: "DELETE" });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                alert(data.error || "Failed to unschedule");
+                return;
+            }
             fetchMarkets();
         }
 
