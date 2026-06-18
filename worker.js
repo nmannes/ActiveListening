@@ -5,9 +5,10 @@ const { exec } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { connection } = require("./lib/queues");
+const { worker: workerConfig } = require("./lib/config");
 
-const CPU_THRESHOLD = 0.5; // reschedule non-client jobs when 1m load avg exceeds 50% of cpu count
-const RESCHEDULE_DELAY_MS = 30 * 60 * 1000; // 30 minutes
+const CPU_THRESHOLD = workerConfig.cpuThreshold;
+const RESCHEDULE_DELAY_MS = workerConfig.rescheduleDelayMinutes * 60 * 1000;
 
 const SCRIPT_DIR = __dirname;
 
@@ -107,7 +108,7 @@ const runClientWorker = new Worker(
       }
     }
   },
-  { connection, concurrency: 5, lockDuration: 3.5 * 60 * 60 * 1000, stalledInterval: 3.5 * 60 * 60 * 1000 },
+  { connection, concurrency: 5, lockDuration: workerConfig.runClientLockDurationHours * 60 * 60 * 1000, stalledInterval: workerConfig.runClientLockDurationHours * 60 * 60 * 1000 },
 );
 
 const syncWorker = new Worker(
@@ -125,7 +126,7 @@ const syncWorker = new Worker(
     const { runUUID, sessionId } = job.data;
     await spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
   },
-  { connection, concurrency: 1, lockDuration: 10 * 60 * 1000 },
+  { connection, concurrency: 1, lockDuration: workerConfig.logSyncLockDurationMinutes * 60 * 1000 },
 );
 
 const schedulingLoopWorker = new Worker(
@@ -143,7 +144,7 @@ const schedulingLoopWorker = new Worker(
     await spawn(`bun run e2e_discovery.js`, job);
     await spawn(`bun run schedule_matches.js`, job);
   },
-  { connection, concurrency: 1, lockDuration: 10 * 60 * 1000, stalledInterval: 10 * 60 * 1000 },
+  { connection, concurrency: 1, lockDuration: workerConfig.schedulingLoopLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.schedulingLoopLockDurationMinutes * 60 * 1000 },
 );
 
 console.log("[worker] BullMQ worker started — listening on run-client, log-sync, scheduling-loop");

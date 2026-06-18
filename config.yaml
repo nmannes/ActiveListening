@@ -1,0 +1,149 @@
+# config.yaml — Single source of truth for all runtime configuration.
+# Read by JS (js-yaml), Python (pyyaml), and bash (via get_config.py helper).
+
+# ── Event durations ──────────────────────────────────────────────────────
+durations:
+  defaultMinutes: 60
+  clientFallbackMinutes: 90
+
+# ── Scheduling timing ────────────────────────────────────────────────────
+timing:
+  schedulePaddingMinutes: 10
+  launchBufferMinutes: 10
+  startBufferSeconds: 5
+  staleThresholdMinutes: 30
+  discoveryIntervalMinutes: 60
+  maxScheduledFileAgeHours: 24
+
+# ── Lookahead ────────────────────────────────────────────────────────────
+lookahead:
+  defaultHours: 168
+
+# ── BullMQ worker ────────────────────────────────────────────────────────
+worker:
+  cpuThreshold: 0.5
+  rescheduleDelayMinutes: 30
+  runClientLockDurationHours: 3.5
+  logSyncLockDurationMinutes: 10
+  schedulingLoopLockDurationMinutes: 10
+  runClientConcurrency: 5
+  logSyncConcurrency: 1
+  schedulingLoopConcurrency: 1
+
+# ── Child process supervision ────────────────────────────────────────────
+supervisor:
+  crashRestartDelayMs: 5000
+
+# ── Server / ports ───────────────────────────────────────────────────────
+server:
+  wsPort: 8090
+  uiPort: 3000
+  audioUdpPort: 8092
+  tvHeadendPort: 9981
+  speakerRecognitionIntervalSecs: 10
+  speakerRecognitionWordStep: 500
+  speakerRecognitionMaxWords: 10000
+  speakerRecognitionMaxDurationSecs: 600
+  audioInboxCapSecs: 60
+
+# ── Redis ────────────────────────────────────────────────────────────────
+redis:
+  host: "127.0.0.1"
+  port: 6379
+  cacheTtlSeconds: 604800        # 1 week
+
+# ── API endpoints ────────────────────────────────────────────────────────
+api:
+  kalshi:
+    prod: "https://api.elections.kalshi.com/trade-api/v2"
+    demo: "https://demo-api.kalshi.co/trade-api/v2"
+    wsProd: "wss://api.elections.kalshi.com/trade-api/ws/v2"
+    wsDemo: "wss://demo-api.kalshi.co/trade-api/ws/v2"
+  deepgram:
+    wsUrl: "wss://api.deepgram.com/v1/listen"
+
+# ── Audio / Deepgram ─────────────────────────────────────────────────────
+audio:
+  sampleRate: 16000
+  channels: 1
+  bytesPerSecond: 32000           # sampleRate * 2 bytes (16-bit) * channels
+  model: "nova-3"
+  vadTurnaroundMs: 10
+  endpointingMs: 100
+  keepaliveIntervalSecs: 5
+
+# ── AWS / Cloud ──────────────────────────────────────────────────────────
+aws:
+  region: "us-east-1"
+  keyName: "us-east-1"
+  s3Bucket: "recordings-846345203908-us-east-1-an"
+  deployBucket: "deploys"
+  cloudwatchLogGroup: "/kalshi/worker"
+  ec2:
+    amiId: "ami-04b70fa74e45c3917"   # Ubuntu 24.04
+    instanceUser: "ubuntu"
+    instanceHome: "/home/ubuntu"
+    sshKeyPath: "$HOME/.ssh/us-east-1.pem"
+    defaultShutdownMinutes: 45
+
+# ── Trading ──────────────────────────────────────────────────────────────
+trading:
+  defaultBuyCount: 40
+  defaultBuyMaxCost: 5
+  defaultLastWordsCount: 7
+  defaultDollarAmount: 5.0
+  kxwcDollarAmount: 25
+  defaultLimitPriceCents: 1
+  aggressiveLimitPriceCents: 99
+
+# ── CLIP / content detection ─────────────────────────────────────────────
+clip:
+  threshold: 0.55
+  defaultProfile: "basketball"
+
+# ── Word prediction ──────────────────────────────────────────────────────
+wordPrediction:
+  modelId: "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+  region: "us-east-1"
+  cacheSecs: 2.0
+  horizonSecs: 60
+
+# ── Speaker recognition ──────────────────────────────────────────────────
+speakerRecognition:
+  modelId: "us.amazon.nova-lite-v1:0"
+  region: "us-east-1"
+
+# ── Paths ────────────────────────────────────────────────────────────────
+paths:
+  python: "/home/nathan/.pyenv/shims/python"
+  chrome: "/usr/bin/google-chrome"
+  audioLibrary: "~/audio-library"
+
+# ── Puppeteer / scraper defaults ─────────────────────────────────────────
+puppeteer:
+  pageGotoTimeoutMs: 60000
+  pageGotoShortTimeoutMs: 30000
+  waitForSelectorTimeoutMs: 15000
+  waitForSelectorShortTimeoutMs: 10000
+
+# ── Provider retry / respawn defaults ────────────────────────────────────
+providers:
+  ffmpegRespawnDelayMs: 3000
+  maxBackoffMs: 10000
+  maxYoutubeBackoffMs: 30000
+
+# ── Client connection ────────────────────────────────────────────────────
+client:
+  wsReconnectDelayMs: 3000
+  wsMaxReconnectDurationMs: 120000    # 2 min
+  transcriptCheckIntervalMs: 5000
+  transcriptTimeoutSec: 1800          # 30 min
+
+# ── Orderbook ────────────────────────────────────────────────────────────
+orderbook:
+  pingIntervalMs: 10000
+
+# ── Logging ──────────────────────────────────────────────────────────────
+logging:
+  logDir: "runtime_logs"
+  defaultLogLookbackHours: 24

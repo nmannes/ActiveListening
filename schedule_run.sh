@@ -15,6 +15,7 @@
 set -e
 export TZ="America/New_York"
 BUN="bun"
+PYTHON="/home/nathan/.pyenv/shims/python"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -69,8 +70,13 @@ fi
 
 NOW_EPOCH=$(date +%s)
 
-DURATION_MINUTES=${DURATION_MINUTES:-30}
-SHUTDOWN_MINUTES=$((DURATION_MINUTES + 10))
+CONFIG_GET="$SCRIPT_DIR/get_config.py"
+CONFIG_DEFAULT_DURATION=$($PYTHON "$CONFIG_GET" durations defaultMinutes)
+CONFIG_SCHEDULE_PADDING=$($PYTHON "$CONFIG_GET" timing schedulePaddingMinutes)
+CONFIG_LAUNCH_BUFFER=$($PYTHON "$CONFIG_GET" timing launchBufferMinutes)
+
+DURATION_MINUTES=${DURATION_MINUTES:-$CONFIG_DEFAULT_DURATION}
+SHUTDOWN_MINUTES=$((DURATION_MINUTES + CONFIG_SCHEDULE_PADDING))
 
 START_HUMAN=$(date -d "@$START_EPOCH" '+%Y-%m-%d %H:%M:%S %Z')
 LAUNCH_EPOCH=$((START_EPOCH - 10 * 60))
@@ -116,7 +122,7 @@ fi
 
 NOW_MS=$((NOW_EPOCH * 1000))
 CLIENT_DELAY_MS=$(((LAUNCH_EPOCH - NOW_EPOCH) * 1000))
-SERVER_SHUTDOWN_MINUTES=$((DURATION_MINUTES + 20))  # duration + launch buffer + padding
+SERVER_SHUTDOWN_MINUTES=$((DURATION_MINUTES + CONFIG_LAUNCH_BUFFER + CONFIG_SCHEDULE_PADDING))
 
 $BUN run enqueue_run_client.js \
     --marketFile "$ABS_JSON_FILE" \

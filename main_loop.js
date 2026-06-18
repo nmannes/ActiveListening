@@ -12,13 +12,14 @@ for (const line of bashrcEnv.split("\n")) {
 
 const { schedulingLoopQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
+const config = require("./lib/config");
 
 const PYTHON = "/home/nathan/.pyenv/shims/python";
 const BUN = "bun";
 
 process.env.HF_HUB_DISABLE_PROMPT = "1";
 
-const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const DISCOVERY_INTERVAL_MS = config.timing.discoveryIntervalMinutes * 60 * 1000;
 
 async function start() {
   console.log("Starting Kalshi Main Event Loop...");

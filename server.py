@@ -42,6 +42,15 @@ from pylib.word_prediction import WordPredictor
 from pylib.log_config import setup_logging, run_uuid_var, set_run_uuid
 from pylib.telegram import send_telegram
 
+# ── Config ────────────────────────────────────────────────────────────
+
+def _load_config():
+    import yaml
+    config_yaml = Path(__file__).resolve().parent / "config.yaml"
+    with open(config_yaml) as f:
+        return yaml.safe_load(f)
+
+_config = _load_config()
 
 # ── Logging ───────────────────────────────────────────────────────────
 
@@ -49,11 +58,12 @@ logger, transcript_logger = setup_logging()
 
 # ── Constants ────────────────────────────────────────────────────────
 
-SPEAKER_RECOGNITION_INTERVAL_SECS = 10
-SPEAKER_RECOGNITION_WORD_STEP = 500
-SPEAKER_RECOGNITION_MAX_WORDS = 10000
-SPEAKER_RECOGNITION_MAX_DURATION_SECS = 600  # 10 minutes
-AUDIO_INBOX_CAP_SECS = 60
+_ws = _config["server"]
+SPEAKER_RECOGNITION_INTERVAL_SECS = _ws["speakerRecognitionIntervalSecs"]
+SPEAKER_RECOGNITION_WORD_STEP = _ws["speakerRecognitionWordStep"]
+SPEAKER_RECOGNITION_MAX_WORDS = _ws["speakerRecognitionMaxWords"]
+SPEAKER_RECOGNITION_MAX_DURATION_SECS = _ws["speakerRecognitionMaxDurationSecs"]
+AUDIO_INBOX_CAP_SECS = _ws["audioInboxCapSecs"]
 
 LOCK_PATH = Path(tempfile.gettempdir()) / "kalshi-server.lock"
 
@@ -433,7 +443,7 @@ async def main():
     parser = argparse.ArgumentParser(
         description="Remote transcription & trading server"
     )
-    parser.add_argument("--port", type=int, default=8090, help="WebSocket listen port")
+    parser.add_argument("--port", type=int, default=_config["server"]["wsPort"], help="WebSocket listen port")
     parser.add_argument(
         "--env",
         type=str,
@@ -446,13 +456,13 @@ async def main():
         default=os.environ.get("DEVICE", "cpu"),
         choices=["cpu", "cuda"],
     )
-    parser.add_argument("--buy-count", type=int, default=40)
-    parser.add_argument("--buy-max-cost", type=int, default=5, help="Max dollars to spend per market order")
-    parser.add_argument("--last-words-count", type=int, default=7)
+    parser.add_argument("--buy-count", type=int, default=_config["trading"]["defaultBuyCount"])
+    parser.add_argument("--buy-max-cost", type=int, default=_config["trading"]["defaultBuyMaxCost"], help="Max dollars to spend per market order")
+    parser.add_argument("--last-words-count", type=int, default=_config["trading"]["defaultLastWordsCount"])
     parser.add_argument(
         "--content-profile",
         type=str,
-        default="basketball",
+        default=_config["clip"]["defaultProfile"],
         help="CLIP content profile (default: basketball)",
     )
 

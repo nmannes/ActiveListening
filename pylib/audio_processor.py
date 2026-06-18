@@ -11,6 +11,17 @@ from pylib.telegram import send_telegram
 
 logger = logging.getLogger("remote_server")
 
+# Load centralized config
+def _load_config():
+    import yaml
+    config_yaml = Path(__file__).resolve().parent.parent / "config.yaml"
+    with open(config_yaml) as f:
+        return yaml.safe_load(f)
+
+_config = _load_config()
+_audio = _config["audio"]
+_dg = _config["api"]["deepgram"]
+
 
 class AudioProcessor:
     def __init__(self, session, on_tokens_callback=None, word_predictor=None):
@@ -20,19 +31,18 @@ class AudioProcessor:
 
         # Deepgram specific configuration
         self.api_key = os.environ.get("DEEPGRAM_API_KEY")
-        # URL parameters: Linear16, 16kHz, diarization enabled, nova-2 model
         self.dg_url = (
-            "wss://api.deepgram.com/v1/listen?"
+            f"{_dg['wsUrl']}?"
             "encoding=linear16&"
-            "sample_rate=16000&"
-            "channels=1&"
+            f"sample_rate={_audio['sampleRate']}&"
+            f"channels={_audio['channels']}&"
             "diarize=true&"
-            "model=nova-3&"
+            f"model={_audio['model']}&"
             "smart_format=true&"
             "interim_results=true&"
             "no_delay=true&"
-            "vad_turnaround=10&"
-            "endpointing=100"
+            f"vad_turnaround={_audio['vadTurnaroundMs']}&"
+            f"endpointing={_audio['endpointingMs']}"
         )
 
         # Audio recording

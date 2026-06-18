@@ -22,6 +22,7 @@ const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { waitIfNecessary, waitUntilEnded } = require("./lib/event_started_yet");
 const { sendTelegram } = require("./lib/telegram");
+const config = require("./lib/config");
 
 // ── CLI args ─────────────────────────────────────────────────────────
 const args = process.argv.slice(2).reduce((acc, val, i, arr) => {
@@ -383,7 +384,7 @@ setTimeout(async () => {
     const suggestedDuration = waitResult?.suggestedDurationMinutes;
 
     // Use the highest available duration estimate as a safety floor
-    const durationMinutes = Math.max(args.duration || 0, suggestedDuration || 0, 90);
+    const durationMinutes = Math.max(args.duration || 0, suggestedDuration || 0, config.durations.clientFallbackMinutes);
     const durationMs = durationMinutes * 60 * 1000;
     logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""}`);
     setTimeout(() => shutdown("Duration reached"), durationMs);

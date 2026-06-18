@@ -12,13 +12,15 @@ git pull || echo "git pull failed, continuing anyway"
 # --- Configuration (Defaults) ---
 PYTHON="/home/nathan/.pyenv/shims/python"
 BUN="bun"
-REGION="${REGION:-us-east-1}"
-KEY_NAME="${KEY_NAME:-us-east-1}"
+CONFIG_GET="$PYTHON $(dirname "$0")/get_config.py"
+
+REGION="${REGION:-$($CONFIG_GET aws region)}"
+KEY_NAME="${KEY_NAME:-$($CONFIG_GET aws keyName)}"
 SSH_KEY_PATH="${SSH_KEY_PATH:-$HOME/.ssh/$KEY_NAME.pem}"
 LOCAL_DIR="$(pwd)"
-REMOTE_USER="ubuntu"
-REMOTE_DIR="/home/ubuntu"
-AMI_ID="ami-04b70fa74e45c3917" # Ubuntu 24.04 LTS
+REMOTE_USER="$($CONFIG_GET aws ec2 instanceUser)"
+REMOTE_DIR="$($CONFIG_GET aws ec2 instanceHome)"
+AMI_ID="$($CONFIG_GET aws ec2 amiId)"
 
 
 DEPLOYED_IP_ADDRESS=""
@@ -55,7 +57,7 @@ fi
 ENV="demo"
 INSTANCE_TYPE_ARG=""
 USE_SPOT=false
-SHUTDOWN_MINUTES=45
+SHUTDOWN_MINUTES=$($CONFIG_GET aws ec2 defaultShutdownMinutes)
 REMOTE_USER="ubuntu"
 REMOTE_DIR="/home/ubuntu"
 FORCE=false
