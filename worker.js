@@ -77,10 +77,73 @@ const runClientWorker = new Worker(
       `bash launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug} --title "${title.replace(/"/g, '\\"')}"`,
     );
 
-    const deployResult = parseDeployResult(launchOutput);
+    let deployResult = parseDeployResult(launchOutput);
     if (!deployResult) {
-      console.error("[worker] Failed to get IP from launch script, aborting client run");
-      return;
+      console.error("[worker] Launch script failed, searching for existing instance...");
+
+      const tryFindIp = async (filters) => {
+        try {
+          const output = await spawnCapture(
+            `aws ec2 describe-instances --region us-east-1 --filters ${filters} "Name=instance-state-name,Values=running,pending" --query 'Reservations[0].Instances[0].[PublicIpAddress,InstanceId,State.Name]' --output text`,
+          );
+          const parts = output.trim().split(/\s+/);
+          const ip = parts[0];
+          const id = parts[1];
+          const state = parts[2];
+          if (!ip || ip === "None") return null;
+
+          // If instance is pending, wait for it to become running
+          if (state === "pending") {
+            console.log(`[worker]  Instance ${id} is pending, waiting up to 10m...`);
+            for (let i = 0; i < 60; i++) {
+              await new Promise(r => setTimeout(r, 10000));
+              try {
+                const check = await spawnCapture(
+                  `aws ec2 describe-instances --region us-east-1 --instance-ids ${id} --query 'Reservations[0].Instances[0].[PublicIpAddress,State.Name]' --output text`,
+                );
+                const [checkIp, checkState] = check.trim().split(/\s+/);
+                if (checkState === "running" && checkIp && checkIp !== "None") {
+                  console.log(`[worker]  Instance ${id} now running at ${checkIp}`);
+                  const nameOutput = await spawnCapture(
+                    `aws ec2 describe-tags --region us-east-1 --filters "Name=resource-id,Values=${id}" "Name=key,Values=Name" --query 'Tags[0].Value' --output text`,
+                  );
+                  return { ip: checkIp, instanceId: id, stackName: nameOutput.trim() || `unknown-${id}` };
+                }
+              } catch (e) { /* keep polling */ }
+            }
+            console.error(`[worker]  Instance ${id} did not become running within 10m`);
+            return null;
+          }
+
+          const nameOutput = await spawnCapture(
+            `aws ec2 describe-tags --region us-east-1 --filters "Name=resource-id,Values=${id}" "Name=key,Values=Name" --query 'Tags[0].Value' --output text`,
+          );
+          return { ip, instanceId: id, stackName: nameOutput.trim() || `unknown-${id}` };
+        } catch (e) {
+          console.error("[worker]  Instance search failed:", e.message);
+        }
+        return null;
+      };
+
+      // 1. Try to find instance tagged with this event slug
+      deployResult = await tryFindIp(`"Name=tag:Event,Values=${slug}"`);
+      if (deployResult) {
+        console.log(`[worker] Found instance by event tag: ${deployResult.ip}`);
+        job.log(`Reusing instance (event tag): ${deployResult.ip}`);
+      } else {
+        // 2. Fall back to any running instance
+        console.error("[worker] No instance for this event, falling back to any running instance...");
+        deployResult = await tryFindIp(`"Name=tag:Name,Values=kalshi-worker*"`);
+        if (deployResult) {
+          console.log(`[worker] Found generic instance: ${deployResult.ip}`);
+          job.log(`Reusing generic instance: ${deployResult.ip}`);
+        }
+      }
+
+      if (!deployResult) {
+        console.error("[worker] No instance found at all, aborting client run");
+        return;
+      }
     }
 
     const { ip, stackName } = deployResult;
