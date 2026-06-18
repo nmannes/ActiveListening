@@ -456,17 +456,20 @@ class SampleGenerator:
         logger.info(f"Loaded {len(refs)} reference embedding(s) for '{self.target}' from {AUDIO_LIBRARY}")
         return torch.from_numpy(ref_centroid)
 
-    def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.3,
+    def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.1,
                           min_ref_similarity: float = 0.2):
         """
         Cluster embeddings. If existing reference embeddings exist, ALL clusters
         whose centroid similarity to the reference exceeds min_ref_similarity are
         selected as target (to capture the same speaker across different acoustic
-        conditions). Otherwise the largest cluster is used.
+        conditions). Otherwise clusters with at least min_cluster_ratio of total
+        segments are selected, to avoid discarding entire source videos.
+
+        After filtering, at least one segment from each source video is
+        guaranteed by pulling in the best segment from any missing source.
 
         Score each segment by cosine similarity to its cluster centroid.
         Also computes ref_score (similarity to reference centroid) when available.
-        Discards segments in clusters smaller than min_cluster_ratio of total.
         """
         ref_centroid = self._load_reference_embedding()
 
@@ -527,11 +530,21 @@ class SampleGenerator:
                 f"target clusters (ref sim >= {min_ref_similarity}): {sorted(target_labels)} ({total_target} segments)"
             )
         else:
-            # Fall back to largest cluster
-            largest_label = unique[counts.argmax()]
-            largest_count = counts.max()
-            target_labels = {largest_label}
-            logger.info(f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, target cluster (largest): {largest_label} ({largest_count} segments)")
+            # No reference: include all clusters with non-trivial size to ensure
+            # diverse acoustic conditions / source videos are represented.
+            # A single speaker recorded in different environments often splits
+            # across clusters; taking only the largest discards entire videos.
+            min_cluster_size = max(2, int(len(segments) * min_cluster_ratio))
+            target_labels = {label for label in unique
+                             if counts[unique == label][0] >= min_cluster_size}
+            if not target_labels:
+                target_labels = {unique[counts.argmax()]}
+            total_target = sum(counts[unique == l][0] for l in target_labels)
+            logger.info(
+                f"Clusters: {dict(zip(unique.tolist(), counts.tolist()))}, "
+                f"target clusters (size >= {min_cluster_size}): {sorted(target_labels)} "
+                f"({total_target} segments)"
+            )
 
         # Score each segment
         for i, s in enumerate(segments):
@@ -554,8 +567,35 @@ class SampleGenerator:
         # Sort by score descending
         target_segments.sort(key=lambda s: s["score"], reverse=True)
 
+        # Ensure at least one segment from each source video survives.
+        # Without a reference embedding, clustering can split the same speaker
+        # across clusters by acoustic environment, and the score threshold can
+        # filter out entire videos. Pull in the best segment from any missing
+        # source even if it falls below the score threshold.
+        seen_sources = {s.get("source") for s in target_segments}
+        non_target = [s for s in segments
+                      if s.get("source") and s["source"] not in seen_sources
+                      and not s.get("is_target")]
+        non_target.sort(key=lambda s: s.get("score", 0), reverse=True)
+        added_sources = set()
+        for s in non_target:
+            src = s["source"]
+            if src not in seen_sources and src not in added_sources:
+                s["is_target"] = True
+                s["score"] = max(s.get("score", 0), 0.0)
+                target_segments.append(s)
+                added_sources.add(src)
+        if added_sources:
+            target_segments.sort(key=lambda s: s["score"], reverse=True)
+            logger.info(
+                f"Added {len(added_sources)} segment(s) from "
+                f"under-represented source(s): {sorted(added_sources)}"
+            )
+
+        source_count = len({s.get("source") for s in target_segments})
         logger.info(
-            f"Target cluster has {len(target_segments)} segments above score {min_score}. "
+            f"Target clusters yield {len(target_segments)} segments "
+            f"from {source_count} source(s) above score {min_score}. "
             f"Score range: {target_segments[0]['score']:.3f} – {target_segments[-1]['score']:.3f}"
             if target_segments else "No segments passed filtering."
         )
