@@ -1018,20 +1018,17 @@ async function handleSegmentDecision(slug, index, approved) {
 
     await updateVerificationState(slug, idx, { approved });
 
-    const allStates = await getAllVerificationStates(slug);
-    const resolved = Object.values(allStates).every(s => s.approved !== null);
-
+    // Save individual samples immediately on approval
     let saveJob = null;
-    if (resolved && Object.keys(allStates).length > 0) {
-        const approvedIdxs = Object.entries(allStates)
-            .filter(([, v]) => v.approved === true)
-            .map(([k]) => parseInt(k, 10));
+    if (approved) {
         const target = state.target || slug;
-
         saveJob = await saveSamplesQueue.add("save_samples", {
-            slug, target, approved_indices: approvedIdxs,
+            slug, target, approved_indices: [idx],
         });
     }
+
+    const allStates = await getAllVerificationStates(slug);
+    const resolved = Object.values(allStates).every(s => s.approved !== null);
 
     return { success: true, slug, index: idx, approved, resolved, saveJobId: saveJob ? saveJob.id : null };
 }

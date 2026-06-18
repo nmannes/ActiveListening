@@ -291,6 +291,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Rejected ❌")
         logger.info(f"Verification: {slug}[{idx}] rejected")
 
+        # Save embedding as a negative reference so future runs can
+        # filter out segments that sound like this known non-target speaker.
+        emb_path = vdata.get("emb_path")
+        if emb_path and os.path.exists(emb_path):
+            import torch
+            audio_lib = Path("~/negative-audio-library").expanduser()
+            audio_lib.mkdir(parents=True, exist_ok=True)
+            neg_files = sorted(audio_lib.glob(f"{slug}.negative.*.embedding"))
+            next_n = 0
+            for nf in neg_files:
+                try:
+                    n = int(nf.stem.rsplit(".", 1)[-1])
+                    next_n = max(next_n, n + 1)
+                except ValueError:
+                    pass
+            neg_path = audio_lib / f"{slug}.negative.{next_n}.embedding"
+            torch.save(torch.load(emb_path, weights_only=True), str(neg_path))
+            logger.info(f"Verification: saved negative embedding {neg_path.name}")
+
     elif action == "auto_best":
         # Approve the best (highest score) unresolved segment from each distinct source video
         all_states = get_all_verification_states(slug)
@@ -327,21 +346,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         approved_idxs = [k for k, v in all_states.items() if v.get("approved")]
         target = vdata.get("target", slug.replace("-", " ").title()) if vdata else slug
 
-        # Enqueue save job
-        save_queue = context.application.bot_data["save_queue"]
-        job = await save_queue.add("save_samples", {
-            "slug": slug,
-            "target": target,
-            "approved_indices": approved_idxs,
-            "chat_id": query.message.chat.id,
-        })
-
         await context.bot.send_message(
             chat_id=query.message.chat.id,
             text=(
                 f"✅ Verification complete for *{target}*\n"
                 f"Approved: {len(approved_idxs)}/{len(all_states)} segment(s)\n"
-                f"Save job: `{job.id}`"
+                f"Each sample was saved individually on approval."
             ),
             parse_mode="Markdown",
         )

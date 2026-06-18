@@ -71,6 +71,7 @@ logging.basicConfig(
 logger = logging.getLogger("generate_samples")
 
 AUDIO_LIBRARY = Path("~/audio-library").expanduser()
+NEGATIVE_AUDIO_LIBRARY = Path("~/negative-audio-library").expanduser()
 TRUST_FILE = AUDIO_LIBRARY / "trust.json"
 CALLBACK_PREFIX = "gs"  # short prefix to save callback_data bytes
 LOCK_FILE = Path("/tmp/generate_samples.lock")
@@ -433,16 +434,18 @@ class SampleGenerator:
 
     # ---- step 4 & 5: cluster + score ----
 
-    def _load_reference_embedding(self) -> torch.Tensor | None:
+    def _load_reference_embedding(self) -> tuple[torch.Tensor | None, list[torch.Tensor]]:
         """Load existing approved embeddings for this slug and return their
-        L2-normalized mean as a reference centroid. Returns None if no
+        L2-normalized mean as a reference centroid, plus any negative embeddings
+        from previously rejected segments. Returns (None, []) if no
         existing embeddings found."""
-        emb_files = sorted(AUDIO_LIBRARY.glob(f"{self.slug}*.embedding"))
-        if not emb_files:
-            return None
+        pos_files = sorted(AUDIO_LIBRARY.glob(f"{self.slug}.embedding"))
+        pos_files += sorted(AUDIO_LIBRARY.glob(f"{self.slug}-*.embedding"))
+        neg_lib = NEGATIVE_AUDIO_LIBRARY
+        neg_files = sorted(neg_lib.glob(f"{self.slug}.negative.*.embedding")) if neg_lib.exists() else []
 
         refs = []
-        for ef in emb_files:
+        for ef in pos_files:
             try:
                 emb = torch.load(str(ef), weights_only=False)
                 if emb.dim() == 2:
@@ -451,13 +454,26 @@ class SampleGenerator:
             except Exception as e:
                 logger.warning(f"Failed to load reference embedding {ef}: {e}")
 
+        negs = []
+        for nf in neg_files:
+            try:
+                emb = torch.load(str(nf), weights_only=False)
+                if emb.dim() == 2:
+                    emb = emb.squeeze(0)
+                negs.append(emb)
+            except Exception as e:
+                logger.warning(f"Failed to load negative embedding {nf}: {e}")
+
         if not refs:
-            return None
+            return None, negs
 
         ref_matrix = torch.stack(refs).numpy()
         ref_centroid = normalize(ref_matrix.mean(axis=0, keepdims=True), norm="l2")
-        logger.info(f"Loaded {len(refs)} reference embedding(s) for '{self.target}' from {AUDIO_LIBRARY}")
-        return torch.from_numpy(ref_centroid)
+        if negs:
+            logger.info(f"Loaded {len(refs)} reference(s) from {AUDIO_LIBRARY} and {len(negs)} negative(s) for '{self.target}' from {neg_lib}")
+        else:
+            logger.info(f"Loaded {len(refs)} reference embedding(s) for '{self.target}' from {AUDIO_LIBRARY}")
+        return torch.from_numpy(ref_centroid), negs
 
     def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.1,
                           min_ref_similarity: float = 0.2):
@@ -474,7 +490,7 @@ class SampleGenerator:
         Score each segment by cosine similarity to its cluster centroid.
         Also computes ref_score (similarity to reference centroid) when available.
         """
-        ref_centroid = self._load_reference_embedding()
+        ref_centroid, negs = self._load_reference_embedding()
 
         if len(segments) < 2:
             for s in segments:
@@ -483,7 +499,15 @@ class SampleGenerator:
                 if ref_centroid is not None:
                     emb_np = s["embedding"].squeeze(0).numpy()
                     emb_norm = normalize(emb_np.reshape(1, -1), norm="l2")
-                    s["ref_score"] = round(float(emb_norm @ ref_centroid.numpy().T), 4)
+                    ref_sim = float(emb_norm @ ref_centroid.numpy().T)
+                    s["ref_score"] = round(max(0.0, min(1.0, ref_sim)), 4)
+                    # Downgrade if closer to a negative than to the reference
+                    if negs:
+                        neg_sims = [float(emb_norm @ neg.numpy().T) for neg in negs]
+                        max_neg = max(neg_sims)
+                        s["neg_score"] = round(max_neg, 4)
+                        if max_neg >= ref_sim:
+                            s["is_target"] = False
             return segments
 
         emb_matrix = torch.stack([s["embedding"].squeeze(0) for s in segments])
@@ -550,6 +574,7 @@ class SampleGenerator:
             )
 
         # Score each segment
+        neg_filtered = 0
         for i, s in enumerate(segments):
             centroid = centroids[labels[i]]
             sim = float((emb_norm[i] @ centroid.T).item())
@@ -559,6 +584,17 @@ class SampleGenerator:
             if ref_centroid is not None:
                 ref_sim = float(emb_norm[i] @ ref_centroid.numpy().T)
                 s["ref_score"] = round(max(0.0, min(1.0, ref_sim)), 4)
+                if negs:
+                    neg_sims = [float(emb_norm[i] @ neg.numpy().T) for neg in negs]
+                    max_neg = max(neg_sims)
+                    s["neg_score"] = round(max_neg, 4)
+                    # Segment is closer to a known non-target speaker than to the
+                    # target: exclude from target set regardless of cluster.
+                    if max_neg >= ref_sim:
+                        s["is_target"] = False
+                        neg_filtered += 1
+        if neg_filtered:
+            logger.info(f"Negatives filtered {neg_filtered} segment(s) that matched known non-target speakers")
 
         # Filter: keep only target cluster, above score threshold
         min_score = 0.65
