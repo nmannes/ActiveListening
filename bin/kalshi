@@ -93,6 +93,21 @@ def main():
 
     # Testing
     sub.add_parser("test", help="Run the Python test suite")
+    sp_e2e = sub.add_parser("e2e-test", help="Run end-to-end test against a provider")
+    sp_e2e.add_argument("--provider", type=str, default="youtube",
+                        choices=["youtube", "browser", "tv", "yttv", "espn", "amazon"])
+    sp_e2e.add_argument("--duration", type=int, default=5,
+                        help="Minutes to run the client (default: 5)")
+    sp_e2e.add_argument("--market-file", type=str,
+                        help="Override test market JSON file path")
+    sp_e2e.add_argument("--skip-launch", action="store_true",
+                        help="Use an existing EC2 instance instead of launching one")
+    sp_e2e.add_argument("--skip-teardown", action="store_true",
+                        help="Leave the instance running after test")
+    sp_e2e.add_argument("--skip-sync", action="store_true",
+                        help="Skip deploying local code changes to the instance")
+    sp_e2e.add_argument("--list", action="store_true",
+                        help="List available providers and their requirements")
 
     args, unknown = parser.parse_known_args()
 
@@ -164,6 +179,24 @@ def main():
 
     elif cmd == "ui":
         sys.exit(node("market_ui.js", *extra))
+
+    elif cmd == "e2e-test":
+        e2e_args = []
+        if args.provider:
+            e2e_args += ["--provider", args.provider]
+        if args.duration:
+            e2e_args += ["--duration", str(args.duration)]
+        if args.market_file:
+            e2e_args += ["--market-file", args.market_file]
+        if args.skip_launch:
+            e2e_args.append("--skip-launch")
+        if args.skip_teardown:
+            e2e_args.append("--skip-teardown")
+        if args.skip_sync:
+            e2e_args.append("--skip-sync")
+        if args.list:
+            e2e_args.append("--list")
+        sys.exit(bash("e2e_test.sh", *e2e_args))
 
     elif cmd == "test":
         sys.exit(python("-m", "pytest", "tests", *extra))
