@@ -142,6 +142,12 @@ Resources:
                             "log_group_name": "/kalshi/worker",
                             "log_stream_name": "{instance_id}/remote_server",
                             "retention_in_days": 7
+                          },
+                          {
+                            "file_path": "/var/log/syslog",
+                            "log_group_name": "/kalshi/worker",
+                            "log_stream_name": "{instance_id}/syslog",
+                            "retention_in_days": 7
                           }
                         ]
                       }
