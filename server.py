@@ -24,17 +24,17 @@ import tempfile
 import time
 import threading
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
+# from concurrent.futures import ThreadPoolExecutor  # CLIP disabled
 from pathlib import Path
 
 import websockets
 
 from pylib.kalshi_client import KalshiClient
 from pylib.keyword_matching import build_keyword_index
-from pylib.clip import FrameClassifier
+# from pylib.clip import FrameClassifier  # CLIP disabled to save ~600MB
 from pylib.audio_processor import AudioProcessor
 from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
-from pylib.frame_processor import FrameProcessor
+# from pylib.frame_processor import FrameProcessor  # CLIP disabled
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
 from pylib.word_prediction import WordPredictor
@@ -145,7 +145,7 @@ class ClientSession:
         self.audio_inbox_lock = threading.Lock()
 
         self.audio_task = None
-        self.frame_task = None
+        # self.frame_task = None  # CLIP disabled
 
         self.predictor: Optional[WordPredictor] = None
 
@@ -225,18 +225,19 @@ class ClientSession:
                     f"[{self.session_id}] WordPredictor initialized with {len(keywords)} target words"
                 )
 
-        if not self.audio_only and self.clip_profile is not None:
-            self.frame_processor = FrameProcessor(self)
-            self.frame_task = asyncio.create_task(self.frame_processor.run())
-        else:
-            if not self.audio_only:
-                logger.info(
-                    f"[{self.session_id}] clipProfile is null — skipping frame classification for this session"
-                )
-            else:
-                logger.info(
-                    f"[{self.session_id}] Audio-only mode — skipping frame classification"
-                )
+        # if not self.audio_only and self.clip_profile is not None:  # CLIP disabled
+        #     self.frame_processor = FrameProcessor(self)
+        #     self.frame_task = asyncio.create_task(self.frame_processor.run())
+        # else:
+        #     if not self.audio_only:
+        #         logger.info(
+        #             f"[{self.session_id}] clipProfile is null — skipping frame classification for this session"
+        #         )
+        #     else:
+        #         logger.info(
+        #             f"[{self.session_id}] Audio-only mode — skipping frame classification"
+        #         )
+        logger.info(f"[{self.session_id}] Frame classification disabled (CLIP commented out)")
 
         # Start the background tasks
         self.trade_processor = DiarizedTradeProcessor(self)
@@ -333,8 +334,8 @@ class ClientSession:
     def cleanup(self):
         if self.audio_task:
             self.audio_task.cancel()
-        if self.frame_task:
-            self.frame_task.cancel()
+        # if self.frame_task:  # CLIP disabled
+        #     self.frame_task.cancel()
         if self.speaker_task:
             self.speaker_task.cancel()
         if self.predictor:
@@ -347,9 +348,9 @@ class TradingServer:
         self.active_sessions = []  # track for graceful shutdown
 
         # Shared resources (initially None, loaded asynchronously)
-        self.frame_classifier = None
+        # self.frame_classifier = None  # CLIP disabled
         self.speaker_identifier = None
-        self.clip_executor = ThreadPoolExecutor(max_workers=1)
+        # self.clip_executor = ThreadPoolExecutor(max_workers=1)  # CLIP disabled
 
         # Init Kalshi client
         self.kalshi = KalshiClient(
@@ -412,14 +413,14 @@ class TradingServer:
             logger.info("Starting background resource initialization...")
             loop = asyncio.get_running_loop()
 
-            # Load CLIP in executor to avoid blocking the event loop
-            self.frame_classifier = await loop.run_in_executor(
-                self.clip_executor,
-                lambda: FrameClassifier(
-                    device=self.config.device,
-                    content_profile=self.config.content_profile,
-                ),
-            )
+            # # Load CLIP in executor to avoid blocking the event loop  # CLIP disabled
+            # self.frame_classifier = await loop.run_in_executor(
+            #     self.clip_executor,
+            #     lambda: FrameClassifier(
+            #         device=self.config.device,
+            #         content_profile=self.config.content_profile,
+            #     ),
+            # )
 
             # Load SpeakerIdentifier (TitaNet) for audio-based speaker recognition
             import time
