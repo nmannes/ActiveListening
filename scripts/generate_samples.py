@@ -23,6 +23,7 @@ import random
 import shutil
 
 YT_DLP = "/home/linuxbrew/.linuxbrew/bin/yt-dlp"
+YT_DLP_JS_RUNTIME = "--js-runtimes=deno:/home/linuxbrew/.linuxbrew/bin/deno"
 
 import json
 import logging
@@ -252,6 +253,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
         cmd = [
             YT_DLP,
+            YT_DLP_JS_RUNTIME,
             "--extract-audio",
             "--audio-format", "wav",
             "--audio-quality", "0",
@@ -268,7 +270,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
         logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, section {section})")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=180)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300 * count)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
         except subprocess.TimeoutExpired as e:
@@ -311,6 +313,7 @@ def download_from_urls(urls: list, work_dir: Path) -> list:
 
         cmd = [
             YT_DLP,
+            YT_DLP_JS_RUNTIME,
             "--extract-audio",
             "--audio-format", "wav",
             "--audio-quality", "0",
@@ -325,7 +328,7 @@ def download_from_urls(urls: list, work_dir: Path) -> list:
 
         logger.info(f"Downloading [{i + 1}/{len(urls)}]: {url} (section {section})")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=180)
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{url}': {e.stderr[:200]}")
         except subprocess.TimeoutExpired as e:
