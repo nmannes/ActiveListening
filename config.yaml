@@ -84,7 +84,7 @@ aws:
     instanceUser: "ubuntu"
     instanceHome: "/home/ubuntu"
     sshKeyPath: "$HOME/.ssh/us-east-1.pem"
-    defaultShutdownMinutes: 45
+    defaultShutdownMinutes: 70
 
 # ── Trading ──────────────────────────────────────────────────────────────
 trading:
