@@ -12,7 +12,7 @@ ORDER_RULES: list[dict] = [
     }
 ]
 
-DEFAULT_DOLLAR_AMOUNT = 10
+DEFAULT_DOLLAR_AMOUNT = 1
 
 
 def get_dollar_amount(market: dict) -> int:

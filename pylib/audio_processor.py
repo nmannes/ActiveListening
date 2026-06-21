@@ -39,7 +39,7 @@ class AudioProcessor:
             "diarize=true&"
             f"model={_audio['model']}&"
             "smart_format=true&"
-            "interim_results=true&"
+            # "interim_results=true&"
             "no_delay=true&"
             f"vad_turnaround={_audio['vadTurnaroundMs']}&"
             f"endpointing={_audio['endpointingMs']}"
