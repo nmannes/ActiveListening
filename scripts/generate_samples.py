@@ -803,14 +803,14 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
         if is_pre_approved:
             pre_approved_idxs.append(i)
             keyboard = build_inline_keyboard([
-                [("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
+                [("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
             ])
         else:
             needs_approval += 1
             keyboard = build_inline_keyboard([
-                [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{i}"),
-                 ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{i}")],
-                [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{i}")],
+                [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{slug}:{i}"),
+                 ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
+                [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{slug}:{i}")],
             ])
 
         result = send_telegram_voice(

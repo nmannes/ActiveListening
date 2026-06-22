@@ -11,16 +11,17 @@ const CPU_THRESHOLD = workerConfig.cpuThreshold;
 const RESCHEDULE_DELAY_MS = workerConfig.rescheduleDelayMinutes * 60 * 1000;
 
 const SCRIPT_DIR = __dirname;
+const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 
 async function spawn(command, job) {
   const jobId = job.id || "unknown";
   console.log(`[worker] [${jobId}] Executing: ${command}`);
-  await execAsync(command, { cwd: SCRIPT_DIR, stdio: "inherit" });
+  await execAsync(command, { cwd: SCRIPT_DIR, stdio: "inherit", maxBuffer: MAX_BUFFER });
 }
 
 async function spawnCapture(command) {
   try {
-    const { stdout } = await execAsync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const { stdout } = await execAsync(command, { cwd: SCRIPT_DIR, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: MAX_BUFFER });
     return stdout;
   } catch (e) {
     const stderr = (e.stderr || "").trim();

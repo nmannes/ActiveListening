@@ -567,13 +567,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Unknown action")
         return
 
-    parts = data.split(":", 2)
-    if len(parts) < 3:
+    parts = data.split(":", 3)
+    if len(parts) < 4:
         await query.answer("Invalid callback")
         return
 
     action = parts[1]
-    idx_str = parts[2]
+    slug = parts[2]
+    idx_str = parts[3]
 
     try:
         idx = int(idx_str)
@@ -581,18 +582,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("Invalid segment index")
         return
 
-    # Determine which slug this callback belongs to by checking all pending
-    # verification states for one that contains this index
-    pending = pending_verifications()
-    slug = None
-    vdata = None
-    for p in pending:
-        vdata = get_verification_state(p, idx)
-        if vdata:
-            slug = p
-            break
-
-    if slug is None:
+    vdata = get_verification_state(slug, idx)
+    if vdata is None:
         await query.answer("Verification expired or not found")
         return
 
