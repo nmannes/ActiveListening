@@ -9,12 +9,14 @@ Commands:
     /start               — welcome
     /generate <name>     — enqueue voice sample generation
     /status              — show all queue lengths
+    /next                — show upcoming scheduled listening sessions
+    /cancel <slug|index> — cancel a scheduled session
     /trust <name>        — show/manage trust preferences
     /samples <name>      — list voice samples in audio library
     /help                — show available commands
 
 Usage:
-    python3 telegram_server.py [--debug]
+    python telegram_server.py [--debug]
 """
 
 import argparse
@@ -23,8 +25,11 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -76,6 +81,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Commands:\n"
         "/generate `Name` — Generate voice samples for a target\n"
         "/status — Show queue status\n"
+        "/next — Show upcoming scheduled listening sessions\n"
+        "/cancel `slug|index` — Cancel a scheduled session\n"
         "/trust `Name` — Manage trust preferences\n"
         "/samples `Name` — List voice samples in library\n"
         "/help — Show this message",
@@ -233,6 +240,322 @@ async def cmd_samples(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /next — show upcoming scheduled listening sessions
+# ---------------------------------------------------------------------------
+
+async def _get_jobs_safe(queue, types, start=0, end=50):
+    try:
+        return await queue.getJobs(types, start, end)
+    except ValueError:
+        return []
+
+
+async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    queue = context.application.bot_data["run_client_queue"]
+
+    # Get all non-terminal jobs (each call can throw ValueError if empty)
+    delayed = await _get_jobs_safe(queue, ["delayed"])
+    waiting = await _get_jobs_safe(queue, ["waiting"])
+    active = await _get_jobs_safe(queue, ["active"])
+
+    count = 5
+    if context.args:
+        try:
+            count = int(context.args[0])
+            count = max(1, min(count, 20))
+        except ValueError:
+            pass
+
+    # Enrich from scheduled JSON files
+    items = []
+    for job in delayed + waiting + active:
+        data = job.data
+        market_file = data.get("marketFile", "")
+        title = data.get("slug", "Unknown")
+        event_time = None
+        channel = "Unknown"
+
+        if market_file and os.path.exists(market_file):
+            try:
+                market = json.loads(open(market_file).read())
+                event_time = market.get("eventStartTime", "")
+                title = market.get("title", title)
+                channel = market.get("mediaSourceCommonName", "Unknown")
+            except Exception:
+                pass
+
+        items.append({
+            "job": job,
+            "slug": data.get("slug", job.id),
+            "event_time": event_time,
+            "title": title,
+            "channel": channel,
+        })
+
+    # Sort by event time (None sorts last)
+    items.sort(key=lambda x: x["event_time"] or "z")
+
+    # Cache for /cancel by index
+    bot_data = context.application.bot_data
+    bot_data.setdefault("next_cache", {})[update.effective_chat.id] = {
+        i + 1: item["slug"] for i, item in enumerate(items[:count])
+    }
+
+    lines = ["📋 *Upcoming Listening Sessions*", ""]
+
+    for i, item in enumerate(items[:count]):
+        job = item["job"]
+        title = item["title"]
+        event_time = item["event_time"]
+        channel = item["channel"]
+        slug = item["slug"]
+
+        if event_time:
+            try:
+                dt = datetime.fromisoformat(event_time.replace("Z", "+00:00"))
+                et = dt.astimezone(ZoneInfo("America/New_York"))
+                time_str = et.strftime("%a %b %d, %I:%M %p ET")
+            except Exception:
+                time_str = event_time
+        else:
+            time_str = "Unknown"
+
+        try:
+            state = await queue.getJobState(job.id)
+        except Exception:
+            state = "unknown"
+
+        if state == "active":
+            status = "🟢 *Live*"
+        elif state == "waiting":
+            status = "🟡 *Launching*"
+        else:
+            status = "🔵 Scheduled"
+
+        lines.append(f"*{i + 1}.* {title}")
+        lines.append(f"   🕐 {time_str} | 📺 {channel} | {status}")
+        lines.append(f"   `/cancel {slug}`")
+        lines.append("")
+
+    if not items:
+        lines.append("No upcoming listening sessions.")
+    else:
+        showing = min(len(items), count)
+        lines.append(f"Showing {showing} of {len(items)} session(s).")
+
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+
+# ---------------------------------------------------------------------------
+# /cancel helpers
+# ---------------------------------------------------------------------------
+
+async def _terminate_ec2_instance(slug):
+    """Find and destroy the EC2 instance + CloudFormation stack for slug."""
+
+    def _run_aws():
+        result = subprocess.run(
+            [
+                "aws", "ec2", "describe-instances",
+                "--region", "us-east-1",
+                "--filters",
+                f"Name=tag:Event,Values={slug}",
+                "Name=instance-state-name,Values=running,pending",
+                "--query",
+                "Reservations[*].Instances[*].[InstanceId,Tags[?Key=='Name'].Value|[0]]",
+                "--output", "json",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.returncode != 0:
+            return False, f"aws ec2 error: {result.stderr[:200]}"
+
+        data = json.loads(result.stdout)
+        if not data:
+            return False, f"No running EC2 instance found for `{slug}`"
+
+        instance_id, stack_name = data[0]
+        if not stack_name:
+            return False, f"Instance {instance_id} missing Name tag"
+
+        result2 = subprocess.run(
+            [
+                "aws", "cloudformation", "delete-stack",
+                "--region", "us-east-1",
+                "--stack-name", stack_name,
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        if result2.returncode != 0:
+            err = result2.stderr[:300]
+            if "does not exist" in err or "DELETE_IN_PROGRESS" in err:
+                return True, f"Stack `{stack_name}` already being deleted"
+            return False, f"Failed to delete stack `{stack_name}`: {err}"
+
+        return True, f"Terminated EC2 instance `{instance_id}` (stack `{stack_name}`)"
+
+    try:
+        return await asyncio.to_thread(_run_aws)
+    except Exception as e:
+        return False, f"EC2 termination error: {e}"
+
+
+# ---------------------------------------------------------------------------
+# /cancel — cancel a scheduled listening session
+# ---------------------------------------------------------------------------
+
+async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: `/cancel <slug|index>`\n\n"
+            "Use `/next` to see upcoming sessions and their cancel commands.\n"
+            "Examples:\n"
+            "`/cancel kxwcmention-26jun22argaut`\n"
+            "`/cancel 1` (cancels the first session from your last `/next`)",
+            parse_mode="Markdown",
+        )
+        return
+
+    arg = context.args[0]
+    queue = context.application.bot_data["run_client_queue"]
+
+    # Resolve to slug
+    slug = None
+    next_cache = (
+        context.application.bot_data.get("next_cache", {})
+        .get(update.effective_chat.id, {})
+    )
+
+    try:
+        idx = int(arg)
+        slug = next_cache.get(idx)
+        if not slug:
+            await update.message.reply_text(
+                f"No session at index {idx}. Use `/next` to see the current list.",
+                parse_mode="Markdown",
+            )
+            return
+    except ValueError:
+        slug = arg
+
+    # Find the job across all non-terminal states
+    all_jobs = (
+        await _get_jobs_safe(queue, ["delayed"], 0, 100)
+        + await _get_jobs_safe(queue, ["waiting"], 0, 100)
+        + await _get_jobs_safe(queue, ["active"], 0, 100)
+    )
+    target_job = None
+    for job in all_jobs:
+        if job.data.get("slug") == slug:
+            target_job = job
+            break
+
+    if not target_job:
+        # Check completed/failed as well for already-started sessions
+        completed = await _get_jobs_safe(queue, ["completed"], 0, 50)
+        failed = await _get_jobs_safe(queue, ["failed"], 0, 50)
+        for job in completed + failed:
+            if job.data.get("slug") == slug:
+                await update.message.reply_text(
+                    f"Session `{slug}` has already finished.\n"
+                    "Clean up the scheduled file manually if needed.",
+                    parse_mode="Markdown",
+                )
+                return
+
+        await update.message.reply_text(
+            f"No scheduled session found for `{slug}`.\n"
+            "It may have already started, completed, or been cancelled.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # Determine job state
+    try:
+        state = await queue.getJobState(target_job.id)
+    except Exception:
+        state = "unknown"
+
+    # Get title from the market file
+    title = slug
+    market_file = target_job.data.get("marketFile", "")
+    market_data = {}
+    if market_file and os.path.exists(market_file):
+        try:
+            market_data = json.loads(open(market_file).read())
+            title = market_data.get("title", slug)
+        except Exception:
+            pass
+
+    # Remove the job (works for delayed/waiting; for active it removes
+    # the queue entry but the worker child process is already spawned)
+    try:
+        await queue.remove(target_job.id)
+        logger.info(f"Cancelled BullMQ job: {target_job.id} (state={state})")
+    except Exception as e:
+        logger.warning(f"Could not remove job {target_job.id}: {e}")
+
+    # Remove the scheduled JSON file
+    if market_file and os.path.exists(market_file):
+        try:
+            os.remove(market_file)
+            logger.info(f"Removed scheduled file: {market_file}")
+        except Exception as e:
+            logger.warning(f"Failed to remove scheduled file {market_file}: {e}")
+
+    # Add to blocklist
+    cache_dir = os.environ.get("KALSHI_CACHE_DIR") or os.path.join(
+        os.environ.get("KALSHI_DATA_DIR", str(Path(__file__).parent)),
+        "cache",
+    )
+    blocklist_path = os.path.join(cache_dir, "unscheduled.json")
+    blocklist = []
+    if os.path.exists(blocklist_path):
+        try:
+            blocklist = json.loads(open(blocklist_path).read())
+        except Exception:
+            pass
+    if slug not in blocklist:
+        blocklist.append(slug)
+        os.makedirs(os.path.dirname(blocklist_path), exist_ok=True)
+        with open(blocklist_path, "w") as f:
+            json.dump(blocklist, f)
+        logger.info(f"Added {slug} to unscheduled blocklist")
+
+    if state == "active":
+        ec2_ok, ec2_msg = await _terminate_ec2_instance(slug)
+        if ec2_ok:
+            lines = [
+                f"❌ *Session Killed*\n",
+                f"{title}",
+                f"Slug: `{slug}`",
+                f"",
+                f"{ec2_msg}",
+            ]
+        else:
+            shutdown_parts = [f"EC2 termination attempted but: {ec2_msg}"]
+            server_duration = market_data.get("serverDuration")
+            if server_duration:
+                shutdown_parts.append(f"Instance will auto-terminate after ~{server_duration}m")
+            lines = [
+                f"⚠️ *Session In Progress — Partial Cancel*\n",
+                f"{title}",
+                f"Slug: `{slug}`",
+                f"",
+            ] + shutdown_parts
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            f"❌ *Cancelled*\n"
+            f"{title}\n"
+            f"Slug: `{slug}`\n"
+            f"Removed from queue and unscheduled list.",
+            parse_mode="Markdown",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Callback query handler — voice sample verification
 # ---------------------------------------------------------------------------
 
@@ -382,12 +705,15 @@ def main():
     connection = {"host": redis_host, "port": redis_port}
     app.bot_data["gen_queue"] = Queue("sample-generation", {"connection": connection})
     app.bot_data["save_queue"] = Queue("save-samples", {"connection": connection})
+    app.bot_data["run_client_queue"] = Queue("run-client", {"connection": connection})
 
     # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("generate", cmd_generate))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("next", cmd_next))
+    app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("trust", cmd_trust))
     app.add_handler(CommandHandler("samples", cmd_samples))
 
