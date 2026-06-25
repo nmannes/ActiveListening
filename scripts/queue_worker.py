@@ -130,13 +130,9 @@ async def _process_sample_generation(job, job_token, progress=None):
         urls = job.data.get("urls")
         if urls:
             logger.info(f"[{job_id}] Using {len(urls)} provided URL(s) (search disabled)")
-            wav_paths = await run_blocking(
-                download_from_urls, urls, work_dir
-            )
+            wav_paths = await download_from_urls(urls, work_dir)
         else:
-            wav_paths = await run_blocking(
-                search_and_download, target, 7, work_dir
-            )
+            wav_paths = await search_and_download(target, 7, work_dir)
         if not wav_paths:
             progress.update({"stage": "failed", "error": "No audio downloaded"})
             await run_blocking(
@@ -389,7 +385,7 @@ async def _process_sample_generation(job, job_token, progress=None):
         )
         raise
 
-JOB_TIMEOUT_SEC = 20 * 60  # 20 min — less than the 30 min lockDuration so stalled jobs get picked up
+JOB_TIMEOUT_SEC = 60 * 60  # 1 hour — gives yt-dlp plenty of headroom for slow connections
 
 async def process_sample_generation(job, job_token):
     progress = {}

@@ -200,7 +200,34 @@ class TitaNetEmbedder:
 # yt-dlp
 # ---------------------------------------------------------------------------
 
-def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
+async def _run_ytdlp(cmd: list, timeout: int) -> None:
+    """Run yt-dlp as an async subprocess so job cancellation can kill it.
+
+    Raises subprocess.CalledProcessError or subprocess.TimeoutExpired on
+    failure (same interface as subprocess.run with check=True) so existing
+    error-handling code works unchanged.
+    """
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            process.returncode, cmd,
+            stdout.decode() if stdout else "",
+            stderr.decode() if stderr else "",
+        )
+
+
+async def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     """
     Search YouTube with diverse queries to get varied audio quality/situations.
     Downloads top results (sorted by relevance/popularity) per query.
@@ -271,7 +298,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
 
         logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, section {section})")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300 * count)
+            await _run_ytdlp(cmd, timeout=120 * count)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
         except subprocess.TimeoutExpired as e:
@@ -290,7 +317,7 @@ def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     return all_wavs
 
 
-def download_from_urls(urls: list, work_dir: Path) -> list:
+async def download_from_urls(urls: list, work_dir: Path) -> list:
     """
     Download specific YouTube videos by URL or video ID (not search).
     Each URL gets a random 8-minute section for diversity.
@@ -329,7 +356,7 @@ def download_from_urls(urls: list, work_dir: Path) -> list:
 
         logger.info(f"Downloading [{i + 1}/{len(urls)}]: {url} (section {section})")
         try:
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=300)
+            await _run_ytdlp(cmd, timeout=120)
         except subprocess.CalledProcessError as e:
             logger.error(f"yt-dlp failed for '{url}': {e.stderr[:200]}")
         except subprocess.TimeoutExpired as e:
@@ -366,8 +393,8 @@ class SampleGenerator:
 
     # ---- step 1: download ----
 
-    def download(self, work_dir: Path) -> list:
-        return search_and_download(self.target, self.num_videos, work_dir)
+    async def download(self, work_dir: Path) -> list:
+        return await search_and_download(self.target, self.num_videos, work_dir)
 
     # ---- step 2: VAD segment ----
 
@@ -1043,9 +1070,9 @@ async def main():
         # 1. Download
         if urls:
             logger.info(f"Using {len(urls)} provided URL(s) (search disabled)")
-            wav_paths = download_from_urls(urls, work_dir)
+            wav_paths = await download_from_urls(urls, work_dir)
         else:
-            wav_paths = generator.download(work_dir)
+            wav_paths = await generator.download(work_dir)
         if not wav_paths:
             logger.error("No audio downloaded. Check yt-dlp and target name.")
             return
