@@ -36,6 +36,7 @@ BLOCKED_KEYWORDS: set[str] = {
     "ballroom",         # 0W/2L — announcers don't say this
     "powerade",         # 0W/2L — "power aid", "powered"
     "visa",             # 3W/1L but negative P&L — credit card vs immigration confusion
+    "soccer"
 }
 
 
