@@ -106,7 +106,7 @@ class TradeProcessor:
 
                 if self.session.server.config.trade_for_real:
 
-                    dollar_amount = get_dollar_amount(self.session.market)
+                    dollar_amount = get_dollar_amount(self.session.market, matched["key"])
                     if dollar_amount <= 0:
                         logger.info(
                             f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because dollarAmount is {dollar_amount}"
