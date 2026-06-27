@@ -340,6 +340,11 @@
                 </div>
             </div>
 
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Duration (minutes)</label>
+                <input type="number" id="modal-duration" placeholder="Auto (computed)" min="1" step="1">
+            </div>
+
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
                 <button class="secondary" onclick="closeEditModal()">Cancel</button>
                 <button id="modal-save-btn">Save Changes</button>
@@ -738,6 +743,9 @@
             document.getElementById("modal-time").value = defaultLocalTime;
             updateModalRelativeTime();
 
+            const duration = item.market.duration;
+            document.getElementById("modal-duration").value = duration ? duration : "";
+
             const modal = document.getElementById("edit-modal");
             modal.style.display = "flex";
             modal.offsetHeight; // force reflow
@@ -761,6 +769,8 @@
             if (!url) return alert("Enter a URL");
 
             const newTime = document.getElementById("modal-time").value;
+            const durationVal = document.getElementById("modal-duration").value;
+            const duration = durationVal ? parseInt(durationVal, 10) : null;
 
             const res = await fetch("/api/markets");
             const data = await res.json();
@@ -789,7 +799,8 @@
                 body: JSON.stringify({
                     market: item.market,
                     mediaStreamURL: url,
-                    startTime: startTime
+                    startTime: startTime,
+                    duration: duration
                 })
             });
 

@@ -136,7 +136,7 @@ app.get("/api/markets", (req, res) => {
 
         const enrich = (m) => {
             const streamInfo = getStreamInfo(m);
-            const duration = getDuration(m.market, m);
+            const duration = m.duration != null ? m.duration : getDuration(m.market, m);
             return {
                 ...m,
                 market: {
@@ -162,7 +162,7 @@ app.get("/api/markets", (req, res) => {
 
 app.post("/api/manual-match", (req, res) => {
     try {
-        const { market, mediaStreamURL, startTime } = req.body;
+        const { market, mediaStreamURL, startTime, duration } = req.body;
         if (!market || !mediaStreamURL) {
             return res.status(400).json({ error: "Missing market or mediaStreamURL" });
         }
@@ -174,10 +174,15 @@ app.post("/api/manual-match", (req, res) => {
         const updatedMarket = {
             market: { ...market, mediaStreamURL },
             startTime: startTime || market.eventStartTime,
-            manual: true
+            manual: true,
+            duration: duration != null ? duration : undefined,
         };
 
         if (index !== -1) {
+            // Preserve existing duration if not explicitly provided
+            if (duration == null && manual[index].duration != null) {
+                updatedMarket.duration = manual[index].duration;
+            }
             manual[index] = updatedMarket;
         } else {
             manual.push(updatedMarket);
