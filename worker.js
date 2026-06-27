@@ -16,7 +16,13 @@ const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
 async function spawn(command, job) {
   const jobId = job.id || "unknown";
   console.log(`[worker] [${jobId}] Executing: ${command}`);
-  await execAsync(command, { cwd: SCRIPT_DIR, stdio: "inherit", maxBuffer: MAX_BUFFER });
+  try {
+    await execAsync(command, { cwd: SCRIPT_DIR, stdio: "inherit", maxBuffer: MAX_BUFFER });
+  } catch (e) {
+    const msg = e.message || `exit code ${e.code} (signal ${e.signal})`;
+    console.error(`[worker] [${jobId}] Command failed: ${msg}`);
+    throw e;
+  }
 }
 
 async function spawnCapture(command) {
@@ -27,7 +33,8 @@ async function spawnCapture(command) {
     const stderr = (e.stderr || "").trim();
     const stdout = (e.stdout || "").trim();
     const details = [stderr, stdout].filter(Boolean).join("\n");
-    throw new Error(`Command failed: ${command}\n${details}`);
+    const msg = e.message || `exit code ${e.code} (signal ${e.signal})`;
+    throw new Error(`Command failed: ${command}\n${details || msg}`);
   }
 }
 

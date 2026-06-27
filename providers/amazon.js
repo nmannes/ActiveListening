@@ -66,6 +66,7 @@ async function setupVirtualSink() {
 
   proc.stdout.on("data", (d) => _logger.debug(`[pw-loopback] ${d.toString().trim()}`));
   proc.stderr.on("data", (d) => _logger.error(`[pw-loopback] ${d.toString().trim()}`));
+  proc.on("error", (err) => _logger.error(`[pw-loopback] Spawn error: ${err.message || String(err)}`));
 
   _sinkProc = proc;
   _actualSinkName = SINK_NAME;
@@ -121,9 +122,17 @@ function setupAudioTranscoder(retryCount = 0) {
   pwRecord.stdout.pipe(ffmpeg.stdin);
 
   ffmpeg.stdout.on("data", (data) => {
-    if (_ws && _ws.readyState === WebSocket.OPEN) {
-      _ws.send(data);
+    try {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(data);
+      }
+    } catch (e) {
+      _logger.warn(`[amazon-transcoder] send error: ${e.message || String(e)}`);
     }
+  });
+
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[amazon-transcoder] stdout stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.stderr.on("data", (data) => {
@@ -135,8 +144,24 @@ function setupAudioTranscoder(retryCount = 0) {
     }
   });
 
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[amazon-transcoder] stderr stream error: ${err.message || String(err)}`);
+  });
+
+  pwRecord.stdout.on("error", (err) => {
+    _logger.error(`[pw-record] stdout stream error: ${err.message || String(err)}`);
+  });
+
   pwRecord.stderr.on("data", (data) => {
     _logger.trace(`[pw-record] ${data.toString()}`);
+  });
+
+  pwRecord.stderr.on("error", (err) => {
+    _logger.error(`[pw-record] stderr stream error: ${err.message || String(err)}`);
+  });
+
+  pwRecord.on("error", (err) => {
+    _logger.error(`[pw-record] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpeg.on("close", (code) => {
@@ -149,6 +174,10 @@ function setupAudioTranscoder(retryCount = 0) {
         setupAudioTranscoder(retryCount + 1);
       }, delay);
     }
+  });
+
+  ffmpeg.on("error", (err) => {
+    _logger.error(`[amazon-transcoder] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpegProc = ffmpeg;

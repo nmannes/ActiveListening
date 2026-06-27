@@ -90,7 +90,7 @@ function spawnFFmpeg() {
         );
       }
 
-      _ws.send(data);
+      try { _ws.send(data); } catch (e) { _logger.warn(`[ffmpeg] send error: ${e.message || String(e)}`); }
     } else {
       _logger.debug(
         `[ffmpeg] Dropping ${data.length} bytes - WebSocket not ready`,
@@ -123,6 +123,14 @@ function spawnFFmpeg() {
     }
   });
 
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[ffmpeg] stdout stream error: ${err.message || String(err)}`);
+  });
+
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[ffmpeg] stderr stream error: ${err.message || String(err)}`);
+  });
+
   ffmpeg.on("close", (code) => {
     if (_isShuttingDown()) {
       _logger.info(`[ffmpeg] Exited (code ${code}) — shutting down`);
@@ -135,7 +143,7 @@ function spawnFFmpeg() {
   });
 
   ffmpeg.on("error", (err) => {
-    _logger.error(`[ffmpeg] Spawn error: ${err.message}`);
+    _logger.error(`[ffmpeg] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpegProc = ffmpeg;
@@ -211,6 +219,14 @@ function spawnFrameGrabber() {
     }
   });
 
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[frames] stdout stream error: ${err.message || String(err)}`);
+  });
+
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[frames] stderr stream error: ${err.message || String(err)}`);
+  });
+
   ffmpeg.on("close", (code) => {
     if (_isShuttingDown()) {
       _logger.info(`[frames] Exited (code ${code}) — shutting down`);
@@ -223,7 +239,7 @@ function spawnFrameGrabber() {
   });
 
   ffmpeg.on("error", (err) => {
-    _logger.error(`[frames] Spawn error: ${err.message}`);
+    _logger.error(`[frames] Spawn error: ${err.message || String(err)}`);
   });
 
   frameGrabberProc = ffmpeg;

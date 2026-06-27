@@ -234,7 +234,7 @@ const msg = [
 ].join("\n");
 logger.info(msg);
 sendTelegram(msg).catch((err) =>
-  logger.error(`[client] Failed to send Telegram: ${err.message}`),
+  logger.error(`[client] Failed to send Telegram: ${err.message || String(err)}`),
 );
 
 // ── State ────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ function connectWebSocket() {
   });
 
   ws.on("error", (err) => {
-    logger.error(`[ws] Error: ${err.message}`);
+    logger.error(`[ws] Error: ${err.message || String(err)}`);
   });
 }
 
@@ -417,8 +417,8 @@ setTimeout(async () => {
       logger.info(`[${provider.name}] Session ended gracefully.`);
       return;
     }
-    logger.error(`[${provider.name}] Critical error: ${err.message}`);
-    shutdown(`Critical error: ${err.message}`, 1);
+    logger.error(`[${provider.name}] Critical error: ${err.message || String(err)}`);
+    shutdown(`Critical error: ${err.message || String(err)}`, 1);
   }
 }, 500);
 

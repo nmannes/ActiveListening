@@ -60,17 +60,33 @@ function setupAudioTranscoder(inputUrl = "pipe:0") {
   });
 
   ffmpeg.stdout.on("data", (data) => {
-    if (_ws && _ws.readyState === WebSocket.OPEN) {
-      _ws.send(data);
+    try {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(data);
+      }
+    } catch (e) {
+      _logger.warn(`[transcoder] send error: ${e.message || String(e)}`);
     }
+  });
+
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[transcoder] stdout stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.stderr.on("data", (data) => {
     _logger.info(`[transcoder] ${data.toString().trim()}`);
   });
 
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[transcoder] stderr stream error: ${err.message || String(err)}`);
+  });
+
   ffmpeg.on("close", (code) => {
     _logger.info(`[transcoder] FFmpeg exited with code ${code}`);
+  });
+
+  ffmpeg.on("error", (err) => {
+    _logger.error(`[transcoder] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpegProc = ffmpeg;

@@ -30,7 +30,7 @@ async function start() {
   function spawnChild(name, cmd, args) {
     console.log(`Starting ${name}...`);
     const proc = spawn(cmd, args, { cwd: __dirname, stdio: "inherit" });
-    proc.on("error", (err) => console.error(`Failed to start ${name}:`, err));
+    proc.on("error", (err) => console.error(`Failed to start ${name}:`, err.message || String(err)));
     proc.on("exit", (code, signal) => {
       if (shuttingDown) return;
       console.error(`${name} exited (code=${code}, signal=${signal}). Restarting in 5s...`);

@@ -51,13 +51,25 @@ function setupAudioTranscoder(inputUrl, retryCount = 0) {
   });
 
   ffmpeg.stdout.on("data", (data) => {
-    if (_ws && _ws.readyState === WebSocket.OPEN) {
-      _ws.send(data);
+    try {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(data);
+      }
+    } catch (e) {
+      _logger.warn(`[youtube-ffmpeg] send error: ${e.message || String(e)}`);
     }
+  });
+
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] stdout stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.stderr.on("data", (data) => {
     _logger.trace(`[youtube-ffmpeg] ${data.toString().trim()}`);
+  });
+
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] stderr stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.on("close", (code) => {
@@ -69,6 +81,10 @@ function setupAudioTranscoder(inputUrl, retryCount = 0) {
         setupAudioTranscoder(inputUrl, retryCount + 1);
       }, delay);
     }
+  });
+
+  ffmpeg.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpegProc = ffmpeg;
@@ -104,10 +120,18 @@ function setupPipedTranscoder(youtubeUrl, retryCount = 0) {
   ytdlp.stdout.pipe(ffmpeg.stdin);
 
   let ytdlpStderr = "";
+  ytdlp.stdout.on("error", (err) => {
+    _logger.error(`[youtube-ytdlp] stdout stream error: ${err.message || String(err)}`);
+  });
+
   ytdlp.stderr.on("data", (data) => {
     const text = data.toString().trim();
     ytdlpStderr += text + "\n";
     _logger.trace(`[youtube-ytdlp] ${text}`);
+  });
+
+  ytdlp.stderr.on("error", (err) => {
+    _logger.error(`[youtube-ytdlp] stderr stream error: ${err.message || String(err)}`);
   });
 
   ytdlp.on("close", (code) => {
@@ -123,14 +147,30 @@ function setupPipedTranscoder(youtubeUrl, retryCount = 0) {
     }
   });
 
+  ytdlp.on("error", (err) => {
+    _logger.error(`[youtube-ytdlp] Spawn error: ${err.message || String(err)}`);
+  });
+
   ffmpeg.stdout.on("data", (data) => {
-    if (_ws && _ws.readyState === WebSocket.OPEN) {
-      _ws.send(data);
+    try {
+      if (_ws && _ws.readyState === WebSocket.OPEN) {
+        _ws.send(data);
+      }
+    } catch (e) {
+      _logger.warn(`[youtube-ffmpeg] send error: ${e.message || String(e)}`);
     }
+  });
+
+  ffmpeg.stdout.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] stdout stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.stderr.on("data", (data) => {
     _logger.trace(`[youtube-ffmpeg] ${data.toString().trim()}`);
+  });
+
+  ffmpeg.stderr.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] stderr stream error: ${err.message || String(err)}`);
   });
 
   ffmpeg.on("close", (code) => {
@@ -142,6 +182,10 @@ function setupPipedTranscoder(youtubeUrl, retryCount = 0) {
         setupPipedTranscoder(youtubeUrl, retryCount + 1);
       }, delay);
     }
+  });
+
+  ffmpeg.on("error", (err) => {
+    _logger.error(`[youtube-ffmpeg] Spawn error: ${err.message || String(err)}`);
   });
 
   ffmpegProc = ffmpeg;
@@ -169,6 +213,8 @@ module.exports = {
       ]);
       let out = "";
       ytdlp.stdout.on("data", (d) => (out += d.toString()));
+      ytdlp.stderr.on("data", () => {});
+      ytdlp.on("error", (err) => _logger.warn(`[youtube] is_live check spawn error: ${err.message || String(err)}`));
       ytdlp.on("close", () => resolve(out.trim() === "True"));
     });
 
@@ -200,6 +246,7 @@ module.exports = {
           let err = "";
           ytdlp.stdout.on("data", (d) => (out += d.toString()));
           ytdlp.stderr.on("data", (d) => (err += d.toString()));
+          ytdlp.on("error", (e) => reject(new Error(`yt-dlp spawn error: ${e.message || String(e)}`)));
           ytdlp.on("close", (code) => {
             if (code === 0 && out.trim()) {
               resolve(out.trim());
