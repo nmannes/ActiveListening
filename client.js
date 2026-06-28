@@ -351,13 +351,20 @@ function connectWebSocket() {
 }
 
 // ── Shutdown ─────────────────────────────────────────────────────────
-function shutdown(reason, exitCode = 0) {
+async function shutdown(reason, exitCode = 0) {
   if (isShuttingDown) return;
   logger.info(`${reason}, shutting down...`);
   isShuttingDown = true;
   if (heartbeatInterval) clearInterval(heartbeatInterval);
   if (transcriptCheckInterval) clearInterval(transcriptCheckInterval);
-  provider.stop();
+
+  // Stop provider — await so Chrome/ffmpeg are fully cleaned up before exit
+  try {
+    await provider.stop();
+  } catch (e) {
+    logger.error(`[client] Error stopping provider: ${e.message || String(e)}`);
+  }
+
   if (ws) ws.close();
   if (orderbook && orderbook.stop) orderbook.stop();
 

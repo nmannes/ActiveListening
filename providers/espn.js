@@ -401,13 +401,17 @@ module.exports = {
     _ws = ws;
   },
 
-  stop() {
+  async stop() {
     if (ffmpegProc) {
       ffmpegProc.kill();
       ffmpegProc = null;
     }
     if (browser) {
-      browser.close().catch(() => { });
+      try {
+        await browser.close();
+      } catch (e) {
+        _logger.warn(`[espn] Error closing browser: ${e.message || String(e)}`);
+      }
       browser = null;
     }
   },

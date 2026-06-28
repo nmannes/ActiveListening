@@ -388,7 +388,7 @@ module.exports = {
     _ws = ws;
   },
 
-  stop() {
+  async stop() {
     _isStopped = true;
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
@@ -399,7 +399,11 @@ module.exports = {
       ffmpegProc = null;
     }
     if (browser) {
-      browser.close().catch(() => {});
+      try {
+        await browser.close();
+      } catch (e) {
+        _logger.warn(`[browser] Error closing browser: ${e.message || String(e)}`);
+      }
       browser = null;
     }
   },

@@ -312,7 +312,7 @@ module.exports = {
     _ws = ws;
   },
 
-  stop() {
+  async stop() {
     if (ffmpegProc) ffmpegProc.kill();
     if (frameGrabberProc) frameGrabberProc.kill();
     if (listenProc) listenProc.kill();

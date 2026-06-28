@@ -305,7 +305,7 @@ module.exports = {
     _ws = ws;
   },
 
-  stop() {
+  async stop() {
     _isStopped = true;
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
@@ -318,7 +318,11 @@ module.exports = {
     }
     if (browser) {
       _logger.info(`[yttv] Stopping browser...`);
-      browser.close().catch(() => { });
+      try {
+        await browser.close();
+      } catch (e) {
+        _logger.warn(`[yttv] Error closing browser: ${e.message || String(e)}`);
+      }
       browser = null;
     }
   },

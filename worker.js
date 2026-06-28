@@ -169,6 +169,17 @@ const runClientWorker = new Worker(
       );
       job.log(`Client finished: ${slug}`);
     } finally {
+      // 2b. Kill any orphaned Chrome/ffmpeg processes that client.js may have left behind
+      try {
+        console.log(`[worker] Cleaning up orphaned processes for ${slug}...`);
+        await spawnCapture(`pkill -f "chrome.*${slug}" 2>/dev/null; pkill -f "ffmpeg.*${slug}" 2>/dev/null; true`);
+      } catch (e) {
+        // pkill returns non-zero if no matching processes — that's expected
+      }
+
+      // 2c. Brief delay so TCP connections to the EC2 instance drain cleanly
+      await new Promise((r) => setTimeout(r, 5000));
+
       // 3. Clean up the CloudFormation stack
       try {
         console.log(`[worker] Destroying stack: ${stackName}`);

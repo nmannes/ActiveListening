@@ -283,7 +283,7 @@ module.exports = {
     _ws = ws;
   },
 
-  stop() {
+  async stop() {
     _isStopped = true;
     if (_retryTimeout) {
       clearTimeout(_retryTimeout);
