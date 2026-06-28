@@ -479,7 +479,7 @@ class SpeakerRecognitionSession:
 
                     # Whitelist addition -> info
                     whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
-                    loop.run_in_executor(None, send_telegram, whitelist_msg, "debug")
+                    loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
 
                     # Detailed identification + audio -> debug
                     caption = "\n".join([

@@ -136,9 +136,13 @@ class TradeProcessor:
                             f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
                             f"Source: {self.session.market.get('mediaStreamURL', '')}",
                             f"Status: {order.status}",
-                            f"Taker fill cost: ${order.taker_fill_cost_dollars}",
+                            f"Taker fill cost: ${round(order.taker_fill_cost_dollars,2)}",
                         ])
-                        asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, "info")
+                        msg_debug_level = "debug"
+                        if order.status is "filled":
+                            msg_debug_level = "info"
+
+                        asyncio.get_running_loop().run_in_executor(None, send_telegram, msg, msg_debug_level)
 
                 # Notify client
                 try:
