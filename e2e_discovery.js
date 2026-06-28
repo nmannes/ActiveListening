@@ -18,6 +18,7 @@ const { CHANNEL_MAPPINGS } = require("./lib/yttv_channels");
 const { HEADLESS } = require("./lib/args");
 
 (async () => {
+  let startTime = new Date();
   let browser;
   try {
     const cacheDir = process.env.KALSHI_CACHE_DIR || path.join(__dirname, "cache");
@@ -287,6 +288,11 @@ const { HEADLESS } = require("./lib/args");
       logger.info(msg);
       logMessages.push(msg);
     }
+
+
+    let duration = new Date() - startTime
+    logMessages.unshift(`job duration: ${(duration / 60000).toFixed(1)} minutes`)
+
     // Send all log messages in one Telegram message (debug channel)
     sendTelegram(logMessages.join('\n'), "debug").catch(e => logger.warn(`Telegram batch send failed: ${e.message}`));
 
