@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import json
+import time
 from pprint import pprint
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -337,13 +338,12 @@ class SpeakerRecognitionSession:
                         market_title = market.get("title", "Unknown Market")
                         channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
 
-                        # Whitelist addition -> info
                         whitelist_msg = f"✅ Speaker added to trading whitelist: {label} (ID: {sid}) — {market_title}"
                         asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, whitelist_msg, "debug"
+                            None, send_telegram, whitelist_msg, "info"
                         )
 
-                        # Detailed identification -> debug
+                        # Detailed identification -> info
                         debug_msg = "\n".join([
                             f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}",
                             f"Speaker ID: {sid}",
@@ -353,7 +353,7 @@ class SpeakerRecognitionSession:
                             f"Session ID: {self.session_id}",
                         ])
                         asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, debug_msg, "debug"
+                            None, send_telegram, debug_msg, "info"
                         )
                     except Exception as e:
                         logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
@@ -408,11 +408,12 @@ class SpeakerRecognitionSession:
             return False
 
         matched_any = False
+        t_start = time.perf_counter()
         logger.debug(f"[{self.session_id}] Iterating over {len(speaker_wavs)} speaker wav files")
         for wav_path in speaker_wavs:
             wav_path = wav_path.absolute()
             logger.debug(f"[{self.session_id}] Processing wav path: {wav_path}")
-            
+
             # Extract speaker ID from filename: "speaker_0.wav" -> "0"
             speaker_id = wav_path.stem.replace("speaker_", "")
 
@@ -423,7 +424,8 @@ class SpeakerRecognitionSession:
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
             matches, scores = await identifier.identify_file(wav_path)
-            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={matches}, scores={scores}")
+            cumulative_elapsed = time.perf_counter() - t_start
+            logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={matches}, scores={scores} (cumulative {cumulative_elapsed:.3f}s)")
 
             if matches:
                 logger.debug(f"[{self.session_id}] Matches: {matches}. Market slugs: {list(entity_slugs.keys())}")
@@ -454,7 +456,9 @@ class SpeakerRecognitionSession:
                     "type": "speaker_identified",
                     "speaker_id": speaker_id,
                     "entity": matched_entity,
+                    "matches": matches,
                     "scores": scores,
+                    "elapsed_s": round(cumulative_elapsed, 3),
                 }))
             except Exception as e:
                 logger.error(f"[{self.session_id}] Failed to send speaker_identified to client: {e}")
@@ -477,11 +481,10 @@ class SpeakerRecognitionSession:
 
                     loop = asyncio.get_running_loop()
 
-                    # Whitelist addition -> info
                     whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
                     loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
 
-                    # Detailed identification + audio -> debug
+                    # Detailed identification + audio -> info
                     caption = "\n".join([
                         f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}",
                         f"Speaker ID: {speaker_id}",
@@ -492,8 +495,8 @@ class SpeakerRecognitionSession:
                         f"Top scores:",
                         scores_str,
                     ])
-                    loop.run_in_executor(None, send_telegram, caption, "debug")
-                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "debug")
+                    loop.run_in_executor(None, send_telegram, caption, "info")
+                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")
                 except Exception as e:
                     logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
 

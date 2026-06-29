@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import re
+import time
 import torch
 import numpy as np
 import librosa
@@ -160,9 +161,11 @@ class SpeakerIdentifier:
             return [], {}
 
         scores: Dict[str, float] = {}
+        t0 = time.perf_counter()
         for name, ref in self.references.items():
             sim = torch.nn.functional.cosine_similarity(target, ref).item()
             scores[name] = round(sim, 4)
+        cosine_elapsed = time.perf_counter() - t0
 
         matches = sorted(
             [name for name, score in scores.items() if score >= thr],
@@ -172,10 +175,10 @@ class SpeakerIdentifier:
 
         if matches:
             logger.info(
-                f"[AUDIO] Speaker identified: {matches} (threshold={thr:.3f}) | all: {scores}"
+                f"[AUDIO] Speaker identified: {matches} (threshold={thr:.3f}, cosine_time={cosine_elapsed:.3f}s) | all: {scores}"
             )
         else:
-            logger.debug(f"No match above {thr}. Scores: {scores}")
+            logger.debug(f"No match above {thr} (cosine_time={cosine_elapsed:.3f}s). Scores: {scores}")
 
         return matches, scores
 
