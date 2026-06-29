@@ -32,6 +32,10 @@ All commands dispatch through `./bin/kalshi <command>`, which routes to the corr
 ./bin/kalshi destroy               # Teardown all EC2 instances
 ./bin/kalshi logs                  # Pull session logs from remote
 
+# Windows VM (DRM streaming)
+./launch_windows_vm.sh <session>   # Start ephemeral Windows VM + bridge
+./destroy_windows_vm.sh <session>  # Stop VM and clean up session image
+
 # UI & testing
 ./bin/kalshi ui                    # Interactive web UI for market discovery
 ./bin/kalshi test                  # Run Python test suite (pytest)
@@ -62,7 +66,9 @@ node lib/speaker_identification.test.js
 
 4. **Trading** (`pylib/trade_processor.py`, `lib/word_configurations.js`): When whitelisted speakers say trigger phrases, fill-or-kill orders are placed on Kalshi. Keyword rules (substitutions, custom buy amounts) are in `lib/word_configurations.js`.
 
-**Provider pattern** (`providers/`): Each provider module (youtube, browser, tv, yttv, espn, amazon) exports a standard interface — `start(wsUrl, logger)` → streams PCM audio to the server, `stop()` tears down. `client.js` loads the provider dynamically and handles all shared boilerplate (WebSocket connection, market parsing, shutdown). **Limitation:** The Linux machine this runs on does not support Widevine DRM, so browser-based capture of DRM-protected sites (Peacock, Netflix, etc.) will fail. Stick to YouTube TV, ESPN, or non-DRM sources for those events.
+**Provider pattern** (`providers/`): Each provider module (youtube, browser, tv, yttv, espn, amazon, windows) exports a standard interface — `start(wsUrl, logger)` → streams PCM audio to the server, `stop()` tears down. `client.js` loads the provider dynamically and handles all shared boilerplate (WebSocket connection, market parsing, shutdown).
+
+**Windows provider** (`providers/windows.js`): For DRM-protected sites (Peacock, Netflix). Launches an ephemeral Windows VM via QEMU/KVM, delegates to a streaming bridge (`windows-bridge/bridge.js`) running inside the VM. The bridge runs Chrome (with Widevine CDM) + ffmpeg and streams PCM audio directly to the EC2 server. VM lifecycle is managed per-session by `launch_windows_vm.sh` and `destroy_windows_vm.sh`. Requires a base Windows QCOW2 image at `~/windows-vm/base.qcow2` with Chrome, Node.js, ffmpeg, and the bridge auto-start configured.
 
 **BullMQ queues** (`lib/queues.js`, `worker.js`): Three queues backed by Redis:
 - `run-client` — launches EC2 instances, runs clients, destroys stacks
@@ -87,3 +93,4 @@ Key config sections: `durations`, `timing`, `worker` (concurrency, thresholds), 
 - **Orphan process cleanup**: After client.js exits, the worker runs `pkill -f "chrome.*<slug>"` and `pkill -f "ffmpeg.*<slug>"` to prevent FD/memory exhaustion. Provider `stop()` methods must be awaited — fire-and-forget `browser.close()` can leave Chrome processes that exhaust file descriptors and cause SSH loss.
 - **The `main_loop.js`** spawns and supervises four long-running child processes: market UI, BullMQ worker, Telegram bot, and Redis queue worker. It restarts any that crash and enqueues the scheduling loop every 60 minutes.
 - **Cache directory** (`cache/`): Stores discovery results, matched/unmatched markets, manual matches, unscheduled blocklist. Set `KALSHI_CACHE_DIR` to override.
+- **Windows VM lifecycle**: The Windows provider launches an ephemeral QEMU/KVM VM per DRM session. The VM is a copy of a base QCOW2 image, destroyed after the session. The bridge inside the VM connects directly to the EC2 server — audio never passes through the Linux host. VM networking uses QEMU user-mode NAT so outbound traffic appears from the host's IP.

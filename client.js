@@ -42,7 +42,7 @@ if (args.help) {
 Usage: node client.js [options]
 
 Options:
-  --provider <tv|browser>   Stream provider (auto-detected if omitted)
+  --provider <tv|browser|windows>   Stream provider (auto-detected if omitted)
   --url <stream-url>        Media stream URL
   --ip <ip>                 Remote server IP
   --server <ws://host:port> Remote WebSocket URL
@@ -202,6 +202,10 @@ if (!providerName) {
     providerName = "yttv";
   } else if (STREAM_URL.includes("amazon.com")) {
     providerName = "amazon";
+  } else if (STREAM_URL.includes("peacocktv.com")) {
+    providerName = "windows";
+  } else if (STREAM_URL.includes("netflix.com")) {
+    providerName = "windows";
   } else {
     providerName = "browser";
   }
@@ -212,7 +216,7 @@ let provider;
 try {
   provider = require(`./providers/${providerName}`);
 } catch (e) {
-  console.error(`Unknown provider "${providerName}". Available: tv, browser`);
+  console.error(`Unknown provider "${providerName}". Available: tv, browser, youtube, yttv, espn, amazon, windows`);
   console.error(`  Error: ${e.message}`);
   process.exit(1);
 }

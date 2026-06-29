@@ -1,0 +1,13 @@
+{
+  "name": "kalshi-windows-bridge",
+  "version": "1.0.0",
+  "description": "Windows VM streaming bridge — runs Chromium + ffmpeg, streams PCM audio over WebSocket",
+  "private": true,
+  "scripts": {
+    "start": "node bridge.js"
+  },
+  "dependencies": {
+    "puppeteer": "^24.37.3",
+    "ws": "^8.17.1"
+  }
+}
