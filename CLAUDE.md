@@ -62,7 +62,7 @@ node lib/speaker_identification.test.js
 
 4. **Trading** (`pylib/trade_processor.py`, `lib/word_configurations.js`): When whitelisted speakers say trigger phrases, fill-or-kill orders are placed on Kalshi. Keyword rules (substitutions, custom buy amounts) are in `lib/word_configurations.js`.
 
-**Provider pattern** (`providers/`): Each provider module (youtube, browser, tv, yttv, espn, amazon) exports a standard interface — `start(wsUrl, logger)` → streams PCM audio to the server, `stop()` tears down. `client.js` loads the provider dynamically and handles all shared boilerplate (WebSocket connection, market parsing, shutdown).
+**Provider pattern** (`providers/`): Each provider module (youtube, browser, tv, yttv, espn, amazon) exports a standard interface — `start(wsUrl, logger)` → streams PCM audio to the server, `stop()` tears down. `client.js` loads the provider dynamically and handles all shared boilerplate (WebSocket connection, market parsing, shutdown). **Limitation:** The Linux machine this runs on does not support Widevine DRM, so browser-based capture of DRM-protected sites (Peacock, Netflix, etc.) will fail. Stick to YouTube TV, ESPN, or non-DRM sources for those events.
 
 **BullMQ queues** (`lib/queues.js`, `worker.js`): Three queues backed by Redis:
 - `run-client` — launches EC2 instances, runs clients, destroys stacks
