@@ -282,6 +282,7 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
         cmd = [
             YT_DLP,
             YT_DLP_JS_RUNTIME,
+            "-f", "bestaudio/best",
             "--extract-audio",
             "--audio-format", "wav",
             "--audio-quality", "0",
@@ -342,6 +343,7 @@ async def download_from_urls(urls: list, work_dir: Path) -> list:
         cmd = [
             YT_DLP,
             YT_DLP_JS_RUNTIME,
+            "-f", "bestaudio/best",
             "--extract-audio",
             "--audio-format", "wav",
             "--audio-quality", "0",
@@ -427,7 +429,7 @@ class SampleGenerator:
                 for start_s, end_s in merged:
                     start_sample = int(start_s * 16000)
                     end_sample = int(end_s * 16000)
-                    chunk = audio[start_sample:end_sample]
+                    chunk = audio[start_sample:end_sample].copy()
                     duration = end_s - start_s
                     if 2.0 <= duration <= 60.0:
                         raw_segments.append({
@@ -435,6 +437,7 @@ class SampleGenerator:
                             "duration": round(duration, 2),
                             "source": wav_path.name,
                         })
+                del audio
             except Exception as e:
                 logger.error(f"VAD failed for {wav_path.name}: {e}")
 
