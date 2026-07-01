@@ -17,6 +17,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import numpy as np
@@ -101,6 +102,35 @@ async def run_blocking(func, *args, **kwargs):
 # Sample generation processor
 # ---------------------------------------------------------------------------
 
+LOCKS_DIR = Path(os.environ.get("KALSHI_DATA_DIR", ROOT)) / "locks"
+
+
+def _has_active_client_sessions() -> bool:
+    """Check for active client.js listening sessions via lockfiles.
+
+    Each client session writes a <sessionId>.lock file containing its PID.
+    A session is active if the lockfile exists and the PID is still alive.
+    """
+    if not LOCKS_DIR.exists():
+        return False
+    for lockfile in LOCKS_DIR.glob("*.lock"):
+        try:
+            pid = int(lockfile.read_text().strip())
+            os.kill(pid, 0)  # signal 0 just checks if process exists
+            return True
+        except (ValueError, OSError):
+            # Stale lockfile — PID doesn't exist or file is invalid
+            continue
+    return False
+
+
+async def _reschedule_job(job, job_token, delay_minutes: int = 5):
+    """Move the current job to the delayed queue, rescheduling it for later."""
+    delay_ms = delay_minutes * 60 * 1000
+    timestamp = int(time.time() * 1000) + delay_ms
+    logger.info(f"[{job.id}] Rescheduling job for {delay_minutes} min from now")
+    await job.scripts.moveToDelayed(job.id, timestamp, delay=delay_ms, token=job_token)
+
 async def _process_sample_generation(job, job_token, progress=None):
     if progress is None:
         progress = {}
@@ -108,6 +138,13 @@ async def _process_sample_generation(job, job_token, progress=None):
     chat_id = job.data.get("chat_id")
     slug = slugify(target)
     job_id = job.id or "?"
+
+    # Don't run sample generation while client listening sessions are active —
+    # yt-dlp + ffmpeg compete for memory and bandwidth with live audio streaming.
+    if _has_active_client_sessions():
+        logger.info(f"[{job_id}] Active client sessions detected, deferring '{target}'")
+        await _reschedule_job(job, job_token)
+        return
 
     # Check if we already have enough samples for this person
     existing_samples = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
