@@ -263,13 +263,10 @@ class SpeakerRecognitionSession:
         # announcers and targets we don't have voice samples for.
         identifier = self.listening_session.server.speaker_identifier
         entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
-        target_has_voice_sample = (
-            identifier and identifier._ready
-            and any(
-                key == slug or key.startswith(slug + '-') or key.startswith(slug + '_')
-                for slug in entity_slugs
-                for key in identifier.references
-            )
+        target_has_voice_sample = any(
+            key == slug or key.startswith(slug + '-') or key.startswith(slug + '_')
+            for slug in entity_slugs
+            for key in identifier.references
         )
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
@@ -401,12 +398,7 @@ class SpeakerRecognitionSession:
 
         logger.info(f"[{self.session_id}] Found {len(speaker_wavs)} speaker WAV files: {[f.name for f in speaker_wavs]}")
 
-        # Use the server's pre-loaded SpeakerIdentifier
         identifier = self.listening_session.server.speaker_identifier
-        if not identifier or not identifier._ready:
-            logger.warning(f"[{self.session_id}] SpeakerIdentifier not ready yet, falling back to Bedrock")
-            return False
-
         matched_any = False
         t_start = time.perf_counter()
         logger.debug(f"[{self.session_id}] Iterating over {len(speaker_wavs)} speaker wav files")
