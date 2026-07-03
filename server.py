@@ -378,8 +378,8 @@ class TradingServer:
                 sig, lambda s=sig: asyncio.create_task(self.shutdown(s))
             )
 
-        # Start background resource initialization
-        asyncio.create_task(self.initialize_resources())
+        # Initialize resources before accepting connections
+        await self.initialize_resources()
 
         # Notify that the server has started
         hostname = os.uname().nodename
