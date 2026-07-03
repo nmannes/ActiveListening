@@ -141,10 +141,14 @@ async def _process_sample_generation(job, job_token, progress=None):
 
     # Don't run sample generation while client listening sessions are active —
     # yt-dlp + ffmpeg compete for memory and bandwidth with live audio streaming.
+    # Telegram-triggered jobs skip the reschedule and run immediately.
     if _has_active_client_sessions():
-        logger.info(f"[{job_id}] Active client sessions detected, deferring '{target}'")
-        await _reschedule_job(job, job_token)
-        return
+        if chat_id:
+            logger.info(f"[{job_id}] Active client sessions detected but job was Telegram-triggered, running anyway")
+        else:
+            logger.info(f"[{job_id}] Active client sessions detected, deferring '{target}'")
+            await _reschedule_job(job, job_token)
+            return
 
     # Check if we already have enough samples for this person
     existing_samples = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
