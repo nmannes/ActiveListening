@@ -148,6 +148,20 @@ class AudioProcessor:
                 reconnect_delay = 1  # reset backoff on clean exit
             except asyncio.CancelledError:
                 break
+            except websockets.exceptions.InvalidStatus as e:
+                status = e.response.status_code
+                logger.error(
+                    f"[{self.session.session_id}] Deepgram returned HTTP {status}"
+                )
+                send_telegram(
+                    f"Deepgram HTTP {status} on session {self.session.session_id} "
+                    f"(market: {self.session.market.get('title', 'unknown')})"
+                )
+                if status in (401, 402, 403):
+                    logger.error(
+                        f"[{self.session.session_id}] Fatal HTTP {status}, not retrying"
+                    )
+                    break
             except Exception:
                 logger.exception(
                     f"[{self.session.session_id}] Deepgram connection/runtime error"
