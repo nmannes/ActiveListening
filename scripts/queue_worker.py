@@ -357,10 +357,10 @@ async def _process_sample_generation(job, job_token, progress=None):
 
             pre_label = " (pre-approved)" if is_pre_approved else ""
 
-            if is_pre_approved and not in_review:
-                # Auto-saved without sending for review
-                pre_approved_idxs.append(i)
-                logger.info(f"[{job_id}] Segment {i} auto-saved (score={score:.3f}, outside review set)")
+            if not in_review:
+                continue
+            if score >= 1.0:
+                logger.info(f"[{job_id}] Segment {i} skipped (score=1.0, likely duplicate)")
                 continue
 
             source = seg.get("source", "").replace(".wav", "")

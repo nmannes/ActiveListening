@@ -786,8 +786,8 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
     needs_approval = 0
     sent_count = 0
 
-    # Persist ALL segments and register in Redis. Segments outside the
-    # diverse review set are auto-approved and saved immediately.
+    # Persist ALL segments and register in Redis. Only the diverse
+    # review set is sent to Telegram for manual approval.
     for i, seg in enumerate(segments):
         score = seg["score"]
         in_review = i in review_set_indices
@@ -812,9 +812,10 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
             "ref_score": seg.get("ref_score"),
         })
 
-        if is_pre_approved and not in_review:
-            pre_approved_idxs.append(i)
-            logger.info(f"  Segment {i} auto-saved (score={score:.3f}, outside review set)")
+        if not in_review:
+            continue
+        if score >= 1.0:
+            logger.info(f"  Segment {i} skipped (score=1.0, likely duplicate)")
             continue
 
         pre_label = " (pre-approved)" if is_pre_approved else ""
