@@ -261,6 +261,10 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
     all_wavs = []
     total_requested = 0
 
+    # Exclude videos uploaded in the last 7 days so results have had
+    # time to stabilize — avoids just-uploaded/streamed content.
+    cutoff_date = time.strftime("%Y%m%d", time.gmtime(time.time() - 7 * 86400))
+
     for i, q in enumerate(queries):
         count = videos_per_query + (1 if i < remainder else 0)
         # Cap per-query downloads so we don't waste time on endless scrolling
@@ -294,6 +298,7 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
             "--playlist-random",
             "--playlist-end", str(count),
             "--download-sections", section,
+            "--datebefore", cutoff_date,
             query,
         ]
 
