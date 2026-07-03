@@ -338,7 +338,7 @@ async def _process_sample_generation(job, job_token, progress=None):
         for i, seg in enumerate(segments):
             score = seg["score"]
             in_review = i in review_set
-            is_pre_approved = not is_new_speaker and (auto_approve or score >= threshold or not in_review)
+            is_pre_approved = False
             seg["approved"] = True if is_pre_approved else None
 
             set_verification_state(slug, i, {

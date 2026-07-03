@@ -791,7 +791,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
     for i, seg in enumerate(segments):
         score = seg["score"]
         in_review = i in review_set_indices
-        is_pre_approved = auto_approve or score >= effective_threshold or not in_review
+        is_pre_approved = False
 
         # Save WAV + embedding to disk
         wav_path = segments_dir / f"{slug}_{i}.wav"
