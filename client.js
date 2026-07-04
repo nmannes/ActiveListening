@@ -376,7 +376,7 @@ async function shutdown(reason, exitCode = 0) {
   // Queue log sync for after CloudWatch ingestion
   try {
     const { logSyncQueue } = require("./lib/queues");
-    logSyncQueue.add("sync-logs", { runUUID, sessionId }, { delay: 5 * 60 * 1000 }).catch(() => {});
+    await logSyncQueue.add("sync-logs", { runUUID, sessionId }, { delay: 5 * 60 * 1000 });
   } catch (e) { /* best-effort */ }
 
   process.exit(exitCode);
