@@ -72,11 +72,33 @@ MERGED_LOG="runtime_logs/${OUTPUT_NAME}_merged.log"
 cleanup() { rm -rf "$TEMP_DIR"; }
 trap cleanup EXIT
 
-# ── Fetch server logs from CloudWatch ──────────────────────────────────
-END_TIME=$(date +%s)
-START_TIME=$(date -d "$HOURS_AGO hours ago" +%s)
+# ── Determine time range from client log ──────────────────────────────
+CHUNK_SECONDS=$((15 * 60))   # 15-minute query chunks
 
-echo "Querying CloudWatch /kalshi/worker for $RUN_UUID (last $HOURS_AGO hours)..."
+if [ -f "$CLIENT_LOG" ]; then
+    CLIENT_START=$(head -1 "$CLIENT_LOG" | jq -r '.time // empty')
+    CLIENT_END=$(tail -1 "$CLIENT_LOG" | jq -r '.time // empty')
+
+    if [ -n "$CLIENT_START" ] && [ -n "$CLIENT_END" ]; then
+        START_TIME=$(date -d "$CLIENT_START - 5 minutes" +%s 2>/dev/null)
+        END_TIME=$(date -d "$CLIENT_END + 5 minutes" +%s 2>/dev/null)
+    fi
+fi
+
+# Fallback to --hours if client timestamps couldn't be determined
+if [ -z "$START_TIME" ] || [ -z "$END_TIME" ]; then
+    END_TIME=$(date +%s)
+    START_TIME=$(date -d "$HOURS_AGO hours ago" +%s)
+    echo "Client timestamps unavailable, using last $HOURS_AGO hours (fallback)..."
+    USE_CHUNKS=false
+else
+    echo "Client log range: $CLIENT_START → $CLIENT_END"
+    echo "Query window: $(date -d @$START_TIME +'%Y-%m-%dT%H:%M:%S') → $(date -d @$END_TIME +'%Y-%m-%dT%H:%M:%S')"
+    USE_CHUNKS=true
+fi
+
+# ── Fetch server logs from CloudWatch ──────────────────────────────────
+echo "Querying CloudWatch $LOG_GROUP for $RUN_UUID..."
 
 if [ -n "$INSTANCE_ID" ]; then
     QUERY="fields @timestamp, @message | filter @message like /$RUN_UUID/ | filter @logStream like /$INSTANCE_ID/ | sort @timestamp asc"
@@ -84,36 +106,61 @@ else
     QUERY="fields @timestamp, @message | filter @message like /$RUN_UUID/ | sort @timestamp asc"
 fi
 
-QUERY_ID=$(aws logs start-query \
-    --log-group-name "$LOG_GROUP" \
-    --start-time "$START_TIME" \
-    --end-time "$END_TIME" \
-    --query-string "$QUERY" \
-    --query 'queryId' \
-    --output text)
+> "$SERVER_LOG"
 
-if [ -z "$QUERY_ID" ]; then
-    echo "Failed to start CloudWatch query."
-    exit 1
+run_query() {
+    local chunk_start=$1
+    local chunk_end=$2
+    local query_id
+
+    query_id=$(aws logs start-query \
+        --log-group-name "$LOG_GROUP" \
+        --start-time "$chunk_start" \
+        --end-time "$chunk_end" \
+        --query-string "$QUERY" \
+        --query 'queryId' \
+        --output text)
+
+    if [ -z "$query_id" ]; then
+        echo "  Failed to start CloudWatch query for chunk."
+        return 1
+    fi
+
+    while true; do
+        local result=$(aws logs get-query-results --query-id "$query_id")
+        local status=$(echo "$result" | jq -r '.status')
+
+        if [ "$status" = "Complete" ]; then
+            echo "$result" | jq -r '.results[][] | select(.field == "@message") | .value' >> "$SERVER_LOG"
+            return 0
+        elif [ "$status" = "Failed" ] || [ "$status" = "Cancelled" ]; then
+            echo "  CloudWatch query $status."
+            return 1
+        fi
+        sleep 2
+    done
+}
+
+if [ "$USE_CHUNKS" = true ]; then
+    current=$START_TIME
+    while [ $current -lt $END_TIME ]; do
+        chunk_end=$((current + CHUNK_SECONDS))
+        if [ $chunk_end -gt $END_TIME ]; then
+            chunk_end=$END_TIME
+        fi
+
+        label_start=$(date -d @$current +%H:%M:%S)
+        label_end=$(date -d @$chunk_end +%H:%M:%S)
+        echo "  Chunk $label_start → $label_end ..."
+        run_query $current $chunk_end
+        current=$chunk_end
+    done
+else
+    run_query $START_TIME $END_TIME
 fi
 
-echo "Query ID: $QUERY_ID — waiting for results..."
-while true; do
-    RESULT=$(aws logs get-query-results --query-id "$QUERY_ID")
-    STATUS=$(echo "$RESULT" | jq -r '.status')
-
-    if [ "$STATUS" = "Complete" ]; then
-        echo "Server query complete."
-        echo "$RESULT" | jq -r '.results[][] | select(.field == "@message") | .value' > "$SERVER_LOG"
-        SERVER_COUNT=$(wc -l < "$SERVER_LOG")
-        echo "Server log lines: $SERVER_COUNT"
-        break
-    elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
-        echo "CloudWatch query $STATUS."
-        exit 1
-    fi
-    sleep 2
-done
+SERVER_COUNT=$(wc -l < "$SERVER_LOG")
+echo "Server log lines: $SERVER_COUNT"
 
 # ── Check for client log ──────────────────────────────────────────────
 if [ ! -f "$CLIENT_LOG" ]; then
