@@ -104,7 +104,7 @@ while true; do
 
     if [ "$STATUS" = "Complete" ]; then
         echo "Server query complete."
-        echo "$RESULT" | jq -r '.results[].field[] | select(.field == "@message") | .value' > "$SERVER_LOG"
+        echo "$RESULT" | jq -r '.results[][] | select(.field == "@message") | .value' > "$SERVER_LOG"
         SERVER_COUNT=$(wc -l < "$SERVER_LOG")
         echo "Server log lines: $SERVER_COUNT"
         break
