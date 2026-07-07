@@ -175,9 +175,25 @@ class VAD:
 # ---------------------------------------------------------------------------
 
 class TitaNetEmbedder:
-    """Loads TitaNet-Large and computes speaker embeddings."""
+    """Loads TitaNet-Large and computes speaker embeddings.
 
-    def __init__(self, device: str = "cpu"):
+    Singleton — only one model instance is ever loaded. Subsequent
+    instantiations return the cached instance, ignoring *device*.
+    """
+
+    _instance: "TitaNetEmbedder | None" = None
+    _lock = __import__("threading").Lock()
+
+    def __new__(cls, device: str = "cpu"):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    obj = super().__new__(cls)
+                    obj._init_model(device)
+                    cls._instance = obj
+        return cls._instance
+
+    def _init_model(self, device: str):
         from nemo.collections.asr.models import EncDecSpeakerLabelModel
 
         logger.info("Loading TitaNet-Large …")
