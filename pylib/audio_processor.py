@@ -328,6 +328,7 @@ class AudioProcessor:
                             "text": w["word"].lower(),
                             "start": w["start"],
                             "end": w["end"],
+                            "confidence": round(w.get("confidence", 0), 3),
                         }
                         for w in words
                     ]

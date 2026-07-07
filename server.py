@@ -111,8 +111,10 @@ class Config:
                 break
 
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
+        self.min_confidence = float(os.environ.get("MIN_CONFIDENCE", "0.80"))
         logger.info(f"Environment: {self.env}")
         logger.info(f"Trading enabled: {self.trade_for_real}")
+        logger.info(f"Min confidence: {self.min_confidence}")
         self.word_prediction_enabled = os.environ.get("WORD_PREDICTION", None) is not None
         logger.info(f"Word prediction: {self.word_prediction_enabled}")
         self.audio_library_path = Path("~/audio-library").expanduser()

@@ -112,6 +112,13 @@ class TradeProcessor:
                             f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {matched['key']}, because dollarAmount is {dollar_amount}"
                         )
                         continue
+
+                    word_confidence = t.get("confidence", 0)
+                    if word_confidence < self.session.server.config.min_confidence:
+                        logger.info(
+                            f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, \"{matched['key']}\", because confidence {word_confidence:.3f} < {self.session.server.config.min_confidence}"
+                        )
+                        continue
                     logger.info(
                         f"[{self.session.session_id}][TRADE] Placing market order for {speaker_id}: \"{matched['key']}\" (up to ${dollar_amount})"
                     )
