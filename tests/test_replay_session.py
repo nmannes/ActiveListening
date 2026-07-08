@@ -151,6 +151,45 @@ class TestKeywordTriggersOrder:
             stack.close()
 
     @pytest.mark.asyncio
+    async def test_confidence_at_80_passes_bar(self, session):
+        """Default min_confidence is 0.8 — confidence 0.80 allows order through."""
+        stack, mock_tg = _enter_patches()
+        try:
+            session.trade_processor.add_trading_speaker("0")
+            session.server.config.trade_for_real = True
+            # min_confidence defaults to 0.8
+
+            await session.trade_processor.process_tokens(
+                [{"text": "cherry", "start": 0.0, "end": 0.5, "confidence": 0.80},
+                 {"text": "blossom", "start": 0.6, "end": 1.0, "confidence": 0.80}],
+                speaker_id="0",
+            )
+
+            session.server.kalshi.place_market_order.assert_called_once_with(
+                ticker="CHERRY-YES", dollar_amount=10
+            )
+        finally:
+            stack.close()
+
+    @pytest.mark.asyncio
+    async def test_confidence_below_80_blocked(self, session):
+        """Default min_confidence is 0.8 — confidence 0.79 blocks order."""
+        stack, mock_tg = _enter_patches()
+        try:
+            session.trade_processor.add_trading_speaker("0")
+            session.server.config.trade_for_real = True
+
+            await session.trade_processor.process_tokens(
+                [{"text": "cherry", "start": 0.0, "end": 0.5, "confidence": 0.79},
+                 {"text": "blossom", "start": 0.6, "end": 1.0, "confidence": 0.79}],
+                speaker_id="0",
+            )
+
+            session.server.kalshi.place_market_order.assert_not_called()
+        finally:
+            stack.close()
+
+    @pytest.mark.asyncio
     async def test_keyword_removed_from_index_after_successful_order(self, session):
         stack, mock_tg = _enter_patches()
         try:
