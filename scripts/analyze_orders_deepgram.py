@@ -91,21 +91,23 @@ def get_keywords_for_ticker(ticker: str, s3_folders: list[Path],
     """
     ticker_upper = ticker.upper()
 
-    # 1. Kalshi API (cached)
+    # 1. Kalshi API (cached, with retry)
     if kalshi_client and kalshi_cache is not None:
         if ticker_upper not in kalshi_cache:
-            try:
-                market = kalshi_client.get_market(ticker)
-                word = market.get("custom_strike", {}).get("Word", "")
-                if word:
-                    # Split on / to get individual words
-                    words = [w.strip().lower() for w in word.split("/")]
-                    kalshi_cache[ticker_upper] = words
-                else:
-                    kalshi_cache[ticker_upper] = []
-            except Exception:
+            word = None
+            for attempt in range(3):
+                try:
+                    market = kalshi_client.get_market(ticker)
+                    word = market.get("custom_strike", {}).get("Word", "")
+                    break
+                except Exception:
+                    time.sleep(0.5 * (attempt + 1))
+            if word:
+                words = [w.strip().lower() for w in word.split("/")]
+                kalshi_cache[ticker_upper] = words
+            else:
                 kalshi_cache[ticker_upper] = []
-            time.sleep(0.05)
+            time.sleep(0.1)  # rate limit
         if kalshi_cache.get(ticker_upper):
             return kalshi_cache[ticker_upper]
 
@@ -199,18 +201,24 @@ def dg_contains_keyword(dg_path: Path, keywords: list[str]) -> dict | None:
     transcript = alt.get("transcript", "").lower()
     words = alt.get("words", [])
 
-    # Find which keyword matches in the transcript
+    # Find which keyword matches in the transcript (space-insensitive for compounds)
     matched_kw = None
+    transcript_nospace = transcript.replace(" ", "")
     for kw in keywords:
-        # For phrases like "penalty kick", we need both parts or the full phrase
+        # Direct substring match
+        if kw in transcript:
+            matched_kw = kw
+            break
+        # For phrases: check if all parts appear in transcript
         if " " in kw:
-            if kw in transcript:
+            parts = kw.split()
+            if all(p in transcript for p in parts):
                 matched_kw = kw
                 break
-        else:
-            if kw in transcript:
-                matched_kw = kw
-                break
+        # For compounds: check space-insensitive ("comeback" matching "come back")
+        if " " not in kw and kw in transcript_nospace:
+            matched_kw = kw
+            break
 
     if not matched_kw:
         return None
@@ -350,12 +358,17 @@ def main():
     print(f"{'=' * 90}")
 
     results = []  # (ticker, pl, outcome, conf_data)
+    uncorrelated_results = []  # tickers with no DG match — included in baseline
     kalshi_keyword_cache = {}  # ticker → [keywords]
 
     stats = {"found": 0, "no_slug": 0, "no_s3": 0, "no_keyword": 0, "keyword_not_found": 0, "empty_dg": 0}
 
     for ticker, td in ticker_data.items():
         if not td["orders"]:
+            continue
+
+        # Only analyze mention-based markets
+        if "mention" not in ticker.lower():
             continue
 
         outcome = "WIN" if ticker in wins else ("LOSS" if ticker in losses else "UNRESOLVED")
@@ -424,9 +437,26 @@ def main():
             if found_conf:
                 results.append((ticker, pl, outcome, found_conf))
                 stats["found"] += 1
-                break  # Found for this ticker, move to next
             else:
+                # Track uncorrelated orders — no confidence data but included in baseline
+                uncorrelated_results.append((ticker, pl, outcome, {
+                    "matched_keyword": "[not in DG]",
+                    "is_final": False,
+                    "transcript": "",
+                    "transcript_confidence": 0,
+                    "word_count": 0,
+                    "avg_confidence": 0,
+                    "min_confidence": 0,
+                    "kw_word_confs": [],
+                    "kw_avg_confidence": -1,  # sentinel: no confidence data
+                    "speakers": [],
+                    "all_word_confs": [],
+                    "dg_file": "",
+                    "dg_diff_secs": 0,
+                    "s3_folder": "",
+                }))
                 stats["keyword_not_found"] += 1
+            break  # Found (or not), move to next ticker
 
     print(f"\n  Found keyword in DG: {stats['found']}")
     print(f"  Keyword not in any DG: {stats['keyword_not_found']}")
@@ -434,7 +464,10 @@ def main():
     print(f"  No S3 folder: {stats['no_s3']}")
     print(f"  No keyword mapping: {stats['no_keyword']}")
 
-    if not results:
+    # Combine correlated and uncorrelated for full picture
+    all_results = results + uncorrelated_results
+
+    if not all_results:
         print("\nNo results to analyze!")
         return
 
@@ -442,6 +475,9 @@ def main():
     win_results = [(t, pl, c) for t, pl, o, c in results if o == "WIN"]
     lose_results = [(t, pl, c) for t, pl, o, c in results if o == "LOSS"]
     unres_results = [(t, pl, c) for t, pl, o, c in results if o == "UNRESOLVED"]
+
+    all_win_results = [(t, pl, c) for t, pl, o, c in all_results if o == "WIN"]
+    all_lose_results = [(t, pl, c) for t, pl, o, c in all_results if o == "LOSS"]
 
     print(f"\n{'=' * 90}")
     print("  WINNERS vs LOSERS — KEYWORD CONFIDENCE")
@@ -480,8 +516,18 @@ def main():
             bar = "█" * int(pct / 2)
             print(f"      {b:8s}: {cnt:3d} ({pct:5.1f}%) {bar}")
 
-    summarize("WINNERS", win_results)
-    summarize("LOSERS", lose_results)
+    summarize("WINNERS (correlated)", win_results)
+    summarize("LOSERS (correlated)", lose_results)
+
+    # Combined baseline including uncorrelated
+    uncor_wins = len([u for u in uncorrelated_results if u[2] == "WIN"])
+    uncor_losses = len([u for u in uncorrelated_results if u[2] == "LOSS"])
+    uncor_pl = sum(u[1] for u in uncorrelated_results)
+
+    print(f"\n  COMBINED BASELINE (correlated + uncorrelated):")
+    print(f"    Correlated:   {len(results)} orders ({len(win_results)}W/{len(lose_results)}L)  P&L {sum(r[1] for r in results):+.2f}")
+    print(f"    Uncorrelated: {len(uncorrelated_results)} orders ({uncor_wins}W/{uncor_losses}L)  P&L {uncor_pl:+.2f}")
+    print(f"    Total:        {len(all_results)} orders ({len(all_win_results)}W/{len(all_lose_results)}L)  P&L {sum(r[1] for r in all_results):+.2f}")
 
     # 5. Detailed per-ticker
     print(f"\n{'=' * 90}")
@@ -498,7 +544,37 @@ def main():
         final_str = "Y" if c.get("is_final") else "N"
         print(f"  {ticker:42s} {outcome:8s} {fmt_d(pl):>9s} {final_str:>6s} {c['kw_avg_confidence']:>8.4f} {c['avg_confidence']:>8.4f} {c['min_confidence']:>8.4f} {c['transcript_confidence']:>8.4f} {c.get('dg_diff_secs',0):>7.3f} {c['matched_keyword']:15s} \"{transcript}\"")
 
-    # 6. Interim vs Final breakdown
+    # 6. Update all_*_results with uncorrelated counted as no-confidence
+    all_win_results = [(t, pl, c) for t, pl, o, c in all_results if o == "WIN"]
+    all_lose_results = [(t, pl, c) for t, pl, o, c in all_results if o == "LOSS"]
+
+    # 6b. Filter evaluation on FULL dataset (uncorrelated always pass)
+    print(f"\n{'=' * 90}")
+    print("  FILTER EVALUATION — FULL DATASET (uncorrelated always pass)")
+    print(f"{'=' * 90}")
+
+    def has_conf(c):
+        return c.get("kw_avg_confidence", -1) >= 0
+
+    total_full_pl = sum(r[1] for r in all_results)
+    cor_pl = sum(r[1] for r in results)
+    uncor_pl = sum(r[1] for r in uncorrelated_results)
+    print(f"\n  Full baseline: {len(all_results)} orders ({len(all_win_results)}W/{len(all_lose_results)}L)  P&L {total_full_pl:+.2f}")
+    print(f"    Correlated:   {len(results)} orders  P&L {cor_pl:+.2f}")
+    print(f"    Uncorrelated: {len(uncorrelated_results)} orders  P&L {uncor_pl:+.2f}  (no confidence data)")
+    print()
+
+    for thresh in [0.6, 0.7, 0.8]:
+        kept = [r for r in all_results
+                if (has_conf(r[3]) and r[3]["kw_avg_confidence"] >= thresh) or not has_conf(r[3])]
+        kept_pl = sum(r[1] for r in kept)
+        filtered = [r for r in all_results if r not in kept]
+        f_wins = len([f for f in filtered if f[2] == "WIN"])
+        f_losses = len([f for f in filtered if f[2] == "LOSS"])
+        f_pl = sum(f[1] for f in filtered)
+        print(f"  conf >= {thresh}: {len(kept)} kept  P&L {kept_pl:+.2f}  ({len(filtered)} filtered: {f_wins}W/{f_losses}L, {f_pl:+.2f})")
+
+    # 7. Interim vs Final breakdown (correlated only)
     print(f"\n{'=' * 90}")
     print("  INTERIM vs FINAL — WIN/LOSS ANALYSIS")
     print(f"{'=' * 90}")
