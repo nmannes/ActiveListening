@@ -1,0 +1,8 @@
+replay-tests:
+  image: python:3.10
+  script:
+    - pip install pytest pytest-asyncio requests python-dotenv websockets
+    - PYTHONPATH=. python -m pytest tests/test_replay_session.py -v
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_MERGE_REQUEST_IID
