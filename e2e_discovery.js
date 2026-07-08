@@ -76,7 +76,8 @@ const { HEADLESS } = require("./lib/args");
       "world cup",
       "face the nation",
       "the view",
-      "cbs mornings"
+      "cbs mornings",
+      "big brother"
     ];
 
     // Run TV scraper first in its own browser to avoid contention with other scrapers
