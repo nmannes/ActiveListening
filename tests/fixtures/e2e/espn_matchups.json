@@ -1,0 +1,65 @@
+[
+  {
+    "title": "toronto vs. san francisco mlb",
+    "startTime": "2026-07-08T19:45:00.000Z",
+    "channel": "ESPN",
+    "linkURL": "https://www.espn.com/watch/player/_/eventCalendarId/401816082",
+    "description": "mlb game",
+    "metadata": {
+      "league": "mlb",
+      "date": "Wednesday, July 8, 2026",
+      "awayTeam": "Toronto",
+      "homeTeam": "San Francisco",
+      "time": "3:45 PM",
+      "startTime": "2026-07-08T19:45:00.000Z",
+      "tvChannels": [
+        {
+          "name": "MLB.TV",
+          "link": "https://www.espn.com/watch/player/_/eventCalendarId/401816082"
+        }
+      ]
+    }
+  },
+  {
+    "title": "chicago vs. baltimore mlb",
+    "startTime": "2026-07-08T22:35:00.000Z",
+    "channel": "ESPN",
+    "linkURL": "https://www.espn.com/watch/player/_/eventCalendarId/401816070",
+    "description": "mlb game",
+    "metadata": {
+      "league": "mlb",
+      "date": "Wednesday, July 8, 2026",
+      "awayTeam": "Chicago",
+      "homeTeam": "Baltimore",
+      "time": "6:35 PM",
+      "startTime": "2026-07-08T22:35:00.000Z",
+      "tvChannels": [
+        {
+          "name": "MLB.TV",
+          "link": "https://www.espn.com/watch/player/_/eventCalendarId/401816070"
+        }
+      ]
+    }
+  },
+  {
+    "title": "athletics vs. detroit mlb",
+    "startTime": "2026-07-08T22:40:00.000Z",
+    "channel": "ESPN",
+    "linkURL": "https://www.espn.com/watch/player/_/eventCalendarId/401816068",
+    "description": "mlb game",
+    "metadata": {
+      "league": "mlb",
+      "date": "Wednesday, July 8, 2026",
+      "awayTeam": "Athletics",
+      "homeTeam": "Detroit",
+      "time": "6:40 PM",
+      "startTime": "2026-07-08T22:40:00.000Z",
+      "tvChannels": [
+        {
+          "name": "MLB.TV",
+          "link": "https://www.espn.com/watch/player/_/eventCalendarId/401816068"
+        }
+      ]
+    }
+  }
+]

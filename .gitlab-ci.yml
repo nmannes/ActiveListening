@@ -6,3 +6,12 @@ replay-tests:
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_MERGE_REQUEST_IID
+
+js-tests:
+  image: oven/bun:1
+  script:
+    - bun install
+    - bun test tests/matching.test.js tests/e2e_discovery.test.js tests/speaker_identification.test.js
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_MERGE_REQUEST_IID

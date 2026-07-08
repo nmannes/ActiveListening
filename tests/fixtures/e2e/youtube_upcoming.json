@@ -1,0 +1,50 @@
+[
+  {
+    "title": "President Trump holds news conference at NATO summit in Ankara, Turkey: LIVE",
+    "startTime": "2026-07-07T18:41:00.000Z",
+    "channel": "@ABCNews",
+    "linkURL": "https://www.youtube.com/watch?v=kAEN51WSztE",
+    "description": "Scheduled for 7/7/26, 2:41\u202fPM",
+    "metadata": {
+      "title": "President Trump holds news conference at NATO summit in Ankara, Turkey: LIVE",
+      "url": "https://www.youtube.com/watch?v=kAEN51WSztE",
+      "thumbnail": "",
+      "scheduledText": "Scheduled for 7/7/26, 2:41\u202fPM",
+      "scheduledISO": "2026-07-07T18:41:00.000Z",
+      "waitingCount": "1",
+      "channel": "@ABCNews"
+    }
+  },
+  {
+    "title": "Hill Nation Summit",
+    "startTime": "2026-07-15T12:40:00.000Z",
+    "channel": "@TheHill",
+    "linkURL": "https://www.youtube.com/watch?v=_SZ5WPKSkHE",
+    "description": "Scheduled for 7/15/26, 8:40\u202fAM",
+    "metadata": {
+      "title": "Hill Nation Summit",
+      "url": "https://www.youtube.com/watch?v=_SZ5WPKSkHE",
+      "thumbnail": "",
+      "scheduledText": "Scheduled for 7/15/26, 8:40\u202fAM",
+      "scheduledISO": "2026-07-15T12:40:00.000Z",
+      "waitingCount": "",
+      "channel": "@TheHill"
+    }
+  },
+  {
+    "title": "Watch live: Day 3 of alleged Charlie Kirk killer, Tyler Robinson's hearing",
+    "startTime": "2026-07-08T19:00:00.000Z",
+    "channel": "@TheHill",
+    "linkURL": "https://www.youtube.com/watch?v=gdj3psQ4fgE",
+    "description": "Scheduled for 7/8/26, 3:00\u202fPM",
+    "metadata": {
+      "title": "Watch live: Day 3 of alleged Charlie Kirk killer, Tyler Robinson's hearing",
+      "url": "https://www.youtube.com/watch?v=gdj3psQ4fgE",
+      "thumbnail": "",
+      "scheduledText": "Scheduled for 7/8/26, 3:00\u202fPM",
+      "scheduledISO": "2026-07-08T19:00:00.000Z",
+      "waitingCount": "17",
+      "channel": "@TheHill"
+    }
+  }
+]

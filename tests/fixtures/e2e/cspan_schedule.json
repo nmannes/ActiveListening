@@ -1,0 +1,53 @@
+[
+  {
+    "title": "Public Affairs Events",
+    "startTime": "2026-07-08T04:00:00.000Z",
+    "channel": "C-SPAN 1",
+    "linkURL": "https://tv.youtube.com/watch/IouCNrDPGXE",
+    "description": "",
+    "metadata": {
+      "startTime": "12:00 AM EDT",
+      "title": "Public Affairs Events",
+      "url": "",
+      "sponsor": "",
+      "channel": "C-SPAN 1",
+      "length": "Approx. 6 hr. 59 min.",
+      "duration": 419,
+      "date": "2026-07-08"
+    }
+  },
+  {
+    "title": "Public Affairs Events",
+    "startTime": "2026-07-08T04:00:00.000Z",
+    "channel": "C-SPAN 2",
+    "linkURL": "https://tv.youtube.com/watch/bOb_pWEjdUM",
+    "description": "",
+    "metadata": {
+      "startTime": "12:00 AM EDT",
+      "title": "Public Affairs Events",
+      "url": "",
+      "sponsor": "",
+      "channel": "C-SPAN 2",
+      "length": "Approx. 6 hr. 49 min.",
+      "duration": 409,
+      "date": "2026-07-08"
+    }
+  },
+  {
+    "title": "Public Affairs Events",
+    "startTime": "2026-07-08T04:00:00.000Z",
+    "channel": "C-SPAN 3",
+    "linkURL": "https://tv.youtube.com/watch/7IJUz65OjHA",
+    "description": "",
+    "metadata": {
+      "startTime": "12:00 AM EDT",
+      "title": "Public Affairs Events",
+      "url": "",
+      "sponsor": "",
+      "channel": "C-SPAN 3",
+      "length": "Approx. 6 hr. 5 min.",
+      "duration": 365,
+      "date": "2026-07-08"
+    }
+  }
+]

@@ -1,0 +1,56 @@
+[
+  {
+    "title": "America Reports",
+    "startTime": "2026-07-08T17:00:00.000Z",
+    "channel": "Fox News",
+    "linkURL": "https://foxnews.com/shows/america-reports",
+    "description": "Sandra Smith, John Roberts | A look at the latest news and headlines with Sandra Smith and John Roberts.",
+    "metadata": {
+      "title": "America Reports",
+      "showUrl": "https://foxnews.com/shows/america-reports",
+      "time": "1PM",
+      "startTime": "2026-07-08T17:00:00.000Z",
+      "dayLabel": "today",
+      "hosts": "Sandra Smith, John Roberts",
+      "pill": "LAST ON",
+      "description": "A look at the latest news and headlines with Sandra Smith and John Roberts.",
+      "channel": "Fox News"
+    }
+  },
+  {
+    "title": "America Reports",
+    "startTime": "2026-07-08T18:00:00.000Z",
+    "channel": "Fox News",
+    "linkURL": "https://foxnews.com/shows/america-reports",
+    "description": "Sandra Smith, John Roberts | A look at the latest news and headlines with Sandra Smith and John Roberts.",
+    "metadata": {
+      "title": "America Reports",
+      "showUrl": "https://foxnews.com/shows/america-reports",
+      "time": "2PM",
+      "startTime": "2026-07-08T18:00:00.000Z",
+      "dayLabel": "today",
+      "hosts": "Sandra Smith, John Roberts",
+      "pill": "ON NOW",
+      "description": "A look at the latest news and headlines with Sandra Smith and John Roberts.",
+      "channel": "Fox News"
+    }
+  },
+  {
+    "title": "The Story",
+    "startTime": "2026-07-08T19:00:00.000Z",
+    "channel": "Fox News",
+    "linkURL": "https://foxnews.com/shows/the-story",
+    "description": "Martha MacCallum | Martha MacCallum brings the story of the times with her tough but fair interviews.",
+    "metadata": {
+      "title": "The Story",
+      "showUrl": "https://foxnews.com/shows/the-story",
+      "time": "3PM",
+      "startTime": "2026-07-08T19:00:00.000Z",
+      "dayLabel": "today",
+      "hosts": "Martha MacCallum",
+      "pill": "UP NEXT",
+      "description": "Martha MacCallum brings the story of the times with her tough but fair interviews.",
+      "channel": "Fox News"
+    }
+  }
+]

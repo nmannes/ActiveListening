@@ -1,5 +1,7 @@
 {
-    "scripts": {},
+    "scripts": {
+        "test": "bun test tests/matching.test.js tests/e2e_discovery.test.js tests/speaker_identification.test.js"
+    },
     "dependencies": {
         "axios": "^1.13.5",
         "body-parser": "^2.2.2",

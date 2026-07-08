@@ -1,0 +1,102 @@
+[
+  {
+    "title": "MOLLY OF DENALI",
+    "startTime": "2026-07-09T19:00:00.000Z",
+    "channel": "KIDS\u00a0\u2022\u00a026.3",
+    "linkURL": "http://localhost:9981/stream/channel/208a45a7a59f870c26a8bfbc4248596c?profile=pass",
+    "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+    "metadata": {
+      "title": "MOLLY OF DENALI",
+      "date": "Thursday - 7/9",
+      "time": "3:00 PM - 3:30 PM",
+      "startTimestamp": "2026-07-09T19:00:00.000Z",
+      "endTimestamp": "2026-07-09T19:30:00.000Z",
+      "station": "KIDS\u00a0\u2022\u00a026.3",
+      "band": "26.3",
+      "metadata": "TV-YCC",
+      "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+      "zip": "20004",
+      "channelURL": "http://localhost:9981/stream/channel/208a45a7a59f870c26a8bfbc4248596c?profile=pass"
+    }
+  },
+  {
+    "title": "MOLLY OF DENALI",
+    "startTime": "2026-07-09T19:00:00.000Z",
+    "channel": "WHUT-SD\u00a0\u2022\u00a032.2",
+    "linkURL": null,
+    "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+    "metadata": {
+      "title": "MOLLY OF DENALI",
+      "date": "Thursday - 7/9",
+      "time": "3:00 PM - 3:30 PM",
+      "startTimestamp": "2026-07-09T19:00:00.000Z",
+      "endTimestamp": "2026-07-09T19:30:00.000Z",
+      "station": "WHUT-SD\u00a0\u2022\u00a032.2",
+      "band": "32.2",
+      "metadata": "TV-YCC",
+      "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+      "zip": "20004",
+      "channelURL": null
+    }
+  },
+  {
+    "title": "TRIVIAL PURSUIT",
+    "startTime": "2026-07-10T00:00:00.000Z",
+    "channel": "WDCWDT\u00a0\u2022\u00a050.1",
+    "linkURL": "http://localhost:9981/stream/channel/eecaac22e01e84c7576fa9152197305a?profile=pass",
+    "description": "Take That, Coach K!\nA college basketball hopeful takes his shot at winning $20,000 by competing in three rounds of trivia.",
+    "metadata": {
+      "title": "TRIVIAL PURSUIT",
+      "date": "Thursday - 7/9",
+      "time": "8:00 PM - 9:00 PM",
+      "startTimestamp": "2026-07-10T00:00:00.000Z",
+      "endTimestamp": "2026-07-10T01:00:00.000Z",
+      "station": "WDCWDT\u00a0\u2022\u00a050.1",
+      "band": "50.1",
+      "metadata": "TV-PGCC",
+      "description": "Take That, Coach K!\nA college basketball hopeful takes his shot at winning $20,000 by competing in three rounds of trivia.",
+      "zip": "20004",
+      "channelURL": "http://localhost:9981/stream/channel/eecaac22e01e84c7576fa9152197305a?profile=pass"
+    }
+  },
+  {
+    "title": "MOLLY OF DENALI",
+    "startTime": "2026-07-10T03:00:00.000Z",
+    "channel": "KIDS\u00a0\u2022\u00a026.3",
+    "linkURL": "http://localhost:9981/stream/channel/208a45a7a59f870c26a8bfbc4248596c?profile=pass",
+    "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+    "metadata": {
+      "title": "MOLLY OF DENALI",
+      "date": "Thursday - 7/9",
+      "time": "11:00 PM - 11:30 PM",
+      "startTimestamp": "2026-07-10T03:00:00.000Z",
+      "endTimestamp": "2026-07-10T03:30:00.000Z",
+      "station": "KIDS\u00a0\u2022\u00a026.3",
+      "band": "26.3",
+      "metadata": "TV-YCC",
+      "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+      "zip": "20004",
+      "channelURL": "http://localhost:9981/stream/channel/208a45a7a59f870c26a8bfbc4248596c?profile=pass"
+    }
+  },
+  {
+    "title": "MOLLY OF DENALI",
+    "startTime": "2026-07-10T03:00:00.000Z",
+    "channel": "WHUT-SD\u00a0\u2022\u00a032.2",
+    "linkURL": null,
+    "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+    "metadata": {
+      "title": "MOLLY OF DENALI",
+      "date": "Thursday - 7/9",
+      "time": "11:00 PM - 11:30 PM",
+      "startTimestamp": "2026-07-10T03:00:00.000Z",
+      "endTimestamp": "2026-07-10T03:30:00.000Z",
+      "station": "WHUT-SD\u00a0\u2022\u00a032.2",
+      "band": "32.2",
+      "metadata": "TV-YCC",
+      "description": "Basketball Blues\nJust when Molly's basketball team is about to go up against the Hoopsters, she finds herself unable to make any of her shots, so it's up to her friends to help.",
+      "zip": "20004",
+      "channelURL": null
+    }
+  }
+]

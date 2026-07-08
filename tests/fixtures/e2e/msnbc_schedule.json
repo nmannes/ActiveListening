@@ -1,0 +1,47 @@
+[
+  {
+    "title": "morning joe",
+    "startTime": "2026-07-08T10:00:00.000Z",
+    "channel": "MS NOW",
+    "linkURL": "https://tv.youtube.com/watch/FKRGbcbVW1I",
+    "description": "weekdays 6am et",
+    "metadata": {
+      "title": "morning joe",
+      "time": "weekdays 6am et",
+      "startTime": "2026-07-08T10:00:00.000Z",
+      "dayLabel": "wednesday",
+      "channel": "MS NOW",
+      "duration": 60
+    }
+  },
+  {
+    "title": "deadline: white house with nicolle wallace",
+    "startTime": "2026-07-08T20:00:00.000Z",
+    "channel": "MS NOW",
+    "linkURL": "https://tv.youtube.com/watch/FKRGbcbVW1I",
+    "description": "weekdays 4pm et",
+    "metadata": {
+      "title": "deadline: white house with nicolle wallace",
+      "time": "weekdays 4pm et",
+      "startTime": "2026-07-08T20:00:00.000Z",
+      "dayLabel": "wednesday",
+      "channel": "MS NOW",
+      "duration": 60
+    }
+  },
+  {
+    "title": "the beat with ari melber",
+    "startTime": "2026-07-08T22:00:00.000Z",
+    "channel": "MS NOW",
+    "linkURL": "https://tv.youtube.com/watch/FKRGbcbVW1I",
+    "description": "weeknights 6pm et",
+    "metadata": {
+      "title": "the beat with ari melber",
+      "time": "weeknights 6pm et",
+      "startTime": "2026-07-08T22:00:00.000Z",
+      "dayLabel": "wednesday",
+      "channel": "MS NOW",
+      "duration": 60
+    }
+  }
+]
