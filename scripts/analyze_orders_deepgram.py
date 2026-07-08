@@ -68,6 +68,13 @@ class KalshiAnalyzer(KalshiClient):
     def get_settlements(self, **filters) -> list:
         return self._paginate("/portfolio/settlements", filters)
 
+    def get_positions(self, **filters) -> list:
+        return self._paginate("/portfolio/positions", filters)
+
+    def get_market(self, ticker: str) -> dict:
+        data = self._get(f"/markets/{ticker}")
+        return data.get("market", data)
+
 
 def parse_float(s) -> float:
     if isinstance(s, (int, float)):
