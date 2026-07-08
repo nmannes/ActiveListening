@@ -1,4 +1,4 @@
-replay-tests:
+server-tests:
   image: python:3.10
   script:
     - pip install pytest pytest-asyncio requests python-dotenv websockets
@@ -7,7 +7,7 @@ replay-tests:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_MERGE_REQUEST_IID
 
-js-tests:
+client-tests:
   image: oven/bun:1
   script:
     - bun install

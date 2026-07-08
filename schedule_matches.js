@@ -217,7 +217,7 @@ async function enqueueMissingSamples(matches) {
     if (!entities) continue;
     for (const name of entities) {
       const lower = name ? name.toLowerCase() : "";
-      if (lower && lower !== "announcer" && lower !== "panelist" && !lower.includes("employee") && !lower.includes("contestant")) {
+      if (lower && lower !== "announcer" && lower !== "panelist" && lower !== "cast" && !lower.includes("employee") && !lower.includes("contestant")) {
         speakers.add(name);
       }
     }
@@ -227,10 +227,17 @@ async function enqueueMissingSamples(matches) {
     const slug = slugify(name);
     const files = fs.readdirSync(AUDIO_LIB);
     const wavs = files.filter((f) => f.startsWith(slug) && f.endsWith(".wav"));
-    if (wavs.length < MIN_SAMPLES) {
-      console.log(`Enqueuing sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
-      await sampleGenQueue.add("generate_samples", { target: name });
+    if (wavs.length >= MIN_SAMPLES) continue;
+
+    // Skip if this speaker already has many pending verification samples
+    const pendingCount = await connection.hlen(`verify:${slug}`);
+    if (pendingCount >= 20) {
+      console.log(`Skipping sample generation for "${name}": ${pendingCount} pending verifications (>= 20)`);
+      continue;
     }
+
+    console.log(`Enqueuing sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
+    await sampleGenQueue.add("generate_samples", { target: name });
   }
 }
 

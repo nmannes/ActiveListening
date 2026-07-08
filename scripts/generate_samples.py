@@ -526,6 +526,38 @@ class SampleGenerator:
             logger.info(f"Loaded {len(refs)} reference embedding(s) for '{self.target}' from {AUDIO_LIBRARY}")
         return torch.from_numpy(ref_centroid), negs
 
+    def _load_library_centroids(self) -> dict[str, torch.Tensor]:
+        """Load centroid embeddings for every speaker in the audio library except the target.
+
+        Returns a dict mapping speaker slug to L2-normalized centroid tensor.
+        Speakers with only a single embedding are included as-is.
+        """
+        all_embeddings = sorted(AUDIO_LIBRARY.glob("*.embedding"))
+        by_speaker: dict[str, list[torch.Tensor]] = {}
+
+        for emb_path in all_embeddings:
+            name = emb_path.stem
+            base = re.sub(r"-\d+$", "", name)
+            if base == self.slug:
+                continue
+
+            try:
+                emb = torch.load(str(emb_path), weights_only=False)
+                if emb.dim() == 2:
+                    emb = emb.squeeze(0)
+                by_speaker.setdefault(base, []).append(emb)
+            except Exception:
+                pass
+
+        centroids = {}
+        for speaker, refs in by_speaker.items():
+            matrix = torch.stack(refs).numpy()
+            centroids[speaker] = torch.from_numpy(
+                normalize(matrix.mean(axis=0, keepdims=True), norm="l2")
+            )
+
+        return centroids
+
     def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.1,
                           min_ref_similarity: float = 0.2):
         """
@@ -544,6 +576,7 @@ class SampleGenerator:
         ref_centroid, negs = self._load_reference_embedding()
 
         if len(segments) < 2:
+            library_centroids = self._load_library_centroids()
             for s in segments:
                 s["score"] = 1.0
                 s["is_target"] = True
@@ -559,6 +592,20 @@ class SampleGenerator:
                         s["neg_score"] = round(max_neg, 4)
                         if max_neg >= ref_sim:
                             s["is_target"] = False
+                # Cross-reference against library speakers
+                if library_centroids:
+                    e = normalize(s["embedding"].squeeze(0).numpy().reshape(1, -1), norm="l2")
+                    best_sim = 0.0
+                    best_speaker = None
+                    for speaker, centroid in library_centroids.items():
+                        sim = float(e @ centroid.numpy().T)
+                        if sim > best_sim:
+                            best_sim = sim
+                            best_speaker = speaker
+                    if best_sim >= 0.70:
+                        s["score"] = round(s["score"] * (1.0 - best_sim), 4)
+                        s["cross_match"] = best_speaker
+                        s["cross_match_score"] = round(best_sim, 4)
             return segments
 
         emb_matrix = torch.stack([s["embedding"].squeeze(0) for s in segments])
@@ -646,6 +693,31 @@ class SampleGenerator:
                         neg_filtered += 1
         if neg_filtered:
             logger.info(f"Negatives filtered {neg_filtered} segment(s) that matched known non-target speakers")
+
+        # Cross-reference against every speaker in the audio library: discount
+        # segments whose embedding is closer to an existing speaker (who isn't
+        # the target) than to the target's own centroid. A segment that matches
+        # "donald-trump" at 0.85 while we're building "joe-biden" gets its
+        # score multiplied by (1 - 0.85) = 0.15.
+        library_centroids = self._load_library_centroids()
+        if library_centroids:
+            cross_penalized = 0
+            for i, s in enumerate(segments):
+                e = emb_norm[i].reshape(1, -1)
+                best_speaker = None
+                best_sim = 0.0
+                for speaker, centroid in library_centroids.items():
+                    sim = float(e @ centroid.numpy().T)
+                    if sim > best_sim:
+                        best_sim = sim
+                        best_speaker = speaker
+                if best_sim >= 0.70:
+                    s["score"] = round(s["score"] * (1.0 - best_sim), 4)
+                    s["cross_match"] = best_speaker
+                    s["cross_match_score"] = round(best_sim, 4)
+                    cross_penalized += 1
+            if cross_penalized:
+                logger.info(f"Cross-reference: discounted {cross_penalized} segment(s) matching existing library speakers")
 
         # Filter: keep only target cluster, above score threshold
         min_score = 0.65

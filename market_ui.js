@@ -1121,6 +1121,21 @@ app.post("/api/voice/reject-all/:slug", async (req, res) => {
     }
 });
 
+app.post("/api/voice/clear-all", async (req, res) => {
+    try {
+        const keys = await connection.keys("verify:*");
+        let deletedCount = 0;
+        for (const key of keys) {
+            const result = await connection.del(key);
+            deletedCount += result;
+        }
+        res.json({ success: true, deletedKeys: deletedCount, totalKeys: keys.length });
+    } catch (e) {
+        console.error(`Error in clear-all: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/api/voice/audio/:slug/:index", async (req, res) => {
     try {
         const { slug, index } = req.params;

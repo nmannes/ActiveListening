@@ -121,6 +121,8 @@
         .btn-auto:hover { background: #7c3aed; }
         .btn-reject-all { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
         .btn-reject-all:hover { background: var(--danger); color: white; }
+        .btn-clear-all { background: var(--danger); color: white; font-size: 0.75rem; padding: 0.35rem 0.9rem; }
+        .btn-clear-all:hover { background: #dc2626; }
         .btn-delete { background: transparent; border: 1px solid var(--danger); color: var(--danger); padding: 0.35rem 0.7rem; font-size: 0.8rem; }
         .btn-delete:hover { background: var(--danger); color: white; }
         .btn-retry { background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 0.35rem 0.7rem; font-size: 0.8rem; }
@@ -347,7 +349,9 @@
 
         <!-- ═══ Pending Verifications ═══ -->
         <section id="section-verifications">
-            <div class="section-title">Pending Verifications <span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);" id="verifications-count"></span></div>
+            <div class="section-title">Pending Verifications <span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);" id="verifications-count"></span>
+                <button class="btn-clear-all" onclick="clearAll()" style="margin-left:1rem;">Clear All Pending</button>
+            </div>
             <div id="verifications-list">
                 <div class="center-msg"><div class="loader"></div><p>Loading...</p></div>
             </div>
@@ -746,6 +750,21 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
                 showToast(`Rejected ${data.rejectedCount} segments`);
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function clearAll() {
+            const confirmed = confirm('Delete ALL pending verification samples for ALL speakers? This cannot be undone.');
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch('/api/voice/clear-all', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Cleared ${data.deletedKeys} verification(s)`);
                 loadVerifications();
             } catch (e) {
                 showToast(`Error: ${e.message}`, true);
