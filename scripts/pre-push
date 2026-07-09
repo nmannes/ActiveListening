@@ -16,10 +16,12 @@ else
 fi
 
 echo "→ JS (bun test)..."
-if bun test; then
+if output=$(bun test 2>&1); then
+    echo "$output" | tail -4
     echo -e "${GREEN}✓ JS tests passed${NC}"
 else
     echo -e "${RED}✗ JS tests failed — push aborted${NC}"
+    echo "$output"
     exit 1
 fi
 
