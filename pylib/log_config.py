@@ -1,6 +1,7 @@
 import contextvars
 import json
 import logging
+import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from datetime import datetime, timezone
 run_uuid_var = contextvars.ContextVar("run_uuid", default="-")
 _run_uuid_lock = threading.Lock()
 _run_uuid_global = "-"
+_commit_id = "-"
 
 
 def set_run_uuid(value):
@@ -38,6 +40,7 @@ class JsonFormatter(logging.Formatter):
             "level": record.levelname,
             "logger": record.name,
             "run_uuid": getattr(record, "run_uuid", "-"),
+            "commit": _commit_id,
             "thread": record.threadName,
             "message": record.getMessage(),
         }
@@ -47,6 +50,15 @@ class JsonFormatter(logging.Formatter):
 
 
 def setup_logging():
+    global _commit_id
+    try:
+        _commit_id = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=2
+        ).stdout.strip()
+    except Exception:
+        _commit_id = "unknown"
+
     json_formatter = JsonFormatter()
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(json_formatter)

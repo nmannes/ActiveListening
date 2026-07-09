@@ -215,7 +215,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
 
-    def __init__(self, listening_session, market_entities: List[str], policy=None):
+    def __init__(self, listening_session, market_entities: List[str], speaker_identifier=None):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -223,10 +223,8 @@ class SpeakerRecognitionSession:
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
 
-        if policy is None:
-            from pylib.speaker_policy import InferencePolicy
-            policy = InferencePolicy()
-        self.policy = policy
+        from pylib.speaker_policy import InferencePolicy
+        self.policy = InferencePolicy.for_entities(market_entities, speaker_identifier)
 
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session

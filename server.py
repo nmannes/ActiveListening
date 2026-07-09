@@ -37,7 +37,7 @@ from pylib.trade_processor import TradeProcessor
 # from pylib.frame_processor import FrameProcessor  # CLIP disabled
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
-from pylib.speaker_policy import InferencePolicy
+
 from pylib.word_prediction import WordPredictor
 
 from pylib.log_config import setup_logging, run_uuid_var, set_run_uuid
@@ -252,9 +252,8 @@ class ClientSession:
         if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
             entities = self.market.get("speakerEntities")
-            policy = InferencePolicy.for_entities(entities, self.server.speaker_identifier)
-            logger.info(f"[{self.session_id}] Inference policy: {'voice' if policy.stability_rounds == 1 else 'inference'} mode")
-            self.speaker_recognition_session = SpeakerRecognitionSession(self, entities, policy=policy)
+            self.speaker_recognition_session = SpeakerRecognitionSession(self, entities, speaker_identifier=self.server.speaker_identifier)
+            logger.info(f"[{self.session_id}] Inference policy: {'voice' if self.speaker_recognition_session.policy.stability_rounds == 1 else 'inference'} mode")
             self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
