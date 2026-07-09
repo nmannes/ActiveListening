@@ -33,7 +33,7 @@ from pylib.kalshi_client import KalshiClient
 from pylib.keyword_matching import build_keyword_index
 # from pylib.clip import FrameClassifier  # CLIP disabled to save ~600MB
 from pylib.audio_processor import AudioProcessor
-from pylib.trade_processor import TradeProcessor, DiarizedTradeProcessor
+from pylib.trade_processor import TradeProcessor
 # from pylib.frame_processor import FrameProcessor  # CLIP disabled
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
@@ -242,7 +242,7 @@ class ClientSession:
         logger.info(f"[{self.session_id}] Frame classification disabled (CLIP commented out)")
 
         # Start the background tasks
-        self.trade_processor = DiarizedTradeProcessor(self)
+        self.trade_processor = TradeProcessor(self)
         self.audio_processor = AudioProcessor(
             self,
             on_tokens_callback=self.trade_processor.process_tokens,

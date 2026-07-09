@@ -3,7 +3,7 @@
 replay_session.py — Replay saved Deepgram responses offline to test speaker identification.
 
 Processes dg_*.json files from a deepgram_responses/ directory in lexicographic order,
-feeding them through the real DiarizedTradeProcessor and SpeakerRecognitionSession.
+feeding them through the real TradeProcessor and SpeakerRecognitionSession.
 
 Usage:
     PYTHONPATH=. python scripts/replay_session.py s3/maddow --verbose
@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from pylib.trade_processor import DiarizedTradeProcessor
+from pylib.trade_processor import TradeProcessor
 from pylib.keyword_matching import build_keyword_index
 from pylib.speaker_recognition import SpeakerRecognitionSession
 
@@ -56,7 +56,7 @@ class MockServer:
 
 class ReplaySession:
     """
-    Mocks a ClientSession with just enough state for DiarizedTradeProcessor
+    Mocks a ClientSession with just enough state for TradeProcessor
     and SpeakerRecognitionSession to work.
     """
 
@@ -123,7 +123,7 @@ async def main():
 
     # Create session and trade processor (using real classes)
     session = ReplaySession(session_id=recording_dir.name)
-    trade_processor = DiarizedTradeProcessor(session)
+    trade_processor = TradeProcessor(session)
     session.trade_processor = trade_processor
 
     # Process each Deepgram response through the real pipeline
@@ -161,7 +161,7 @@ async def main():
             for w in words
         ]
 
-        # Feed through the real DiarizedTradeProcessor
+        # Feed through the real TradeProcessor
         await trade_processor.process_tokens(formatted_tokens, speaker_id=speaker_id)
         processed += 1
 

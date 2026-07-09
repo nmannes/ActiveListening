@@ -14,7 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from scripts.replay_session import ReplaySession
-from pylib.trade_processor import DiarizedTradeProcessor
+from pylib.trade_processor import TradeProcessor
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
@@ -44,7 +44,7 @@ def _enter_patches():
     mock_loop = MagicMock()
     mock_loop.run_in_executor.side_effect = lambda executor, func, *args: func(*args)
     stack.enter_context(patch("asyncio.get_running_loop", return_value=mock_loop))
-    mock_tg = stack.enter_context(patch("pylib.trade_processor.send_telegram"))
+    mock_tg = stack.enter_context(patch("pylib.signal_handler.send_telegram"))
     return stack, mock_tg
 
 
@@ -68,7 +68,7 @@ def market():
 def session(market):
     s = ReplaySession(session_id="test", market=market)
     s.server.kalshi = MagicMock()
-    s.trade_processor = DiarizedTradeProcessor(s)
+    s.trade_processor = TradeProcessor(s)
     return s
 
 
@@ -373,7 +373,7 @@ class TestReplayDgProcessing:
         s = ReplaySession(session_id="replay-test", market=market)
         s.server.kalshi = MagicMock()
         s.server.config.trade_for_real = True
-        tp = DiarizedTradeProcessor(s)
+        tp = TradeProcessor(s)
         s.trade_processor = tp
         tp.add_trading_speaker("0")
 
@@ -421,7 +421,7 @@ class TestReplayDgProcessing:
         (dg_dir / "dg_003.json").write_text(json.dumps(_make_dg_response(["hello"], speaker=0)))
 
         s = ReplaySession(session_id="filter-test", market=market)
-        tp = DiarizedTradeProcessor(s)
+        tp = TradeProcessor(s)
         s.trade_processor = tp
 
         stack, mock_tg = _enter_patches()
@@ -464,7 +464,7 @@ class TestReplayDgProcessing:
         (dg_dir / "dg_002.json").write_text(json.dumps(_make_dg_response(["second"], speaker=0)))
 
         s = ReplaySession(session_id="order-test", market=market)
-        tp = DiarizedTradeProcessor(s)
+        tp = TradeProcessor(s)
         s.trade_processor = tp
 
         stack, mock_tg = _enter_patches()
@@ -494,7 +494,7 @@ class TestReplayDgProcessing:
         (dg_dir / "dg_002.json").write_text(json.dumps(_make_dg_response(["world"], speaker=1)))
 
         s = ReplaySession(session_id="multi-speaker", market=market)
-        tp = DiarizedTradeProcessor(s)
+        tp = TradeProcessor(s)
         s.trade_processor = tp
 
         stack, mock_tg = _enter_patches()
@@ -534,7 +534,7 @@ class TestWithFixtureData:
     async def test_processes_real_data_without_errors(self, real_dg_dir, market):
         """Run the full pipeline on real DG files — must not raise."""
         s = ReplaySession(session_id="real-test", market=market)
-        tp = DiarizedTradeProcessor(s)
+        tp = TradeProcessor(s)
         s.trade_processor = tp
 
         response_files = sorted(real_dg_dir.glob("dg_*.json"))

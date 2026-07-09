@@ -9,11 +9,12 @@ from pathlib import Path
 sys.path.insert(0, os.getcwd())
 
 from pylib.speaker_recognition import SpeakerRecognitionSession
-from scripts.replay_session import ReplaySession, DiarizedTradeProcessor
+from scripts.replay_session import ReplaySession
+from pylib.trade_processor import TradeProcessor
 import pylib.trade_processor
 
 # Disable Telegram notifications for offline testing
-pylib.trade_processor.send_telegram = lambda *args, **kwargs: None
+pylib.signal_handler.send_telegram = lambda *args, **kwargs: None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -35,7 +36,7 @@ async def run_inference(folder_path, target, market_data, log_file):
         
     # Create session and trade processor
     session = ReplaySession(session_id=recording_dir.name, market=market_data)
-    trade_processor = DiarizedTradeProcessor(session)
+    trade_processor = TradeProcessor(session)
     session.trade_processor = trade_processor
     
     # Process each Deepgram response
