@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+echo "==> Running pre-push checks..."
+
+echo "→ Python (pytest)..."
+if python -m pytest tests/ -q; then
+    echo -e "${GREEN}✓ Python tests passed${NC}"
+else
+    echo -e "${RED}✗ Python tests failed — push aborted${NC}"
+    exit 1
+fi
+
+echo "→ JS (bun test)..."
+if bun test; then
+    echo -e "${GREEN}✓ JS tests passed${NC}"
+else
+    echo -e "${RED}✗ JS tests failed — push aborted${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✓ All tests passed, pushing...${NC}"
