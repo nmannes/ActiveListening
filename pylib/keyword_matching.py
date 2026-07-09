@@ -18,19 +18,33 @@ def build_keyword_index(keywords: dict) -> dict:
 
 
 def find_keyword_match(index: dict, transcript: list, word: str):
-    """Check if the newly added word completes any keyword phrase."""
+    """Check if the newly added word completes any keyword phrase.
+
+    transcript is a list of dicts with 'word' and 'confidence' keys.
+    Returns match dict with aggregated confidence on success.
+    """
     candidates = index.get(word)
     if not candidates:
         return None
 
+    words = [t["word"] for t in transcript]
+
     for candidate in candidates:
         length = len(candidate["words"])
-        if len(transcript) < length:
+        if len(words) < length:
             continue
 
-        tail = transcript[-length:]
+        tail = words[-length:]
         if tail == candidate["words"]:
-            return {"key": candidate["key"], "value": candidate["value"]}
+            matching = transcript[-length:]
+            confidences = [t.get("confidence", 0) for t in matching]
+            return {
+                "key": candidate["key"],
+                "value": candidate["value"],
+                "min_confidence": min(confidences),
+                "avg_confidence": round(sum(confidences) / len(confidences), 3),
+                "confidences": confidences,
+            }
 
     return None
 

@@ -48,7 +48,7 @@ class SignalHandler:
             )
             return
 
-        word_confidence = token.get("confidence", 0)
+        word_confidence = match.get("min_confidence", token.get("confidence", 0))
         if word_confidence < self.session.server.config.min_confidence:
             logger.info(
                 f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, \"{match['key']}\", because confidence {word_confidence:.3f} < {self.session.server.config.min_confidence}"

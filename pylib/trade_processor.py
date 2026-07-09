@@ -35,7 +35,7 @@ class TradeProcessor:
             return
 
         for token in new_tokens:
-            match = self.detector.feed_token(speaker_id, token["text"], self.session.keyword_index)
+            match = self.detector.feed_token(speaker_id, token, self.session.keyword_index)
             if match:
                 await self.handler.handle_signal(match, speaker_id, token)
 

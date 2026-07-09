@@ -56,25 +56,51 @@ class MockSession:
 # ── SignalDetector tests (pure functions, no async) ──────────────────────────
 
 class TestSignalDetector:
+    @staticmethod
+    def _tok(word, confidence=0.9):
+        return {"text": word, "confidence": confidence}
+
     def test_feed_token_returns_none_when_no_match(self):
         idx = build_keyword_index({"cherry blossom": "CHERRY-YES"})
         detector = SignalDetector()
-        assert detector.feed_token("0", "hello", idx) is None
+        assert detector.feed_token("0", self._tok("hello"), idx) is None
 
     def test_feed_token_returns_match_on_keyword(self):
         idx = build_keyword_index({"cherry blossom": "CHERRY-YES"})
         detector = SignalDetector()
-        detector.feed_token("0", "cherry", idx)
-        match = detector.feed_token("0", "blossom", idx)
-        assert match == {"key": "cherry blossom", "value": "CHERRY-YES"}
+        detector.feed_token("0", self._tok("cherry"), idx)
+        match = detector.feed_token("0", self._tok("blossom"), idx)
+        assert match == {
+            "key": "cherry blossom",
+            "value": "CHERRY-YES",
+            "min_confidence": 0.9,
+            "avg_confidence": 0.9,
+            "confidences": [0.9, 0.9],
+        }
 
     def test_feed_token_buffers_per_speaker(self):
         idx = build_keyword_index({"hello": "HELLO-YES"})
         detector = SignalDetector()
-        detector.feed_token("0", "hel", idx)
-        detector.feed_token("1", "hel", idx)
-        assert detector.speaker_buffers["0"] == ["hel"]
-        assert detector.speaker_buffers["1"] == ["hel"]
+        detector.feed_token("0", self._tok("hel"), idx)
+        detector.feed_token("1", self._tok("hel"), idx)
+        assert detector.speaker_buffers["0"] == [
+            {"word": "hel", "confidence": 0.9}
+        ]
+        assert detector.speaker_buffers["1"] == [
+            {"word": "hel", "confidence": 0.9}
+        ]
+
+    def test_multi_word_match_carries_min_confidence(self):
+        """Multi-word keyword match aggregates confidence from all matched words."""
+        idx = build_keyword_index({"cherry blossom": "CHERRY-YES"})
+        detector = SignalDetector()
+        detector.feed_token("0", self._tok("cherry", 0.85), idx)
+        match = detector.feed_token("0", self._tok("blossom", 0.60), idx)
+        assert match["key"] == "cherry blossom"
+        assert match["value"] == "CHERRY-YES"
+        assert match["min_confidence"] == 0.60
+        assert match["avg_confidence"] == round((0.85 + 0.60) / 2, 3)
+        assert match["confidences"] == [0.85, 0.60]
 
 
 # ── SignalHandler tests ──────────────────────────────────────────────────────
