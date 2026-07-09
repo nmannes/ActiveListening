@@ -37,6 +37,7 @@ from pylib.trade_processor import TradeProcessor
 # from pylib.frame_processor import FrameProcessor  # CLIP disabled
 from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
+from pylib.speaker_policy import InferencePolicy
 from pylib.word_prediction import WordPredictor
 
 from pylib.log_config import setup_logging, run_uuid_var, set_run_uuid
@@ -59,10 +60,6 @@ logger, transcript_logger = setup_logging()
 # ── Constants ────────────────────────────────────────────────────────
 
 _ws = _config["server"]
-SPEAKER_RECOGNITION_INTERVAL_SECS = _ws["speakerRecognitionIntervalSecs"]
-SPEAKER_RECOGNITION_WORD_STEP = _ws["speakerRecognitionWordStep"]
-SPEAKER_RECOGNITION_MAX_WORDS = _ws["speakerRecognitionMaxWords"]
-SPEAKER_RECOGNITION_MAX_DURATION_SECS = _ws["speakerRecognitionMaxDurationSecs"]
 AUDIO_INBOX_CAP_SECS = _ws["audioInboxCapSecs"]
 
 LOCK_PATH = Path(tempfile.gettempdir()) / "kalshi-server.lock"
@@ -138,7 +135,6 @@ class ClientSession:
 
         self.speaker_task = None
         self.speaker_recognition_session = None
-        self.last_inference_word_count = 0
 
         # Simple audio buffer — receives PCM from WebSocket binary messages
         self.audio_inbox = bytearray()
@@ -255,7 +251,10 @@ class ClientSession:
 
         if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
-            self.speaker_recognition_session = SpeakerRecognitionSession(self, self.market.get("speakerEntities"))
+            entities = self.market.get("speakerEntities")
+            policy = InferencePolicy.for_entities(entities, self.server.speaker_identifier)
+            logger.info(f"[{self.session_id}] Inference policy: {'voice' if policy.stability_rounds == 1 else 'inference'} mode")
+            self.speaker_recognition_session = SpeakerRecognitionSession(self, entities, policy=policy)
             self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
@@ -296,15 +295,16 @@ class ClientSession:
                 )
 
     async def speaker_recognition_loop(self):
-        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {SPEAKER_RECOGNITION_INTERVAL_SECS}s, max duration: {SPEAKER_RECOGNITION_MAX_DURATION_SECS}s)")
+        policy = self.speaker_recognition_session.policy
+        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {policy.interval_secs}s, max duration: {policy.max_duration_secs}s)")
         loop_start = time.time()
         inference_stopped = False
         try:
             while True:
-                await asyncio.sleep(SPEAKER_RECOGNITION_INTERVAL_SECS)
+                await asyncio.sleep(policy.interval_secs)
 
                 elapsed = time.time() - loop_start
-                if elapsed >= SPEAKER_RECOGNITION_MAX_DURATION_SECS:
+                if policy.is_duration_exceeded(elapsed):
                     if not inference_stopped:
                         inference_stopped = True
                         logger.info(f"[{self.session_id}] Speaker inference stopped after {elapsed:.0f}s — sticking with current identifications")
@@ -315,18 +315,14 @@ class ClientSession:
                     for tokens in self.transcript.values():
                         total_words += len(tokens)
 
-                if (
-                    total_words >= self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP
-                    and total_words < SPEAKER_RECOGNITION_MAX_WORDS
-                ):
+                if policy.should_run(total_words):
                     logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
                     await self.speaker_recognition_session.run_identity_inference()
-                    self.last_inference_word_count = total_words
+                    policy.mark_ran(total_words)
+                elif policy.is_word_limit_reached(total_words):
+                    logger.debug(f"[{self.session_id}] Speaker recognition max words reached ({total_words})")
                 else:
-                    if total_words >= SPEAKER_RECOGNITION_MAX_WORDS:
-                         logger.debug(f"[{self.session_id}] Speaker recognition max words reached ({total_words})")
-                    else:
-                         logger.debug(f"[{self.session_id}] Not enough new words for inference ({total_words} total, need {self.last_inference_word_count + SPEAKER_RECOGNITION_WORD_STEP})")
+                    logger.debug(f"[{self.session_id}] Not enough new words for inference ({total_words} total, need {policy._last_word_count + policy.word_step})")
         except asyncio.CancelledError:
             logger.info(f"[{self.session_id}] Speaker recognition loop cancelled")
             pass

@@ -215,7 +215,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
 
-    def __init__(self, listening_session, market_entities: List[str]):
+    def __init__(self, listening_session, market_entities: List[str], policy=None):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -223,8 +223,10 @@ class SpeakerRecognitionSession:
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
 
-        self.identification_history = []
-        self.is_stable = False
+        if policy is None:
+            from pylib.speaker_policy import InferencePolicy
+            policy = InferencePolicy()
+        self.policy = policy
 
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
@@ -252,7 +254,7 @@ class SpeakerRecognitionSession:
         """
         Aggregates session transcripts and runs LLM-based identity inference.
         """
-        if self.is_stable:
+        if self.policy.is_stable:
             logger.info("Speaker identities have stabilized. Skipping further inference.")
             return
 
@@ -317,13 +319,12 @@ class SpeakerRecognitionSession:
             transcript_history, target_name
         )
 
-        self.identification_history.append(mapping)
-
         if mapping:
+            self.policy.record_result(mapping, self.market_entities)
             logger.info(f"Identity mapping inferred: {mapping}")
             for sid, label in mapping.items():
                 self.set_profile_label(sid, label)
-                
+
                 # If the label matches a market entity, add to trading whitelist
                 if label in self.market_entities:
                     if hasattr(self.listening_session, "trade_processor"):
@@ -354,16 +355,6 @@ class SpeakerRecognitionSession:
                         )
                     except Exception as e:
                         logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
-            
-            # Check if mapping is stable across the last 3 rounds
-            if len(self.identification_history) >= 3:
-                last_3 = self.identification_history[-3:]
-                if last_3[0] == last_3[1] == last_3[2] and last_3[0]:
-                    if any(label in self.market_entities for label in last_3[0].values()):
-                        self.is_stable = True
-                        logger.info("Speaker mapping has been stable for 3 rounds. Disabling further inference.")
-                else:
-                    logger.debug(f"Stability check: history not consistent yet ({len(self.identification_history)} rounds)")
 
         else:
             logger.warning("Identity inference returned no mapping.")

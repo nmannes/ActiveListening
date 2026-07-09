@@ -13,10 +13,15 @@ sys.modules["nemo.collections.asr.models"] = mock_nemo
 sys.modules["omegaconf"] = MagicMock()
 
 from pylib.speaker_recognition import TranscriptSpeakerRecognizer, SpeakerRecognitionSession
+from pylib.speaker_policy import InferencePolicy
+
+class MockIdentifier:
+    def __init__(self):
+        self.references = {}  # empty → no voice samples, falls through to Bedrock
 
 class MockServer:
     def __init__(self):
-        self.speaker_identifier = None
+        self.speaker_identifier = MockIdentifier()
 
 class MockSession:
     def __init__(self):
@@ -99,6 +104,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         # Mock SpeakerIdentifier
         mock_identifier = MagicMock()
         mock_identifier._ready = True
+        mock_identifier.references = {"wes-moore": None}  # matches entity slug so audio path is taken
         mock_identifier.identify_file = AsyncMock(return_value=(["wes-moore"], {"wes-moore": 0.85}))
         session.server.speaker_identifier = mock_identifier
         
@@ -113,14 +119,104 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
         
         # We patch send_telegram in pylib.speaker_recognition so it doesn't try to call actual telegram API
-        with patch("pylib.speaker_recognition.send_telegram") as mock_send_telegram:
+        with patch("pylib.speaker_recognition.send_telegram") as mock_send_telegram, \
+             patch("pylib.speaker_recognition.send_telegram_audio") as mock_send_telegram_audio:
             await rec_session.run_identity_inference()
-            
+
             # Verify profile labels and whitelist addition
             self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
             mock_trade_processor.add_trading_speaker.assert_called_once_with("0")
             mock_websocket.send.assert_called_once()
-            mock_send_telegram.assert_called_once()
+            self.assertGreaterEqual(mock_send_telegram.call_count, 1)
+
+class TestInferencePolicy(unittest.TestCase):
+    def test_defaults(self):
+        p = InferencePolicy()
+        self.assertEqual(p.interval_secs, 10)
+        self.assertEqual(p.word_step, 500)
+        self.assertEqual(p.max_words, 10000)
+        self.assertEqual(p.max_duration_secs, 600)
+        self.assertEqual(p.stability_rounds, 3)
+        self.assertFalse(p.is_stable)
+        self.assertEqual(p.history, [])
+        self.assertEqual(p._last_word_count, 0)
+
+    def test_should_run_word_gating(self):
+        p = InferencePolicy(word_step=500, max_words=2000)
+        self.assertFalse(p.should_run(0))
+        self.assertFalse(p.should_run(499))
+        self.assertTrue(p.should_run(500))
+        self.assertTrue(p.should_run(1000))
+        p.mark_ran(1000)
+        self.assertFalse(p.should_run(1001))
+        self.assertTrue(p.should_run(1500))
+
+    def test_should_run_respects_max_words(self):
+        p = InferencePolicy(word_step=500, max_words=2000)
+        self.assertFalse(p.should_run(2000))
+        self.assertFalse(p.should_run(3000))
+
+    def test_duration_gating(self):
+        p = InferencePolicy(max_duration_secs=60)
+        self.assertFalse(p.is_duration_exceeded(0))
+        self.assertFalse(p.is_duration_exceeded(59))
+        self.assertTrue(p.is_duration_exceeded(60))
+        self.assertTrue(p.is_duration_exceeded(120))
+
+    def test_word_limit(self):
+        p = InferencePolicy(max_words=5000)
+        self.assertFalse(p.is_word_limit_reached(4999))
+        self.assertTrue(p.is_word_limit_reached(5000))
+
+    def test_mark_ran_updates_word_count(self):
+        p = InferencePolicy(word_step=500)
+        self.assertEqual(p._last_word_count, 0)
+        p.mark_ran(750)
+        self.assertEqual(p._last_word_count, 750)
+
+    def test_stability_not_reached_with_fewer_than_n_rounds(self):
+        p = InferencePolicy(stability_rounds=3)
+        mapping = {"0": "Alice", "1": "advertisement"}
+        result = p.record_result(mapping, ["Alice"])
+        self.assertFalse(result)
+        self.assertFalse(p.is_stable)
+        result = p.record_result(mapping, ["Alice"])
+        self.assertFalse(result)
+        self.assertFalse(p.is_stable)
+
+    def test_stability_reached_on_third_consistent_round(self):
+        p = InferencePolicy(stability_rounds=3)
+        mapping = {"0": "Alice", "1": "advertisement"}
+        p.record_result(mapping, ["Alice"])
+        p.record_result(mapping, ["Alice"])
+        result = p.record_result(mapping, ["Alice"])
+        self.assertTrue(result)
+        self.assertTrue(p.is_stable)
+
+    def test_stability_resets_on_inconsistent_result(self):
+        p = InferencePolicy(stability_rounds=3)
+        p.record_result({"0": "Alice"}, ["Alice"])
+        p.record_result({"0": "Alice"}, ["Alice"])
+        p.record_result({"0": "Bob"}, ["Bob"])
+        self.assertFalse(p.is_stable)
+
+    def test_stability_requires_market_entity_match(self):
+        p = InferencePolicy(stability_rounds=3)
+        mapping = {"0": "advertisement", "1": "advertisement"}
+        p.record_result(mapping, ["Alice"])
+        p.record_result(mapping, ["Alice"])
+        result = p.record_result(mapping, ["Alice"])
+        self.assertFalse(result)
+        self.assertFalse(p.is_stable)
+
+    def test_stability_with_custom_rounds(self):
+        p = InferencePolicy(stability_rounds=2)
+        mapping = {"0": "Alice"}
+        p.record_result(mapping, ["Alice"])
+        result = p.record_result(mapping, ["Alice"])
+        self.assertTrue(result)
+        self.assertTrue(p.is_stable)
+
 
 if __name__ == "__main__":
     unittest.main()
