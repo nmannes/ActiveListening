@@ -192,6 +192,14 @@ class SpeakerIdentifier:
         )
         return await self.identify(audio, threshold=threshold)
 
+    def has_sample_for(self, entity: str) -> bool:
+        """Check whether any reference embedding matches the given entity name."""
+        slug = entity.replace(" ", "-").lower()
+        return any(
+            key == slug or key.startswith(slug + "-") or key.startswith(slug + "_")
+            for key in self.references
+        )
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------

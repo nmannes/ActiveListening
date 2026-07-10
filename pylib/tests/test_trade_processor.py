@@ -9,6 +9,19 @@ from pylib.keyword_matching import build_keyword_index
 from pylib.kalshi_client import OrderV2
 
 
+@pytest.fixture(autouse=True)
+def _mock_telegram():
+    """Prevent any test from sending real Telegram notifications.
+
+    Patches send_telegram wherever it's imported so that run_in_executor
+    (which captures the function reference before fixture teardown) never
+    calls the real HTTP-sending function.
+    """
+    mock = MagicMock(return_value={"ok": True})
+    with patch("pylib.signal_handler.send_telegram", mock):
+        yield mock
+
+
 class MockServerConfig:
     def __init__(self):
         self.trade_for_real = True
@@ -114,12 +127,11 @@ class TestSignalHandler:
         session = self._make_session()
         handler = SignalHandler(session)
 
-        with patch("pylib.signal_handler.send_telegram"):
-            await handler.handle_signal(
-                {"key": "cherry blossom", "value": "CHERRY-YES"},
-                speaker_id="1",
-                token={"text": "blossom", "start": 0.6},
-            )
+        await handler.handle_signal(
+            {"key": "cherry blossom", "value": "CHERRY-YES"},
+            speaker_id="1",
+            token={"text": "blossom", "start": 0.6},
+        )
 
         session.server.kalshi.place_market_order.assert_not_called()
 
@@ -129,12 +141,11 @@ class TestSignalHandler:
         handler = SignalHandler(session)
         handler.add_trading_speaker("0")
 
-        with patch("pylib.signal_handler.send_telegram"):
-            await handler.handle_signal(
-                {"key": "cherry blossom", "value": "CHERRY-YES"},
-                speaker_id="0",
-                token={"text": "blossom", "start": 0.6},
-            )
+        await handler.handle_signal(
+            {"key": "cherry blossom", "value": "CHERRY-YES"},
+            speaker_id="0",
+            token={"text": "blossom", "start": 0.6},
+        )
 
         session.server.kalshi.place_market_order.assert_called_once_with(
             ticker="CHERRY-YES", dollar_amount=10
@@ -147,12 +158,11 @@ class TestSignalHandler:
         handler = SignalHandler(session)
         handler.add_trading_speaker("0")
 
-        with patch("pylib.signal_handler.send_telegram"):
-            await handler.handle_signal(
-                {"key": "cherry blossom", "value": "CHERRY-YES"},
-                speaker_id="0",
-                token={"text": "blossom", "start": 0.6},
-            )
+        await handler.handle_signal(
+            {"key": "cherry blossom", "value": "CHERRY-YES"},
+            speaker_id="0",
+            token={"text": "blossom", "start": 0.6},
+        )
 
         session.server.kalshi.place_market_order.assert_not_called()
 
@@ -163,12 +173,11 @@ class TestSignalHandler:
         handler = SignalHandler(session)
         handler.add_trading_speaker("0")
 
-        with patch("pylib.signal_handler.send_telegram"):
-            await handler.handle_signal(
-                {"key": "cherry blossom", "value": "CHERRY-YES"},
-                speaker_id="0",
-                token={"text": "blossom", "start": 0.6, "confidence": 0.3},
-            )
+        await handler.handle_signal(
+            {"key": "cherry blossom", "value": "CHERRY-YES"},
+            speaker_id="0",
+            token={"text": "blossom", "start": 0.6, "confidence": 0.3},
+        )
 
         session.server.kalshi.place_market_order.assert_not_called()
 
@@ -179,13 +188,12 @@ class TestTradeProcessorIntegration:
     @pytest.mark.asyncio
     async def test_whitelisted_speaker_triggers_trade(self):
         session = MockSession()
-        with patch("pylib.signal_handler.send_telegram"):
-            processor = TradeProcessor(session)
-            processor.add_trading_speaker("0")
-            await processor.process_tokens(
-                [{"text": "cherry", "start": 0.1}, {"text": "blossom", "start": 0.6}],
-                speaker_id="0",
-            )
+        processor = TradeProcessor(session)
+        processor.add_trading_speaker("0")
+        await processor.process_tokens(
+            [{"text": "cherry", "start": 0.1}, {"text": "blossom", "start": 0.6}],
+            speaker_id="0",
+        )
         session.server.kalshi.place_market_order.assert_called_once_with(
             ticker="CHERRY-YES", dollar_amount=10
         )
@@ -193,10 +201,9 @@ class TestTradeProcessorIntegration:
     @pytest.mark.asyncio
     async def test_unwhitelisted_speaker_only_notifies(self):
         session = MockSession()
-        with patch("pylib.signal_handler.send_telegram"):
-            processor = TradeProcessor(session)
-            await processor.process_tokens(
-                [{"text": "cherry", "start": 0.1}, {"text": "blossom", "start": 0.6}],
-                speaker_id="1",
-            )
+        processor = TradeProcessor(session)
+        await processor.process_tokens(
+            [{"text": "cherry", "start": 0.1}, {"text": "blossom", "start": 0.6}],
+            speaker_id="1",
+        )
         session.server.kalshi.place_market_order.assert_not_called()

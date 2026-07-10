@@ -15,10 +15,11 @@ except ImportError:
     boto3 = None
 
 from pylib.prompt_templates import (
-    get_survivor_prompt, 
-    get_interview_prompt, 
-    get_sports_prompt, 
-    get_earnings_prompt, 
+    get_survivor_prompt,
+    get_interview_prompt,
+    get_sports_prompt,
+    get_earnings_prompt,
+    get_big_brother_prompt,
     get_default_prompt
 )
 
@@ -130,6 +131,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         event_type = "standard"
         if clip_profile == "survivor" or "survivor" in title:
             event_type = "survivor"
+        elif clip_profile == "big_brother" or "big brother" in title:
+            event_type = "big_brother"
         elif any(kw in title for kw in ("press conference", "interview", "briefing", "panel")):
             event_type = "interview"
         elif clip_profile in ("basketball", "baseball") or any(kw in title for kw in ("nba", "mlb", "ncaab")):
@@ -140,6 +143,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # prompt generation
         if event_type == "survivor":
             return get_survivor_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+        elif event_type == "big_brother":
+            return get_big_brother_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "interview":
             return get_interview_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "sports_broadcast":
@@ -215,7 +220,7 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
 
-    def __init__(self, listening_session, market_entities: List[str]):
+    def __init__(self, listening_session, market_entities: List[str], speaker_identifier=None):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -223,12 +228,51 @@ class SpeakerRecognitionSession:
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
 
-        self.identification_history = []
-        self.is_stable = False
+        from pylib.speaker_policy import InferencePolicy
+        self.policy = InferencePolicy.for_entities(market_entities, speaker_identifier)
+
+        # Live reality events need continuous inference for the full runtime
+        title = getattr(listening_session, "market", {}).get("title", "").lower()
+        if "big brother" in title:
+            duration = self._event_duration_secs(listening_session)
+            self.policy = InferencePolicy.live_event_mode(max_duration_secs=duration)
 
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
         )
+
+    @staticmethod
+    def _event_duration_secs(listening_session) -> int:
+        """Parse the event duration in seconds from market media source metadata.
+
+        Looks for a time range like \"8:00 PM - 9:30 PM\" in the first media source
+        and computes the delta. Falls back to 5400 (90 min) if unparseable.
+        """
+        market = getattr(listening_session, "market", {}) or {}
+        sources = market.get("mediaSources", [])
+        if not sources:
+            return 5400
+
+        time_str = sources[0].get("metadata", {}).get("time", "")
+        if not time_str:
+            return 5400
+
+        import re
+        from datetime import datetime
+        match = re.match(r"(.+?)\s*-\s*(.+)", time_str)
+        if not match:
+            return 5400
+
+        try:
+            fmt = "%I:%M %p"
+            start = datetime.strptime(match.group(1).strip(), fmt)
+            end = datetime.strptime(match.group(2).strip(), fmt)
+            delta = (end - start).total_seconds()
+            if delta <= 0:
+                delta += 24 * 3600  # crosses midnight
+            return int(delta) + 60  # pad for overrun
+        except ValueError:
+            return 5400
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
@@ -252,7 +296,7 @@ class SpeakerRecognitionSession:
         """
         Aggregates session transcripts and runs LLM-based identity inference.
         """
-        if self.is_stable:
+        if self.policy.is_stable:
             logger.info("Speaker identities have stabilized. Skipping further inference.")
             return
 
@@ -270,7 +314,9 @@ class SpeakerRecognitionSession:
         )
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
-            await self._run_audio_identification(entity_slugs)
+            mapping = await self._run_audio_identification(entity_slugs)
+            if mapping:
+                self.policy.record_result(mapping, self.market_entities)
             return
 
         # Access transcript from session
@@ -317,13 +363,12 @@ class SpeakerRecognitionSession:
             transcript_history, target_name
         )
 
-        self.identification_history.append(mapping)
-
         if mapping:
+            self.policy.record_result(mapping, self.market_entities)
             logger.info(f"Identity mapping inferred: {mapping}")
             for sid, label in mapping.items():
                 self.set_profile_label(sid, label)
-                
+
                 # If the label matches a market entity, add to trading whitelist
                 if label in self.market_entities:
                     if hasattr(self.listening_session, "trade_processor"):
@@ -354,21 +399,11 @@ class SpeakerRecognitionSession:
                         )
                     except Exception as e:
                         logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
-            
-            # Check if mapping is stable across the last 3 rounds
-            if len(self.identification_history) >= 3:
-                last_3 = self.identification_history[-3:]
-                if last_3[0] == last_3[1] == last_3[2] and last_3[0]:
-                    if any(label in self.market_entities for label in last_3[0].values()):
-                        self.is_stable = True
-                        logger.info("Speaker mapping has been stable for 3 rounds. Disabling further inference.")
-                else:
-                    logger.debug(f"Stability check: history not consistent yet ({len(self.identification_history)} rounds)")
 
         else:
             logger.warning("Identity inference returned no mapping.")
 
-    async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> bool:
+    async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> Dict[str, str]:
         """
         Use audio-based speaker identification (SpeakerIdentifier + TitaNet) to match
         diarized speakers against reference embeddings.
@@ -381,20 +416,20 @@ class SpeakerRecognitionSession:
             entity_slugs: mapping of {slug: entity_name} for market entities,
                           e.g. {"donald-trump": "Donald Trump"}
 
-        Returns True if at least one speaker was successfully identified and mapped.
+        Returns a snapshot of all current profile_labels after identification.
         """
 
         # Find the per-speaker WAV files saved by AudioProcessor
         audio_processor = getattr(self.listening_session, "audio_processor", None)
         if not audio_processor or not audio_processor._audio_dir:
             logger.warning(f"[{self.session_id}] No audio_dir available from AudioProcessor")
-            return False
+            return dict(self.profile_labels)
 
         audio_dir = audio_processor._audio_dir
         speaker_wavs = sorted(audio_dir.glob("speaker_*.wav"))
         if not speaker_wavs:
             logger.info(f"[{self.session_id}] No per-speaker WAV files found yet in {audio_dir}")
-            return False
+            return dict(self.profile_labels)
 
         logger.info(f"[{self.session_id}] Found {len(speaker_wavs)} speaker WAV files: {[f.name for f in speaker_wavs]}")
 
@@ -495,5 +530,5 @@ class SpeakerRecognitionSession:
                 matched_any = True
 
         logger.debug(f"[{self.session_id}] Finished audio identification iteration. matched_any={matched_any}")
-        return matched_any
+        return dict(self.profile_labels)
 

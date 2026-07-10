@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getSpeakerEntities } = require('./speaker_identification');
+const { getSpeakerEntities } = require('../lib/speaker_identification');
 
 const cacheDir = path.join(__dirname, '../cache');
 const filesToTest = [
@@ -62,54 +62,32 @@ testData.forEach(item => {
   }
 });
 
-console.log(`\n========================================================`);
-console.log(`--- Running Speaker ID Test Suite (${uniqueTestData.length} cases) ---`);
-console.log(`========================================================\n`);
-
 let passed = 0;
 let failed = 0;
 
-uniqueTestData.forEach((item, index) => {
-  const caseNum = index + 1;
-  const total = uniqueTestData.length;
-  
-  console.log(`[${caseNum}/${total}] Testing: "${item.title}"`);
-  console.log(`Source: ${item.source}`);
-  
+uniqueTestData.forEach((item) => {
   let result;
   try {
-    // We don't silence logs anymore to make it more verbose
     result = getSpeakerEntities(item.title);
   } catch (e) {
     result = [];
-    console.log(`[ERROR] ${e.message}`);
   }
-  
-  // Sort for comparison
+
   const sortedResult = [...new Set(result.map(e => e.trim()))].sort();
   const sortedExpected = [...new Set(item.expected.map(e => e.trim()))].sort();
-  
-  const isMatch = JSON.stringify(sortedResult) === JSON.stringify(sortedExpected);
-  
-  if (isMatch) {
+
+  if (JSON.stringify(sortedResult) === JSON.stringify(sortedExpected)) {
     passed++;
-    console.log(`[PASS] Result: ${JSON.stringify(sortedResult)}`);
   } else {
     failed++;
-    console.log(`\n[FAIL]`);
-    console.log(`Expected: ${JSON.stringify(sortedExpected)}`);
-    console.log(`Actual:   ${JSON.stringify(sortedResult)}`);
+    console.log(`[FAIL] "${item.title}"`);
+    console.log(`  Expected: ${JSON.stringify(sortedExpected)}`);
+    console.log(`  Actual:   ${JSON.stringify(sortedResult)}`);
   }
-  console.log(`--------------------------------------------------------`);
 });
 
-console.log(`\n========================================================`);
-console.log(`--- Test Summary ---`);
-console.log(`Total:  ${uniqueTestData.length}`);
-console.log(`Passed: ${passed}`);
-console.log(`Failed: ${failed}`);
-console.log(`========================================================\n`);
+console.log(`Speaker ID: ${passed} passed, ${failed} failed (${uniqueTestData.length} cases)`);
 
 if (failed > 0) {
-  console.log(`Note: Some failures may be due to the new early-return logic or improved extraction accuracy.\n`);
+  console.log(`Note: Some failures may be due to the new early-return logic or improved extraction accuracy.`);
 }
