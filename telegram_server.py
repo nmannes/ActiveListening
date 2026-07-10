@@ -58,12 +58,14 @@ from pylib.verification_state import (
     pending_verifications,
 )
 
+_logs_dir = Path(__file__).resolve().parent / "logs"
+_logs_dir.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).resolve().parent / "logs" / "generate-samples.log"),
+        logging.FileHandler(_logs_dir / "generate-samples.log"),
     ],
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)

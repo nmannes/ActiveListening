@@ -60,12 +60,14 @@ from pylib.verification_state import (
     clear_verification_state,
 )
 
+_logs_dir = Path(__file__).resolve().parent.parent / "logs"
+_logs_dir.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(Path(__file__).resolve().parent.parent / "logs" / "generate-samples.log"),
+        logging.FileHandler(_logs_dir / "generate-samples.log"),
     ],
 )
 logger = logging.getLogger("generate_samples")
