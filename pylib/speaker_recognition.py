@@ -231,9 +231,48 @@ class SpeakerRecognitionSession:
         from pylib.speaker_policy import InferencePolicy
         self.policy = InferencePolicy.for_entities(market_entities, speaker_identifier)
 
+        # Live reality events need continuous inference for the full runtime
+        title = getattr(listening_session, "market", {}).get("title", "").lower()
+        if "big brother" in title:
+            duration = self._event_duration_secs(listening_session)
+            self.policy = InferencePolicy.live_event_mode(max_duration_secs=duration)
+
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
         )
+
+    @staticmethod
+    def _event_duration_secs(listening_session) -> int:
+        """Parse the event duration in seconds from market media source metadata.
+
+        Looks for a time range like \"8:00 PM - 9:30 PM\" in the first media source
+        and computes the delta. Falls back to 5400 (90 min) if unparseable.
+        """
+        market = getattr(listening_session, "market", {}) or {}
+        sources = market.get("mediaSources", [])
+        if not sources:
+            return 5400
+
+        time_str = sources[0].get("metadata", {}).get("time", "")
+        if not time_str:
+            return 5400
+
+        import re
+        from datetime import datetime
+        match = re.match(r"(.+?)\s*-\s*(.+)", time_str)
+        if not match:
+            return 5400
+
+        try:
+            fmt = "%I:%M %p"
+            start = datetime.strptime(match.group(1).strip(), fmt)
+            end = datetime.strptime(match.group(2).strip(), fmt)
+            delta = (end - start).total_seconds()
+            if delta <= 0:
+                delta += 24 * 3600  # crosses midnight
+            return int(delta) + 60  # pad for overrun
+        except ValueError:
+            return 5400
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label

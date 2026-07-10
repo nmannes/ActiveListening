@@ -83,6 +83,23 @@ class InferencePolicy:
             stability_rounds=3,
         )
 
+    @classmethod
+    def live_event_mode(cls, max_duration_secs: int = 5400) -> InferencePolicy:
+        """For live/reality TV events where speakers change throughout the broadcast.
+
+        Long duration (parameterized from event length), effectively unlimited
+        words, and never stabilizes — inference runs continuously so new
+        speakers are picked up as they appear.
+        """
+        import sys
+        return cls(
+            interval_secs=10,
+            word_step=500,
+            max_words=sys.maxsize,
+            max_duration_secs=max_duration_secs,
+            stability_rounds=sys.maxsize,
+        )
+
     # ── Scheduling gates ──────────────────────────────────────────────
 
     def should_run(self, total_words: int) -> bool:
