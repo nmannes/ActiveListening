@@ -70,7 +70,7 @@ fi
 
 NOW_EPOCH=$(date +%s)
 
-CONFIG_GET="$SCRIPT_DIR/get_config.py"
+CONFIG_GET="$SCRIPT_DIR/../pylib/get_config.py"
 CONFIG_DEFAULT_DURATION=$($PYTHON "$CONFIG_GET" durations defaultMinutes)
 CONFIG_SCHEDULE_PADDING=$($PYTHON "$CONFIG_GET" timing schedulePaddingMinutes)
 CONFIG_LAUNCH_BUFFER=$($PYTHON "$CONFIG_GET" timing launchBufferMinutes)
