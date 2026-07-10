@@ -15,10 +15,11 @@ except ImportError:
     boto3 = None
 
 from pylib.prompt_templates import (
-    get_survivor_prompt, 
-    get_interview_prompt, 
-    get_sports_prompt, 
-    get_earnings_prompt, 
+    get_survivor_prompt,
+    get_interview_prompt,
+    get_sports_prompt,
+    get_earnings_prompt,
+    get_big_brother_prompt,
     get_default_prompt
 )
 
@@ -130,6 +131,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         event_type = "standard"
         if clip_profile == "survivor" or "survivor" in title:
             event_type = "survivor"
+        elif clip_profile == "big_brother" or "big brother" in title:
+            event_type = "big_brother"
         elif any(kw in title for kw in ("press conference", "interview", "briefing", "panel")):
             event_type = "interview"
         elif clip_profile in ("basketball", "baseball") or any(kw in title for kw in ("nba", "mlb", "ncaab")):
@@ -140,6 +143,8 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         # prompt generation
         if event_type == "survivor":
             return get_survivor_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+        elif event_type == "big_brother":
+            return get_big_brother_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "interview":
             return get_interview_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "sports_broadcast":
@@ -270,7 +275,9 @@ class SpeakerRecognitionSession:
         )
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
-            await self._run_audio_identification(entity_slugs)
+            mapping = await self._run_audio_identification(entity_slugs)
+            if mapping:
+                self.policy.record_result(mapping, self.market_entities)
             return
 
         # Access transcript from session
@@ -357,7 +364,7 @@ class SpeakerRecognitionSession:
         else:
             logger.warning("Identity inference returned no mapping.")
 
-    async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> bool:
+    async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> Dict[str, str]:
         """
         Use audio-based speaker identification (SpeakerIdentifier + TitaNet) to match
         diarized speakers against reference embeddings.
@@ -370,20 +377,20 @@ class SpeakerRecognitionSession:
             entity_slugs: mapping of {slug: entity_name} for market entities,
                           e.g. {"donald-trump": "Donald Trump"}
 
-        Returns True if at least one speaker was successfully identified and mapped.
+        Returns a snapshot of all current profile_labels after identification.
         """
 
         # Find the per-speaker WAV files saved by AudioProcessor
         audio_processor = getattr(self.listening_session, "audio_processor", None)
         if not audio_processor or not audio_processor._audio_dir:
             logger.warning(f"[{self.session_id}] No audio_dir available from AudioProcessor")
-            return False
+            return dict(self.profile_labels)
 
         audio_dir = audio_processor._audio_dir
         speaker_wavs = sorted(audio_dir.glob("speaker_*.wav"))
         if not speaker_wavs:
             logger.info(f"[{self.session_id}] No per-speaker WAV files found yet in {audio_dir}")
-            return False
+            return dict(self.profile_labels)
 
         logger.info(f"[{self.session_id}] Found {len(speaker_wavs)} speaker WAV files: {[f.name for f in speaker_wavs]}")
 
@@ -484,5 +491,5 @@ class SpeakerRecognitionSession:
                 matched_any = True
 
         logger.debug(f"[{self.session_id}] Finished audio identification iteration. matched_any={matched_any}")
-        return matched_any
+        return dict(self.profile_labels)
 

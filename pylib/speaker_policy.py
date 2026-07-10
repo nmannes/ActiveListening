@@ -64,8 +64,8 @@ class InferencePolicy:
             interval_secs=10,
             word_step=300,
             max_words=3000,
-            max_duration_secs=120,
-            stability_rounds=1,
+            max_duration_secs=600,
+            stability_rounds=3,
         )
 
     @classmethod

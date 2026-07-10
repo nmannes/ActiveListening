@@ -3,11 +3,11 @@ const assert = require("node:assert/strict");
 const { getSpeakerEntities } = require("../lib/speaker_identification");
 
 describe("getSpeakerEntities", () => {
-  it('returns ["cast"] for Big Brother cast question', () => {
+  it('returns ["big brother houseguest"] for Big Brother cast question', () => {
     const result = getSpeakerEntities(
       "What will the cast say during Big Brother Episode 1?"
     );
-    assert.deepEqual(result, ["cast"]);
+    assert.deepEqual(result, ["big brother houseguest"]);
   });
 
   it("returns empty for null/undefined title", () => {

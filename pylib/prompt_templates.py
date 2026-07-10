@@ -96,6 +96,30 @@ def get_earnings_prompt(market_title: str, target_speaker_name: str, summary_blo
         Possible labels must exactly match one of: "{target_speaker_name}", "analyst", "unknown".
         """
 
+def get_big_brother_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str) -> str:
+    return f"""
+        You are identifying participants in an episode of Big Brother.
+        Market: {market_title}
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker ID is "Julie Chen Moonves", which are "big brother houseguest", and which are advertisements.
+        The target entity for this session is conceptually: "{target_speaker_name}".
+
+        CRITICAL DISTINCTION:
+        1. **Julie Chen Moonves**: The host. Introduces segments, announces evictions, interviews the evicted houseguest, says "But first..." and "Expect the unexpected". Label her as "Julie Chen Moonves".
+        2. **Big Brother Houseguests**: The players competing in the Big Brother house. They discuss strategy, form alliances, compete in competitions, and vote to evict. Label them as "big brother houseguest".
+        3. **Advertisements**: Commercial breaks. Label them as "advertisement".
+        4. **Unknown**: Others.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels.
+        Possible labels must exactly match one of: "Julie Chen Moonves", "big brother houseguest", "advertisement", "unknown".
+        """
+
 def get_default_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str, top_terms_str: str) -> str:
     return f"""
         You are identifying the real host or primary guests in a broadcast transcript.
