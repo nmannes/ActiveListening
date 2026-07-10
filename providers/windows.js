@@ -16,12 +16,15 @@
 
 const path = require("path");
 const fs = require("fs");
-const { spawn } = require("child_process");
+const { spawn, execSync } = require("child_process");
 const WebSocket = require("ws");
 
+const DATA_DIR = process.env.KALSHI_DATA_DIR || path.join(__dirname, "..");
+const LOCK_DIR = path.join(DATA_DIR, "locks");
 const SHARED_DIR = path.join(__dirname, "..", "windows", "shared");
 const PCM_FILE = path.join(SHARED_DIR, "audio.pcm");
 const TEMP_FILE = path.join(SHARED_DIR, "audio.tmp.pcm");
+const VM_LOCK_FILE = path.join(LOCK_DIR, "windows-vm.lock");
 
 let ffmpegProc = null;
 let _ws = null;
@@ -30,6 +33,71 @@ let _logger = null;
 let _isShuttingDown = null;
 let _isStopped = false;
 let _retryTimeout = null;
+let _hasVMLock = false;
+
+const VM_TIME_OUT_MS = 15 * 60 * 1000
+
+// ── VM lock (only one client can use the Windows VM at a time) ──────
+
+function acquireVMLock(marketSlug) {
+  fs.mkdirSync(LOCK_DIR, { recursive: true });
+
+  const lockPayload = JSON.stringify({
+    pid: process.pid,
+    market: marketSlug || "unknown",
+    startedAt: new Date().toISOString(),
+  });
+
+  try {
+    fs.writeFileSync(VM_LOCK_FILE, lockPayload, { flag: "wx" });
+    _hasVMLock = true;
+    _logger.info(`[windows] VM lock acquired (${marketSlug || process.pid})`);
+    return;
+  } catch (err) {
+    if (err.code !== "EEXIST") {
+      throw new Error(`Failed to create VM lock: ${err.message}`);
+    }
+  }
+
+  // Lock exists — check if holder is still alive
+  let existing;
+  try {
+    existing = JSON.parse(fs.readFileSync(VM_LOCK_FILE, "utf8"));
+  } catch (_) {
+    existing = { pid: null };
+  }
+
+  if (existing.pid) {
+    try {
+      process.kill(existing.pid, 0);
+      throw new Error(
+        `Windows VM is in use by another client (PID ${existing.pid}, ` +
+        `market: ${existing.market || "unknown"}). Only one client can use ` +
+        `the VM at a time. Wait for the other job to finish.`,
+      );
+    } catch (killErr) {
+      if (killErr.code === "ESRCH") {
+        _logger.warn(`[windows] Stale VM lock found (PID ${existing.pid}), taking over`);
+      } else {
+        throw killErr;
+      }
+    }
+  }
+
+  // Stale lock — overwrite
+  fs.writeFileSync(VM_LOCK_FILE, lockPayload);
+  _hasVMLock = true;
+  _logger.info(`[windows] VM lock acquired (stale overwritten)`);
+}
+
+function releaseVMLock() {
+  if (!_hasVMLock) return;
+  try {
+    if (fs.existsSync(VM_LOCK_FILE)) fs.unlinkSync(VM_LOCK_FILE);
+  } catch (_) { /* best effort */ }
+  _hasVMLock = false;
+  _logger?.info("[windows] VM lock released");
+}
 
 // ── Wait for a file to appear (Windows writes .tmp then renames) ─────
 function waitForFile(filePath, timeoutMs = 30000) {
@@ -123,6 +191,41 @@ function streamPcmFile(filePath) {
   return ffmpeg;
 }
 
+// ── Ensure Windows VM container is running ─────────────────────────
+
+function ensureVmRunning() {
+  // Check if the container is already running
+  try {
+    const status = execSync(
+      "docker ps --filter name=kalshi-windows --format '{{.Status}}'",
+      { encoding: "utf8", timeout: 5000 },
+    ).trim();
+    if (status) {
+      _logger.info("[windows] Windows VM container is already running");
+      return;
+    }
+    _logger.info("[windows] Windows VM container not running, starting...");
+  } catch (e) {
+    _logger.warn(`[windows] Docker check failed: ${e.message || String(e)}`);
+  }
+
+  const windowsDir = path.join(__dirname, "..", "windows");
+  try {
+    execSync("docker compose -f docker-compose.yml up -d", {
+      cwd: windowsDir,
+      encoding: "utf8",
+      timeout: 120000,
+    });
+    _logger.info("[windows] Windows VM container started — VM is booting");
+  } catch (e) {
+    const stderr = e.stderr || e.message || String(e);
+    throw new Error(
+      `Failed to start Windows VM: ${stderr.trim()}. ` +
+      `Is Docker installed and /dev/kvm available?`,
+    );
+  }
+}
+
 // ── Provider interface ──────────────────────────────────────────────
 
 module.exports = {
@@ -141,13 +244,14 @@ module.exports = {
     _logger.info(`[windows] Stream URL: ${streamUrl}`);
     _logger.info(`[windows] PCM file:  ${PCM_FILE}`);
 
-    // Ensure the shared directory exists
-    if (!fs.existsSync(SHARED_DIR)) {
-      throw new Error(
-        `Shared directory ${SHARED_DIR} does not exist. ` +
-        `Is the Windows VM running with the /shared volume mounted?`,
-      );
-    }
+    // Acquire exclusive VM lock before touching anything
+    acquireVMLock(market.slug);
+
+    // Create shared directory (docker volume mount point) if missing
+    fs.mkdirSync(SHARED_DIR, { recursive: true });
+
+    // Start the Windows VM container if it's not already running
+    ensureVmRunning();
 
     // Clean up any stale PCM file from previous sessions
     for (const f of [PCM_FILE, TEMP_FILE]) {
@@ -157,7 +261,7 @@ module.exports = {
     // Wait for the Windows bridge to start writing audio
     _logger.info(`[windows] Waiting for Windows bridge to start writing...`);
     _logger.info(`[windows] If this hangs, start bridge.ps1 on the Windows VM via RDP.`);
-    await waitForFile(TEMP_FILE, 60000);
+    await waitForFile(TEMP_FILE, VM_TIME_OUT_MS);
 
     // Start streaming the PCM file to the WebSocket
     streamPcmFile(TEMP_FILE);
@@ -179,6 +283,7 @@ module.exports = {
       ffmpegProc.kill();
       ffmpegProc = null;
     }
+    releaseVMLock();
     _logger?.info("[windows] Provider stopped.");
   },
 };

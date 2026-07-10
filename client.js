@@ -195,11 +195,11 @@ if (!providerName) {
   } else if (STREAM_URL.includes("espn.com")) {
     providerName = "espn";
   } else if (
-    (STREAM_URL.includes("youtube.com") || STREAM_URL.includes("youtu.be")) && !STREAM_URL.includes("tv.youtube.com")
+    (STREAM_URL.includes("tv.youtube.com"))
   ) {
-    providerName = "youtube";
-  } else if (STREAM_URL.includes("tv.youtube.com")) {
     providerName = "yttv";
+  } else if (STREAM_URL.includes("youtube.com")) {
+    providerName = "youtube";
   } else if (STREAM_URL.includes("amazon.com")) {
     providerName = "amazon";
   } else if (
@@ -222,29 +222,22 @@ let provider;
 try {
   provider = require(`./providers/${providerName}`);
 } catch (e) {
-  console.error(`Unknown provider "${providerName}". Available: tv, browser, windows`);
+  console.error(`Unknown provider "${providerName}"`);
   console.error(`  Error: ${e.message}`);
   process.exit(1);
 }
-
-logger.info(`Session ID: ${sessionId}`);
-logger.info(`Provider: ${provider.name}`);
-logger.info(`Market: ${market.title || market.slug}`);
-logger.info(`Stream: ${STREAM_URL}`);
-logger.info(`Remote: ${REMOTE_URL}`);
-
 // ── Orderbook tracking (runs locally) ────────────────────────────────
 const { startOrderbookTracking } = require("./lib/orderbook_tracking");
 const orderbook = startOrderbookTracking(market);
 const channelDisplay = market.mediaSourceCommonName || STREAM_URL;
 const msg = [
   `[client] Tracking "${market.title || market.slug}" for ${args.duration || 90} minutes`,
-  `Channel: ${channelDisplay}`,
-  `Source: ${STREAM_URL}`,
+  `Channel: ${channelDisplay} `,
+  `Source: ${STREAM_URL} `,
 ].join("\n");
 logger.info(msg);
 sendTelegram(msg).catch((err) =>
-  logger.error(`[client] Failed to send Telegram: ${err.message || String(err)}`),
+  logger.error(`[client] Failed to send Telegram: ${err.message || String(err)} `),
 );
 
 // ── State ────────────────────────────────────────────────────────────
@@ -295,7 +288,7 @@ function connectWebSocket() {
         const elapsed = (Date.now() - lastTranscriptTime) / 1000;
         if (elapsed > TRANSCRIPT_TIMEOUT_SEC) {
           logger.warn(
-            `No transcript for ${elapsed.toFixed(0)}s (timeout: ${TRANSCRIPT_TIMEOUT_SEC}s), ending stream`,
+            `No transcript for ${elapsed.toFixed(0)}s(timeout: ${TRANSCRIPT_TIMEOUT_SEC}s), ending stream`,
           );
           shutdown("Transcript timeout");
         }
@@ -307,33 +300,33 @@ function connectWebSocket() {
     try {
       const msg = JSON.parse(data.toString());
       if (msg.type === "signal") {
-        logger.info(`SIGNAL: ${msg.keyword} → ${msg.ticker}`);
+        logger.info(`SIGNAL: ${msg.keyword} → ${msg.ticker} `);
       } else if (msg.type === "transcript") {
         lastTranscriptTime = Date.now();
-        logger.info(`TRANSCRIPT: ${msg.text}`);
+        logger.info(`TRANSCRIPT: ${msg.text} `);
       } else if (msg.type === "speaker_identified") {
         const topScores = Object.entries(msg.scores)
           .sort(([, a], [, b]) => b - a)
           .slice(0, 10)
-          .map(([name, score]) => `  ${name}: ${score.toFixed(4)}`)
+          .map(([name, score]) => `  ${name}: ${score.toFixed(4)} `)
           .join("\n");
         if (msg.entity) {
-          logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity}\n${topScores}`);
+          logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity} \n${topScores} `);
         } else {
-          logger.info(`SPEAKER SCORES: speaker ${msg.speaker_id} (no match above threshold)\n${topScores}`);
+          logger.info(`SPEAKER SCORES: speaker ${msg.speaker_id} (no match above threshold) \n${topScores} `);
         }
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
-        logger.info(`RTT: ${rtt}ms`);
+        logger.info(`RTT: ${rtt} ms`);
       } else if (msg.type === "telemetry") {
         delete msg.type;
-        logger.info(`[remote] ${JSON.stringify(msg)}`);
+        logger.info(`[remote] ${JSON.stringify(msg)} `);
       } else {
         delete msg.image;
-        logger.debug(`[OTHER] ${JSON.stringify(msg)}`);
+        logger.debug(`[OTHER] ${JSON.stringify(msg)} `);
       }
     } catch (e) {
-      logger.debug(`data error: ${e.message}`);
+      logger.debug(`data error: ${e.message} `);
     }
   });
 
@@ -350,13 +343,13 @@ function connectWebSocket() {
     }
 
     logger.warn(
-      `[ws] Connection closed (code ${code}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`,
+      `[ws] Connection closed(code ${code}), reconnecting in ${RECONNECT_DELAY_MS / 1000}s...`,
     );
     setTimeout(connectWebSocket, RECONNECT_DELAY_MS);
   });
 
   ws.on("error", (err) => {
-    logger.error(`[ws] Error: ${err.message || String(err)}`);
+    logger.error(`[ws] Error: ${err.message || String(err)} `);
   });
 }
 
@@ -372,7 +365,7 @@ async function shutdown(reason, exitCode = 0) {
   try {
     await provider.stop();
   } catch (e) {
-    logger.error(`[client] Error stopping provider: ${e.message || String(e)}`);
+    logger.error(`[client] Error stopping provider: ${e.message || String(e)} `);
   }
 
   if (ws) ws.close();
@@ -380,7 +373,7 @@ async function shutdown(reason, exitCode = 0) {
 
   if (typeof lockPath !== "undefined" && lockPath && fs.existsSync(lockPath)) {
     fs.unlinkSync(lockPath);
-    logger.info(`[client] Lockfile removed: ${lockPath}`);
+    logger.info(`[client] Lockfile removed: ${lockPath} `);
   }
 
   // Queue log sync for after CloudWatch ingestion
@@ -393,14 +386,14 @@ async function shutdown(reason, exitCode = 0) {
 }
 
 // ── Startup ──────────────────────────────────────────────────────────
-connectWebSocket();
-
-// Small delay to let WS connect before starting the provider
+// Kick off provider.start first — the windows provider runs its VM launch
+// synchronously (execSync) before yielding, so the VM is already booting
+// by the time we open the WebSocket below.
 setTimeout(async () => {
   try {
     // Wait for the event to start, get sport-based duration suggestion
     const waitResult = await waitIfNecessary(market, logger).catch((err) => {
-      logger.error(`Error in waitIfNecessary: ${err.message}`);
+      logger.error(`Error in waitIfNecessary: ${err.message} `);
       return null;
     });
     const suggestedDuration = waitResult?.suggestedDurationMinutes;
@@ -408,9 +401,10 @@ setTimeout(async () => {
     // Use the highest available duration estimate as a safety floor
     const durationMinutes = Math.max(args.duration || 0, suggestedDuration || 0, config.durations.clientFallbackMinutes);
     const durationMs = durationMinutes * 60 * 1000;
-    logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""}`);
+    logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""} `);
     setTimeout(() => shutdown("Duration reached"), durationMs);
 
+    // Start provider (VM boots and bridge starts before we connect WS)
     await provider.start({
       ws,
       market,
@@ -419,6 +413,7 @@ setTimeout(async () => {
       logger,
       isShuttingDown: () => isShuttingDown,
     });
+    connectWebSocket();
     // Reset transcript timeout now that the provider is actually streaming
     providerStarted = true;
     lastTranscriptTime = Date.now();
@@ -434,15 +429,15 @@ setTimeout(async () => {
       logger.info(`[${provider.name}] Session ended gracefully.`);
       return;
     }
-    logger.error(`[${provider.name}] Critical error: ${err.message || String(err)}`);
-    shutdown(`Critical error: ${err.message || String(err)}`, 1);
+    logger.error(`[${provider.name}] Critical error: ${err.message || String(err)} `);
+    shutdown(`Critical error: ${err.message || String(err)} `, 1);
   }
 }, 500);
 
 // Watch for game end and shut down when it finishes
 waitUntilEnded(market, logger)
   .then(() => shutdown("Game ended"))
-  .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message}`));
+  .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message} `));
 
 // ── Cleanup signals ──────────────────────────────────────────────────
 process.on("SIGINT", () => shutdown("Received SIGINT"));
