@@ -581,7 +581,7 @@
                         : `<span class="badge pending">${v.pending} pending</span>`;
                     html += `
                         <div class="slug-group" data-slug="${v.slug}">
-                            <div class="slug-header ${collapsedGroups[v.slug] ? 'collapsed' : ''}" data-slug="${v.slug}" onclick="toggleSlug(this)" id="slug-header-${v.slug}">
+                            <div class="slug-header ${collapsedGroups[v.slug] !== false ? 'collapsed' : ''}" data-slug="${v.slug}" onclick="toggleSlug(this)" id="slug-header-${v.slug}">
                                 <span>${v.target} <small style="opacity:0.6;font-weight:400;">(${v.segmentCount} segments)</small></span>
                                 <span style="display:flex;align-items:center;gap:0.75rem;">
                                     ${statusBadge}
@@ -590,7 +590,7 @@
                                     <span class="toggle-icon">▼</span>
                                 </span>
                             </div>
-                            <div id="segments-${v.slug}" class="segments-list ${collapsedGroups[v.slug] ? 'collapsed' : ''}">
+                            <div id="segments-${v.slug}" class="segments-list ${collapsedGroups[v.slug] !== false ? 'collapsed' : ''}">
                                 <div class="center-msg"><div class="loader"></div></div>
                             </div>
                         </div>
@@ -599,7 +599,7 @@
                 container.innerHTML = html;
 
                 for (const v of verifications) {
-                    if (!collapsedGroups[v.slug]) {
+                    if (collapsedGroups[v.slug] === false) {
                         loadSegments(v.slug);
                     }
                 }
@@ -839,7 +839,7 @@
             const isCollapsed = header.classList.toggle('collapsed');
             const list = document.getElementById(`lib-segments-${slug}`);
             if (list) list.classList.toggle('collapsed', isCollapsed);
-            collapsedGroups[`lib-${slug}`] = isCollapsed ? false : undefined;
+            collapsedGroups[`lib-${slug}`] = isCollapsed;
         }
 
         async function deleteSample(filename) {
