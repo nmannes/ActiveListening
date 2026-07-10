@@ -151,7 +151,7 @@ if (args.local) {
 } else if (!REMOTE_IP_ADDRESS) {
   try {
     logger.info("Discovery: Attempting to find running Kalshi worker...");
-    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
+    REMOTE_IP_ADDRESS = execSync("./scripts/discover_instance.sh", {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
@@ -202,6 +202,16 @@ if (!providerName) {
     providerName = "yttv";
   } else if (STREAM_URL.includes("amazon.com")) {
     providerName = "amazon";
+  } else if (
+    STREAM_URL.includes("peacocktv.com") ||
+    STREAM_URL.includes("netflix.com") ||
+    STREAM_URL.includes("hulu.com") ||
+    STREAM_URL.includes("hbomax.com") ||
+    STREAM_URL.includes("max.com") ||
+    STREAM_URL.includes("disneyplus.com") ||
+    STREAM_URL.includes("paramountplus.com")
+  ) {
+    providerName = "windows"; // DRM-protected — requires Windows VM
   } else {
     providerName = "browser";
   }
@@ -212,7 +222,7 @@ let provider;
 try {
   provider = require(`./providers/${providerName}`);
 } catch (e) {
-  console.error(`Unknown provider "${providerName}". Available: tv, browser`);
+  console.error(`Unknown provider "${providerName}". Available: tv, browser, windows`);
   console.error(`  Error: ${e.message}`);
   process.exit(1);
 }

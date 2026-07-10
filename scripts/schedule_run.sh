@@ -70,7 +70,7 @@ fi
 
 NOW_EPOCH=$(date +%s)
 
-CONFIG_GET="$SCRIPT_DIR/get_config.py"
+CONFIG_GET="$SCRIPT_DIR/../pylib/get_config.py"
 CONFIG_DEFAULT_DURATION=$($PYTHON "$CONFIG_GET" durations defaultMinutes)
 CONFIG_SCHEDULE_PADDING=$($PYTHON "$CONFIG_GET" timing schedulePaddingMinutes)
 CONFIG_LAUNCH_BUFFER=$($PYTHON "$CONFIG_GET" timing launchBufferMinutes)
@@ -124,7 +124,7 @@ NOW_MS=$((NOW_EPOCH * 1000))
 CLIENT_DELAY_MS=$(((LAUNCH_EPOCH - NOW_EPOCH) * 1000))
 SERVER_SHUTDOWN_MINUTES=$((DURATION_MINUTES + CONFIG_LAUNCH_BUFFER + CONFIG_SCHEDULE_PADDING))
 
-$BUN run enqueue_run_client.js \
+$BUN run lib/enqueue_run_client.js \
     --marketFile "$ABS_JSON_FILE" \
     --duration "$SHUTDOWN_MINUTES" \
     --browser "$BROWSER_FLAG" \

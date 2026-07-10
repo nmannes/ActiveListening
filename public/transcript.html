@@ -363,7 +363,7 @@ async function loadRuntimeLogs(offsetVal) {
     const resp = await fetch(url);
     if (!resp.ok) {
       document.getElementById('runtime-content').innerHTML =
-        '<div class="error-box">' + (resp.status === 404 ? 'No merged runtime logs for this session. Run: ./sync_logs.sh &lt;uuid&gt; --slug ' + esc(sessionSlug) : 'Failed to load: HTTP ' + resp.status) + '</div>';
+        '<div class="error-box">' + (resp.status === 404 ? 'No merged runtime logs for this session. Run: ./scripts/sync_logs.sh &lt;uuid&gt; --slug ' + esc(sessionSlug) : 'Failed to load: HTTP ' + resp.status) + '</div>';
       return;
     }
     rtData = await resp.json();

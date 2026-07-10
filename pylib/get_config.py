@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/nathan/.pyenv/shims/python
 """Helper to extract values from config.yaml for bash scripts.
 
 Usage:
@@ -9,7 +9,7 @@ Usage:
 import sys, yaml
 from pathlib import Path
 
-config_path = Path(__file__).resolve().parent / "config.yaml"
+config_path = Path(__file__).resolve().parent.parent / "config.yaml"
 with open(config_path) as f:
     data = yaml.safe_load(f)
 

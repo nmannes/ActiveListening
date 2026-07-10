@@ -16,7 +16,7 @@ timeout 10m bun run client.js --local --fromFile "$FILE"
 echo "[run_sample] client.js finished (exit code: $?)"
 
 echo "[run_sample] Pulling S3 responses..."
-bash pull_all_s3_responses.sh
+bash scripts/pull_all_s3_responses.sh
 echo "[run_sample] S3 pull complete"
 
 SLUG=$(jq -r '.slug' "$FILE")

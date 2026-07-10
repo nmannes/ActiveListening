@@ -12,7 +12,8 @@ git pull || echo "git pull failed, continuing anyway"
 # --- Configuration (Defaults) ---
 PYTHON="/home/nathan/.pyenv/shims/python"
 BUN="bun"
-CONFIG_GET="$PYTHON $(dirname "$0")/get_config.py"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+CONFIG_GET="$PYTHON $REPO_ROOT/pylib/get_config.py"
 
 REGION="${REGION:-$($CONFIG_GET aws region)}"
 KEY_NAME="${KEY_NAME:-$($CONFIG_GET aws keyName)}"
