@@ -1,0 +1,42 @@
+# dockur/windows — Windows VM for DRM-protected streams
+#
+# Usage:
+#   docker compose -f windows/docker-compose.yml up -d
+#   docker compose -f windows/docker-compose.yml down
+#
+# The VM disk (data.img), firmware, and state files live directly in this
+# directory.  win11x64.iso is a pre-downloaded Windows 11 image — mounting it
+# at /custom.iso tells dockur to use it instead of downloading one.
+
+services:
+  windows:
+    image: dockurr/windows:latest
+    container_name: kalshi-windows
+    restart: unless-stopped
+    stop_grace_period: 120s
+
+    environment:
+      VERSION: "11"
+      DISK_SIZE: "64G"
+      RAM_SIZE: "8G"
+      CPU_CORES: "4"
+      USERNAME: "Docker"
+      PASSWORD: "admin"
+      LANGUAGE: "English"
+
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+
+    cap_add:
+      - NET_ADMIN
+
+    ports:
+      - "8006:8006"   # Web viewer (install/monitor only — no audio)
+      - "3389:3389"   # RDP — connect with: xfreerdp /v:localhost /u:Docker /p:admin
+
+    volumes:
+      - .:/storage              # VM disk (data.img), firmware, ISO — direct mount
+      - ./win11x64.iso:/custom.iso:ro  # Local ISO → skip download
+      - ./oem:/oem              # Post-install scripts (install.bat runs automatically)
+      - ./shared:/shared        # Shared folder → Desktop\Shared in Windows
