@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { getSpeakerEntities } = require('./speaker_identification');
+const { getSpeakerEntities } = require('../lib/speaker_identification');
 
 const cacheDir = path.join(__dirname, '../cache');
 const filesToTest = [
