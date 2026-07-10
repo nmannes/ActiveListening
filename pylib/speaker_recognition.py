@@ -319,6 +319,20 @@ class SpeakerRecognitionSession:
                 self.policy.record_result(mapping, self.market_entities)
             return
 
+        # Earnings calls: auto-allowlist any speaker with >=100 words
+        market = getattr(self.listening_session, "market", {}) or {}
+        title = market.get("title", "").lower()
+        if "earnings" in title:
+            if hasattr(self.listening_session, "transcript"):
+                async with self.listening_session.transcript_lock:
+                    for sid, tokens in self.listening_session.transcript.items():
+                        if len(tokens) >= 100:
+                            if hasattr(self.listening_session, "trade_processor"):
+                                self.listening_session.trade_processor.add_trading_speaker(sid)
+                                logger.info(f"[{self.session_id}] Earnings call: auto-allowlisted speaker {sid} ({len(tokens)} words)")
+                self.policy._stable = True
+            return
+
         # Access transcript from session
         if not hasattr(self.listening_session, "transcript"):
             logger.warning("Session has no transcript to infer identities from.")
