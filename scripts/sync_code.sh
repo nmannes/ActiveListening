@@ -3,13 +3,15 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # --- Configuration ---
-export SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem" 
+export SSH_KEY_PATH="$HOME/.ssh/us-east-1.pem"
 export REMOTE_USER="ubuntu"
 export REMOTE_DIR="/home/ubuntu"
 
 
-PUBLIC_IP=$(./discover_instance.sh) || {
+PUBLIC_IP=$("$SCRIPT_DIR/discover_instance.sh") || {
     echo "ERROR: Could not discover a running Kalshi worker."
     exit 1
 }

@@ -32,7 +32,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent.resolve()
+ROOT = Path(__file__).parent.parent.resolve()
 
 
 def run(cmd, **kwargs):
@@ -50,7 +50,7 @@ def python(script, *args):
 
 
 def bash(script, *args):
-    return run(["bash", str(ROOT / script)] + list(args))
+    return run(["bash", str(ROOT / "scripts" / script)] + list(args))
 
 
 def main():

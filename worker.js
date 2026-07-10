@@ -82,7 +82,7 @@ const runClientWorker = new Worker(
     const env = process.env.KALSHI_ENV || "prod";
     const title = market.title || slug;
     const launchOutput = await spawnCapture(
-      `bash launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug} --title "${title.replace(/"/g, '\\"')}"`,
+      `bash scripts/launch_gpu_server.sh ${env} --shutdown-minutes ${shutdownMinutes} --tag ${slug} --title "${title.replace(/"/g, '\\"')}"`,
     );
 
     let deployResult = parseDeployResult(launchOutput);
@@ -206,7 +206,7 @@ const syncWorker = new Worker(
       return;
     }
     const { runUUID, sessionId } = job.data;
-    await spawn(`bash sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
+    await spawn(`bash scripts/sync_logs.sh ${runUUID} --slug ${sessionId}`, job);
   },
   { connection, concurrency: 1, lockDuration: workerConfig.logSyncLockDurationMinutes * 60 * 1000 },
 );

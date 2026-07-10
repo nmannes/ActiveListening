@@ -151,7 +151,7 @@ if (args.local) {
 } else if (!REMOTE_IP_ADDRESS) {
   try {
     logger.info("Discovery: Attempting to find running Kalshi worker...");
-    REMOTE_IP_ADDRESS = execSync("./discover_instance.sh", {
+    REMOTE_IP_ADDRESS = execSync("./scripts/discover_instance.sh", {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
