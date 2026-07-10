@@ -232,11 +232,4 @@ def poll_telegram_callbacks(timeout=30, channel="info"):
 import json
 
 if __name__ == "__main__":
-    # Run a test similar to the JS main block
-    print("Testing Python Telegram Library...")
-    # Using the same test image as JS
-    result = send_telegram_photo(
-        "https://upload.wikimedia.org/wikipedia/commons/thumb/8/82/Telegram_logo.svg/512px-Telegram_logo.svg.png",
-        "Test image from Python",
-    )
-    print(json.dumps(result, indent=2))
+    print("Telegram library loaded. Actual send calls disabled in __main__.")
