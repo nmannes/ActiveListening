@@ -1,12 +1,35 @@
 import asyncio
 import json
 import logging
+import os
+import tempfile
 import time
+import wave
 from pylib.keyword_matching import remove_market_from_index
 from pylib.ordering_config import get_dollar_amount
-from pylib.telegram import send_telegram
+from pylib.telegram import send_telegram, send_telegram_audio
 
 logger = logging.getLogger("remote_server")
+
+
+def _send_audio_clip(audio_bytes: bytes, word: str, start: float, end: float):
+    """Write PCM bytes to a temp WAV and send via Telegram. Runs in executor thread."""
+    fd, path = tempfile.mkstemp(suffix=".wav")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            wf = wave.open(f)
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(audio_bytes)
+            wf.close()
+        caption = f"{word} ({start:.1f}s-{end:.1f}s)"
+        send_telegram_audio(path, caption=caption, channel="info")
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 class SignalHandler:
@@ -59,7 +82,7 @@ class SignalHandler:
             )
             return
 
-        self._execute_trade(match, dollar_amount)
+        self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"))
 
     def _send_signal_telegram(self, match: dict, speaker_id: str):
         market_title = self.session.market.get("title", match["key"])
@@ -91,7 +114,7 @@ class SignalHandler:
                 f"[{self.session.session_id}] Error notifying client of signal: {e}"
             )
 
-    def _execute_trade(self, match: dict, dollar_amount: float):
+    def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None):
         logger.info(
             f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount})"
         )
@@ -110,6 +133,7 @@ class SignalHandler:
             f"\U0001f680 [TRADE] {self.session.market.get('title', match['value'])}",
             f"Ticker: {match['value']}",
             f"Word: {match['key']}",
+            f"Confidence: {confidence:.3f}",
             f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
             f"Source: {self.session.market.get('mediaStreamURL', '')}",
             f"Status: {order_result.status}",
@@ -118,6 +142,32 @@ class SignalHandler:
         level = "info" if order_result.status == "filled" else "debug"
         asyncio.get_running_loop().run_in_executor(
             None, send_telegram, msg, level
+        )
+
+        if start is not None and end is not None:
+            self._extract_and_send_audio(start, end, match["key"])
+
+    def _extract_and_send_audio(self, start: float, end: float, word: str):
+        """Slice PAD_SECS around the detected word from the PCM buffer and send via Telegram."""
+        PAD_SECS = 5
+        bytes_per_sec = 16000 * 2
+        audio_processor = getattr(self.session, "audio_processor", None)
+        if audio_processor is None:
+            return
+        pcm_buffer = audio_processor._pcm_buffer
+        buf_len = len(pcm_buffer)
+
+        clip_start = max(0, start - PAD_SECS)
+        clip_end = min(end + PAD_SECS, buf_len / bytes_per_sec)
+        start_byte = (int(clip_start * bytes_per_sec) // 2) * 2
+        end_byte = (int(clip_end * bytes_per_sec) // 2) * 2
+
+        if end_byte <= start_byte:
+            return
+
+        audio_bytes = bytes(pcm_buffer[start_byte:end_byte])
+        asyncio.get_running_loop().run_in_executor(
+            None, _send_audio_clip, audio_bytes, word, clip_start, clip_end
         )
 
     def _place_order(self, match: dict, dollar_amount: float):
