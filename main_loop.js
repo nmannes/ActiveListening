@@ -10,16 +10,16 @@ for (const line of bashrcEnv.split("\n")) {
   if (eq > 0) process.env[line.slice(0, eq)] = line.slice(eq + 1);
 }
 
-const { schedulingLoopQueue } = require("./lib/queues");
+const { connection, schedulingLoopQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
-const config = require("./lib/config");
 
 const PYTHON = "/home/nathan/.pyenv/shims/python";
-const BUN = "bun";
 
 process.env.HF_HUB_DISABLE_PROMPT = "1";
 
-const DISCOVERY_INTERVAL_MS = config.timing.discoveryIntervalMinutes * 60 * 1000;
+const REDIS_KEY = "kalshi:next_scrape_time";
+const POLL_INTERVAL_MS = 60_000; // check Redis every minute
+const DEFAULT_INTERVAL_MS = 60 * 60 * 1000; // run every hour when self-managing
 
 async function start() {
   console.log("Starting Kalshi Main Event Loop...");
@@ -68,18 +68,38 @@ async function start() {
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
   sendTelegram("Scheduling loop started").catch(() => {});
 
-  // 5. Recurring: full loop with discovery every 60 minutes
-  setInterval(async () => {
-    try {
-      await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
-      const timestamp = new Date().toISOString();
-      sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => {});
-    } catch (e) {
-      console.error("Failed to enqueue scheduling loop:", e);
-    }
-  }, DISCOVERY_INTERVAL_MS);
+  // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop
+  await connection.set(REDIS_KEY, Date.now() + POLL_INTERVAL_MS);
+  scheduleNextFromRedis();
 
-  console.log("Discovery every 60m — all via BullMQ.");
+  console.log("Scrape cadence driven by Redis key:", REDIS_KEY);
+}
+
+async function scheduleNextFromRedis() {
+  while (true) {
+    const raw = await connection.get(REDIS_KEY);
+    const nextTime = raw ? parseInt(raw, 10) : 0;
+    const remaining = nextTime - Date.now();
+
+    if (remaining <= 0) {
+      await enqueueSchedulingLoop();
+      await connection.set(REDIS_KEY, Date.now() + DEFAULT_INTERVAL_MS);
+      continue;
+    }
+
+    // Wait until the scheduled time, but wake up each minute to re-check Redis
+    await new Promise((r) => setTimeout(r, Math.min(remaining, POLL_INTERVAL_MS)));
+  }
+}
+
+async function enqueueSchedulingLoop() {
+  try {
+    await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
+    const timestamp = new Date().toISOString();
+    sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => {});
+  } catch (e) {
+    console.error("Failed to enqueue scheduling loop:", e);
+  }
 }
 
 start().catch((err) => {
