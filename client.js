@@ -398,11 +398,19 @@ setTimeout(async () => {
     });
     const suggestedDuration = waitResult?.suggestedDurationMinutes;
 
-    // Use the highest available duration estimate as a safety floor
-    const durationMinutes = Math.max(args.duration || 0, suggestedDuration || 0, config.durations.clientFallbackMinutes);
-    const durationMs = durationMinutes * 60 * 1000;
-    logger.info(`Fallback shutdown in ${durationMinutes} min${suggestedDuration ? ` (sport: ${suggestedDuration}m)` : ""} `);
-    setTimeout(() => shutdown("Duration reached"), durationMs);
+    // Determine the absolute end time from the schedule, falling back to
+    // sport suggestion or configured floor when no duration is available.
+    const durationMinutes = args.duration
+      || Math.max(suggestedDuration || 0, config.durations.clientFallbackMinutes);
+    const startMs = market.eventStartTime
+      ? new Date(market.eventStartTime).getTime()
+      : Date.now();
+    const endTime = startMs + durationMinutes * 60 * 1000;
+    const remainingMs = Math.max(0, endTime - Date.now());
+    logger.info(
+      `Scheduled end at ${new Date(endTime).toISOString()} (${durationMinutes}m total, ${Math.round(remainingMs / 60000)}m remaining)`,
+    );
+    setTimeout(() => shutdown("Scheduled end time reached"), remainingMs);
 
     // Start provider (VM boots and bridge starts before we connect WS)
     await provider.start({
