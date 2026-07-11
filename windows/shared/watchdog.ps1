@@ -15,9 +15,10 @@
 $ErrorActionPreference = "Continue"
 Add-Type -AssemblyName System.Windows.Forms
 
-$JobFile   = "C:\Shared\stream.json"
-$PcmFile   = "C:\Shared\audio.tmp.pcm"
-$StopFile  = "C:\Shared\stop.txt"
+$JobFile    = "C:\Shared\stream.json"
+$MarketFile = "C:\Shared\market.json"
+$PcmFile    = "C:\Shared\audio.tmp.pcm"
+$StopFile   = "C:\Shared\stop.txt"
 $StatusFile = "C:\Shared\status.txt"
 
 function Write-Status($msg) {
@@ -80,6 +81,16 @@ while ($true) {
   }
 
   Write-Status "Job: url=$url email=$email loginUrl=$loginUrl wait=${waitSec}s"
+
+  # Log market info if available
+  if (Test-Path $MarketFile) {
+    try {
+      $market = Get-Content $MarketFile -Raw | ConvertFrom-Json
+      Write-Status "Market: slug=$($market.slug) title=$($market.title)"
+    } catch {
+      Write-Status "WARNING: Could not parse market.json"
+    }
+  }
 
   # Clean stop signal from previous run
   Remove-Item $StopFile -Force -ErrorAction SilentlyContinue

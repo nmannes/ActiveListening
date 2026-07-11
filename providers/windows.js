@@ -291,6 +291,20 @@ module.exports = {
     // Create shared directory (docker volume mount point) if missing
     fs.mkdirSync(SHARED_DIR, { recursive: true });
 
+    // Write market info to shared folder so the Windows VM has access
+    const marketJsonPath = path.join(SHARED_DIR, "market.json");
+    const streamJsonPath = path.join(SHARED_DIR, "stream.json");
+    fs.writeFileSync(marketJsonPath, JSON.stringify(market, null, 2));
+    _logger.info(`[windows] Wrote market.json for ${market.slug}`);
+
+    const streamJob = {
+      url: streamUrl,
+      title: market.title,
+      slug: market.slug,
+    };
+    fs.writeFileSync(streamJsonPath, JSON.stringify(streamJob));
+    _logger.info(`[windows] Wrote stream.json (url: ${streamUrl})`);
+
     // Start the Windows VM container if it's not already running
     ensureVmRunning();
 
