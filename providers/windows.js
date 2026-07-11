@@ -27,6 +27,7 @@ const TEMP_FILE = path.join(SHARED_DIR, "audio.tmp.pcm");
 const VM_LOCK_FILE = path.join(LOCK_DIR, "windows-vm.lock");
 
 let ffmpegProc = null;
+let _dockerLogsProc = null;
 let _ws = null;
 let _streamUrl = null;
 let _logger = null;
@@ -191,17 +192,55 @@ function streamPcmFile(filePath) {
   return ffmpeg;
 }
 
+// ── Docker Compose log streaming ────────────────────────────────────
+
+function startDockerLogs() {
+  if (_dockerLogsProc) return;
+
+  const windowsDir = path.join(__dirname, "..", "windows");
+  _dockerLogsProc = spawn(
+    "docker", ["compose", "-f", "docker-compose.yml", "logs", "-f", "--tail", "0"],
+    { cwd: windowsDir, stdio: ["ignore", "pipe", "pipe"] },
+  );
+
+  _dockerLogsProc.stdout.on("data", (data) => {
+    const lines = data.toString().trim().split("\n").filter(Boolean);
+    for (const line of lines) {
+      _logger.info(`[docker] ${line.trim()}`);
+    }
+  });
+
+  _dockerLogsProc.stderr.on("data", (data) => {
+    const lines = data.toString().trim().split("\n").filter(Boolean);
+    for (const line of lines) {
+      _logger.warn(`[docker] ${line.trim()}`);
+    }
+  });
+
+  _dockerLogsProc.on("error", (err) => {
+    _logger.warn(`[docker] Log stream error: ${err.message || String(err)}`);
+  });
+
+  _dockerLogsProc.on("exit", (code) => {
+    _dockerLogsProc = null;
+    if (code !== 0 && !_isStopped) {
+      _logger.warn(`[docker] Log stream exited with code ${code}`);
+    }
+  });
+}
+
 // ── Ensure Windows VM container is running ─────────────────────────
 
 function ensureVmRunning() {
   // Check if the container is already running
   try {
     const status = execSync(
-      "docker ps --filter name=kalshi-windows --format '{{.Status}}'",
+      "DOCKER_HOST=unix:///var/run/docker.sock docker ps --filter name=kalshi-windows --format '{{.Status}}'",
       { encoding: "utf8", timeout: 5000 },
     ).trim();
     if (status) {
       _logger.info("[windows] Windows VM container is already running");
+      startDockerLogs();
       return;
     }
     _logger.info("[windows] Windows VM container not running, starting...");
@@ -211,7 +250,7 @@ function ensureVmRunning() {
 
   const windowsDir = path.join(__dirname, "..", "windows");
   try {
-    execSync("docker compose -f docker-compose.yml up -d", {
+    execSync("DOCKER_HOST=unix:///var/run/docker.sock docker compose -f docker-compose.yml up -d", {
       cwd: windowsDir,
       encoding: "utf8",
       timeout: 120000,
@@ -224,6 +263,8 @@ function ensureVmRunning() {
       `Is Docker installed and /dev/kvm available?`,
     );
   }
+
+  startDockerLogs();
 }
 
 // ── Provider interface ──────────────────────────────────────────────
@@ -282,6 +323,10 @@ module.exports = {
     if (ffmpegProc) {
       ffmpegProc.kill();
       ffmpegProc = null;
+    }
+    if (_dockerLogsProc) {
+      _dockerLogsProc.kill();
+      _dockerLogsProc = null;
     }
     releaseVMLock();
     _logger?.info("[windows] Provider stopped.");

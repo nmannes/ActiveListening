@@ -1,0 +1,161 @@
+# watchdog.ps1 — Watches for stream.json, logs in if needed, captures audio
+#
+# Runs at startup via scheduled task. Linux host drops a JSON file:
+#   windows/shared/stream.json
+#
+# JSON format:
+#   { "url": "https://...", "email": "...", "password": "..." }
+#
+# Or with a separate login page:
+#   { "url": "https://...", "email": "...", "password": "...",
+#     "loginUrl": "https://example.com/login" }
+#
+# Stop capture:   touch windows/shared/stop.txt
+
+$ErrorActionPreference = "Continue"
+Add-Type -AssemblyName System.Windows.Forms
+
+$JobFile   = "C:\Shared\stream.json"
+$PcmFile   = "C:\Shared\audio.tmp.pcm"
+$StopFile  = "C:\Shared\stop.txt"
+$StatusFile = "C:\Shared\status.txt"
+
+function Write-Status($msg) {
+  $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  $line = "$timestamp  $msg"
+  Write-Host $line
+  $line | Out-File $StatusFile -Encoding utf8
+}
+
+function Do-Login($email, $password) {
+  Write-Status "Logging in as $email ..."
+  Start-Sleep -Seconds 3  # let the page settle
+
+  # Type email, tab to password, type password, press Enter
+  [System.Windows.Forms.SendKeys]::SendWait($email)
+  Start-Sleep -Milliseconds 500
+  [System.Windows.Forms.SendKeys]::SendWait("{TAB}")
+  Start-Sleep -Milliseconds 300
+  [System.Windows.Forms.SendKeys]::SendWait($password)
+  Start-Sleep -Milliseconds 300
+  [System.Windows.Forms.SendKeys]::SendWait("{ENTER}")
+  Write-Status "Login submitted, waiting for redirect..."
+  Start-Sleep -Seconds 8
+}
+
+Write-Status "== Kalshi Watchdog started =="
+
+# Clean up stale files
+Remove-Item $JobFile   -Force -ErrorAction SilentlyContinue
+Remove-Item $StopFile  -Force -ErrorAction SilentlyContinue
+Remove-Item $PcmFile   -Force -ErrorAction SilentlyContinue
+
+while ($true) {
+  Write-Status "Watching for $JobFile ..."
+
+  # Wait for job file
+  while (-not (Test-Path $JobFile)) {
+    Start-Sleep -Seconds 2
+  }
+
+  # Parse job
+  try {
+    $job = Get-Content $JobFile -Raw | ConvertFrom-Json
+  } catch {
+    Write-Status "ERROR: Invalid JSON in $JobFile"
+    Remove-Item $JobFile -Force
+    continue
+  }
+
+  $url      = $job.url
+  $email    = $job.email
+  $password = $job.password
+  $loginUrl = $job.loginUrl
+  $waitSec  = if ($job.waitSeconds) { [int]$job.waitSeconds } else { 15 }
+
+  if (-not $url) {
+    Write-Status "ERROR: 'url' is required"
+    Remove-Item $JobFile -Force
+    continue
+  }
+
+  Write-Status "Job: url=$url email=$email loginUrl=$loginUrl wait=${waitSec}s"
+
+  # Clean stop signal from previous run
+  Remove-Item $StopFile -Force -ErrorAction SilentlyContinue
+  Remove-Item $PcmFile -Force -ErrorAction SilentlyContinue
+
+  $chromeArgs = @(
+    "--new-window",
+    "--start-maximized",
+    "--autoplay-policy=no-user-gesture-required",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-session-crashed-bubble",
+    "--disable-infobars",
+    "--no-first-run",
+    "--no-default-browser-check"
+  )
+
+  # ── Step 1: Login (if credentials provided) ──────────────────────
+  if ($email -and $password) {
+    $firstUrl = if ($loginUrl) { $loginUrl } else { $url }
+    Write-Status "Launching Chrome to login: $firstUrl"
+    $chrome = Start-Process "chrome" -ArgumentList ($chromeArgs + $firstUrl) -PassThru
+    Start-Sleep -Seconds 5
+    Do-Login $email $password
+
+    # If login page is separate, now navigate to the actual stream URL
+    if ($loginUrl -and $url -ne $loginUrl) {
+      Write-Status "Navigating to stream: $url"
+      Start-Sleep -Seconds 2
+      [System.Windows.Forms.SendKeys]::SendWait("^l")  # Ctrl+L → address bar
+      Start-Sleep -Milliseconds 500
+      [System.Windows.Forms.SendKeys]::SendWait($url + "{ENTER}")
+      Start-Sleep -Seconds 5
+    }
+  } else {
+    # No credentials — just open the URL
+    Write-Status "Launching Chrome to: $url"
+    $chrome = Start-Process "chrome" -ArgumentList ($chromeArgs + $url) -PassThru
+  }
+
+  Write-Status "Chrome PID: $($chrome.Id)"
+  Write-Status "Waiting ${waitSec}s for page to load..."
+  Start-Sleep -Seconds $waitSec
+
+  # ── Step 2: Start audio capture ──────────────────────────────────
+  Write-Status "Starting audio capture..."
+  $ffmpeg = Start-Process "ffmpeg" -ArgumentList @(
+    "-y",
+    "-f", "dshow",
+    "-i", "audio=CABLE Output (VB-Audio Virtual Cable)",
+    "-f", "s16le",
+    "-acodec", "pcm_s16le",
+    "-ar", "16000",
+    "-ac", "1",
+    "-flush_packets", "1",
+    $PcmFile
+  ) -PassThru -NoNewWindow
+
+  Write-Status "Audio capturing. PID: $($ffmpeg.Id)"
+
+  # ── Step 3: Wait for stop signal ─────────────────────────────────
+  while (-not (Test-Path $StopFile)) {
+    Start-Sleep -Seconds 2
+    if ($chrome.HasExited) {
+      Write-Status "Chrome closed, stopping capture."
+      break
+    }
+    # Heartbeat: update status file so host knows we're alive
+    Write-Status "Capturing..." > $null
+  }
+
+  # ── Cleanup ──────────────────────────────────────────────────────
+  Write-Status "Stopping..."
+  if ($ffmpeg -and -not $ffmpeg.HasExited) { Stop-Process $ffmpeg -Force -ErrorAction SilentlyContinue }
+  if ($chrome -and -not $chrome.HasExited) { Stop-Process $chrome -Force -ErrorAction SilentlyContinue }
+  Remove-Item $PcmFile  -Force -ErrorAction SilentlyContinue
+  Remove-Item $JobFile  -Force -ErrorAction SilentlyContinue
+  Remove-Item $StopFile -Force -ErrorAction SilentlyContinue
+  Write-Status "Done. Watching for next job..."
+}

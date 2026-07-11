@@ -436,7 +436,9 @@ setTimeout(async () => {
 
 // Watch for game end and shut down when it finishes
 waitUntilEnded(market, logger)
-  .then(() => shutdown("Game ended"))
+  .then((result) => {
+    if (result?.ended) shutdown("Game ended");
+  })
   .catch((err) => logger.error(`Error in waitUntilEnded: ${err.message} `));
 
 // ── Cleanup signals ──────────────────────────────────────────────────

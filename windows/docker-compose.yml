@@ -23,6 +23,10 @@ services:
       USERNAME: "Docker"
       PASSWORD: "admin"
       LANGUAGE: "English"
+      KVM: "Y"
+
+    group_add:
+      - "994"   # kvm group — needed for /dev/kvm access
 
     devices:
       - /dev/kvm
@@ -37,6 +41,5 @@ services:
 
     volumes:
       - .:/storage              # VM disk (data.img), firmware, ISO — direct mount
-      - ./win11x64.iso:/custom.iso:ro  # Local ISO → skip download
       - ./oem:/oem              # Post-install scripts (install.bat runs automatically)
       - ./shared:/shared        # Shared folder → Desktop\Shared in Windows

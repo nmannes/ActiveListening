@@ -38,3 +38,11 @@ s3/*
 
 nohup.out
 *.embedding
+
+windows/data.img
+windows/windows.base
+windows/windows.boot
+windows/windows.mac
+windows/windows.rom
+windows/windows.vars
+windows/windows.ver

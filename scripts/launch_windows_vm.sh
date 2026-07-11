@@ -22,9 +22,13 @@
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WINDOWS_DIR="$SCRIPT_DIR/windows"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WINDOWS_DIR="$REPO_ROOT/windows"
 
 cd "$WINDOWS_DIR"
+
+# Force root daemon socket — rootless can't access /dev/kvm
+export DOCKER_HOST=unix:///var/run/docker.sock
 
 # Ensure required directories exist
 mkdir -p shared oem
@@ -35,24 +39,8 @@ if [ ! -e /dev/kvm ]; then
   exit 1
 fi
 
-# Check local ISO
-if [ ! -f "win11x64.iso" ]; then
-  echo "ERROR: win11x64.iso not found in $WINDOWS_DIR"
-  echo "Download a Windows 11 ISO and place it there, or let dockur download it"
-  echo "by removing the /custom.iso volume mount from docker-compose.yml."
-  exit 1
-fi
+# Note: dockur/windows downloads the ISO automatically from Microsoft
+# if no /custom.iso is mounted, so no local ISO check is needed.
 
 echo "== Starting Windows VM =="
-docker compose -f docker-compose.yml up -d
-
-echo ""
-echo "VM is starting. Monitor installation at: http://localhost:8006"
-echo "Once installed, connect via RDP:"
-echo "  xfreerdp /v:localhost:3389 /u:Docker /p:admin +fonts +clipboard"
-echo ""
-echo "To start the audio bridge on Windows:"
-echo "  powershell -File C:\\Shared\\bridge.ps1 -StreamUrl \"https://...\""
-echo ""
-echo "To stop the VM:"
-echo "  ./destroy_windows_vm.sh"
+docker compose -f docker-compose.yml up
