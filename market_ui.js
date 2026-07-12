@@ -14,6 +14,9 @@ const {
 } = require("./lib/signal_analysis");
 const { getDuration } = require("./lib/market_duration");
 const { listMarkets, getMarketLogs, getMarketManifest } = require("./lib/market_logs");
+const { analyzeSession } = require("./lib/signal_analysis");
+const KalshiClient = require("./lib/kalshi");
+const { computeMarketPnL, summarizeOrders } = require("./lib/kalshi_trade_history");
 
 const app = express();
 const PORT = 3000;
@@ -37,6 +40,19 @@ const SAMPLES_DIR = path.join(DATA_DIR, "sample-scheduling");
 if (!fs.existsSync(UNSCHEDULED_PATH)) fs.writeFileSync(UNSCHEDULED_PATH, JSON.stringify([], null, 2));
 if (!fs.existsSync(DATA_ENTRIES_PATH)) fs.writeFileSync(DATA_ENTRIES_PATH, JSON.stringify([], null, 2));
 if (!fs.existsSync(SAMPLES_DIR)) fs.mkdirSync(SAMPLES_DIR, { recursive: true });
+
+// ── KalshiClient singleton ──────────────────────────────────────────────────
+let kalshiClient = null;
+try {
+  kalshiClient = new KalshiClient(
+    process.env.KALSHI_KEY_ID,
+    process.env.KALSHI_PRIVATE_KEY_PATH,
+    process.env.KALSHI_ENV || "demo"
+  );
+  console.log("KalshiClient initialized for trade history queries");
+} catch (e) {
+  console.error(`KalshiClient init failed (trade history unavailable): ${e.message}`);
+}
 
 function readJsonFile(filePath, defaultValue = []) {
     try {
@@ -442,6 +458,10 @@ app.get("/signals", (req, res) => {
 });
 
 app.get("/logs", (req, res) => {
+    res.sendFile(path.join(__dirname, "public", "market.html"));
+});
+
+app.get("/raw-logs", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "logs.html"));
 });
 
@@ -931,6 +951,238 @@ app.get("/api/market-logs/:slug/manifest", (req, res) => {
     }
 });
 
+// ── Market Revenue API ─────────────────────────────────────────────────────
+let revenueCache = null;
+let revenueCacheTime = 0;
+const REVENUE_CACHE_TTL = 300000; // 5 minutes
+
+function buildTickerToSlug() {
+  const t2s = new Map();
+  const cacheFiles = ["matched_markets.json", "unmatched_markets.json", "manual_matches.json"];
+  for (const file of cacheFiles) {
+    const p = path.join(CACHE_DIR, file);
+    if (!fs.existsSync(p)) continue;
+    try {
+      const data = JSON.parse(fs.readFileSync(p, "utf8"));
+      for (const entry of data) {
+        const market = entry.market || entry;
+        if (market.slug && market.keywords) {
+          for (const ticker of Object.values(market.keywords)) {
+            t2s.set(String(ticker).toLowerCase(), market.slug.toLowerCase());
+          }
+        }
+      }
+    } catch (_) {}
+  }
+  // Also scan scheduled files
+  const schedDir = path.join(DATA_DIR, "scheduled");
+  if (fs.existsSync(schedDir)) {
+    const files = fs.readdirSync(schedDir).filter(f => f.endsWith(".json"));
+    for (const file of files) {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(schedDir, file), "utf8"));
+        const market = data.market || data;
+        if (market.slug && market.keywords) {
+          for (const ticker of Object.values(market.keywords)) {
+            t2s.set(String(ticker).toLowerCase(), market.slug.toLowerCase());
+          }
+        }
+      } catch (_) {}
+    }
+  }
+  return t2s;
+}
+
+app.get("/api/market-revenue", async (req, res) => {
+  try {
+    if (revenueCache && (Date.now() - revenueCacheTime) < REVENUE_CACHE_TTL) {
+      return res.json({ ...revenueCache, cached: true });
+    }
+
+    if (!kalshiClient) {
+      return res.json({ revenue: {}, available: false, message: "Kalshi not configured" });
+    }
+
+    const t2s = buildTickerToSlug();
+    // Derive slug from ticker: KXWCMENTION-26JUL11NORENG-SOME → kxwcmention-26jul11noreng
+    function tickerToSlug(ticker) {
+      const cached = t2s.get(ticker.toLowerCase());
+      if (cached) return cached;
+      const t = ticker.toLowerCase();
+      const dashIdx = t.lastIndexOf("-");
+      return dashIdx > 0 ? t.slice(0, dashIdx) : t;
+    }
+
+    // Fetch orders and settlements in parallel
+    const [orders, settlements] = await Promise.all([
+      kalshiClient.getOrders(undefined, undefined, 200).catch(() => []),
+      kalshiClient.getSettlements(undefined, 200).catch(() => []),
+    ]);
+
+    const revBySlug = {};
+    for (const s of settlements) {
+      const slug = tickerToSlug(s.ticker || "");
+      revBySlug[slug] = (revBySlug[slug] || 0) + parseFloat(s.revenue || 0);
+    }
+
+    const ordersBySlug = {};
+    for (const o of orders) {
+      const slug = tickerToSlug(o.ticker || "");
+      ordersBySlug[slug] = (ordersBySlug[slug] || 0) + 1;
+    }
+
+    revenueCache = { revenue: revBySlug, orders: ordersBySlug };
+    revenueCacheTime = Date.now();
+    res.json({ revenue: revBySlug, orders: ordersBySlug, cached: false, settlementCount: settlements.length, orderCount: orders.length });
+  } catch (e) {
+    console.error(`Error in /api/market-revenue: ${e.message}`);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Market Overview API ─────────────────────────────────────────────────────
+app.get("/api/market/:slug/overview", async (req, res) => {
+    try {
+        const slug = req.params.slug.toLowerCase();
+        if (!/^[\w.-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const analysis = analyzeSession(slug);
+        const slugToTitle = loadMarketTitles();
+        const manifest = getMarketManifest(slug);
+
+        // Get all tickers from DB (even without signals)
+        const db = openDb(slug);
+        const allTickers = db ? getTickers(db) : [];
+        const tickerSet = [...new Set([...analysis.tickers, ...allTickers])];
+
+        // Build ticker details (charts + summaries)
+        const tickerDetails = [];
+        for (const ticker of tickerSet) {
+            tickerDetails.push({
+                ticker,
+                suffix: ticker.split("-").pop(),
+                noAskSeries: db ? getNoAskSeries(db, ticker) : [],
+                yesBidSeries: db ? getYesBidSeries(db, ticker) : [],
+                signalCount: analysis.signals.filter(s => s.ticker === ticker).length,
+            });
+        }
+        if (db) db.close();
+
+        // Fetch trade history from Kalshi API
+        let tradeHistory = { available: false, fills: [], settlements: [], pnl: null };
+        let ordersBySlug = {};
+        let revenueBySlug = {};
+        if (kalshiClient) {
+            try {
+                const relevantTickers = tickerSet.length > 0 ? [...tickerSet].slice(0, 20) : allTickers.slice(0, 20);
+                if (relevantTickers.length > 0) {
+                    const [allFills, allSettlements, allOrders] = await Promise.all([
+                        Promise.all(relevantTickers.map(t => kalshiClient.getFills(t, 50).catch(() => []))).then(arrs => arrs.flat()),
+                        Promise.all(relevantTickers.map(t => kalshiClient.getSettlements(t, 50).catch(() => []))).then(arrs => arrs.flat()),
+                        Promise.all(relevantTickers.map(t => kalshiClient.getOrders(t, undefined, 100).catch(() => []))).then(arrs => arrs.flat()),
+                    ]);
+                    const pnl = computeMarketPnL(allFills, allSettlements);
+                    tradeHistory = { available: true, fills: allFills, settlements: allSettlements, pnl };
+                    // Count orders and sum revenue for this market
+                    for (const f of allFills) {
+                        const t = (f.ticker || '').toLowerCase();
+                        const ds = t.lastIndexOf("-");
+                        const sl = ds > 0 ? t.slice(0, ds) : t;
+                        if (sl === slug) ordersBySlug[slug] = (ordersBySlug[slug] || 0) + 1;
+                    }
+                    for (const s of allSettlements) {
+                        revenueBySlug[slug] = (revenueBySlug[slug] || 0) + parseFloat(s.revenue || 0);
+                    }
+                    for (const o of allOrders) {
+                        ordersBySlug[slug] = (ordersBySlug[slug] || 0) + 1;
+                    }
+                }
+            } catch (e) {
+                console.error(`Trade history fetch failed for ${slug}: ${e.message}`);
+            }
+        }
+
+        // Summary: combine signals + trades + tickers
+        const summary = {
+            totalTickers: tickerSet.length,
+            totalSignals: analysis.stats.totalSignals,
+            uniqueWords: analysis.stats.uniqueWords,
+            beforeCount: analysis.stats.beforeCount,
+            afterCount: analysis.stats.afterCount,
+            resolvedYes: analysis.stats.resolvedYes,
+            resolvedNo: analysis.stats.resolvedNo,
+            avgLead: analysis.stats.avgLeadHuman,
+            orderCount: ordersBySlug[slug] || 0,
+            revenue: revenueBySlug[slug] || 0,
+            hasOrderbook: allTickers.length > 0,
+            tradeAvailable: tradeHistory.available,
+        };
+
+        res.json({
+            slug,
+            title: slugToTitle.get(slug) || (manifest && manifest.title) || slug,
+            eventStartTime: manifest ? manifest.eventStartTime : null,
+            keywords: manifest ? manifest.keywords : {},
+            summary,
+            tickers: tickerSet,
+            signals: analysis.signals,
+            tickerDetails,
+            tradeHistory,
+        });
+    } catch (e) {
+        console.error(`Error in /api/market/:slug/overview: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/market/:slug/trades", async (req, res) => {
+    try {
+        const slug = req.params.slug.toLowerCase();
+        if (!/^[\w.-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        if (!kalshiClient) {
+            return res.json({ available: false, message: "Kalshi credentials not configured" });
+        }
+
+        const ticker = req.query.ticker || null;
+        const limit = Math.min(parseInt(req.query.limit) || 100, 200);
+
+        const tickers = ticker ? [ticker] : (() => {
+            const analysis = analyzeSession(slug);
+            return analysis.tickers;
+        })();
+
+        const fillPromises = tickers.map(t => kalshiClient.getFills(t, limit).catch(() => []));
+        const settlementPromises = tickers.map(t => kalshiClient.getSettlements(t, limit).catch(() => []));
+        const orderPromises = tickers.map(t => kalshiClient.getOrders(t, "executed", limit).catch(() => []));
+
+        const [allFills, allSettlements, allOrders] = await Promise.all([
+            Promise.all(fillPromises).then(arrs => arrs.flat()),
+            Promise.all(settlementPromises).then(arrs => arrs.flat()),
+            Promise.all(orderPromises).then(arrs => arrs.flat()),
+        ]);
+
+        const pnl = computeMarketPnL(allFills, allSettlements);
+        const orderSummary = summarizeOrders(allOrders);
+
+        res.json({
+            available: true,
+            fills: allFills,
+            settlements: allSettlements,
+            orders: allOrders,
+            pnl,
+            orderSummary,
+        });
+    } catch (e) {
+        console.error(`Error in /api/market/:slug/trades: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/session/:slug", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "session-detail.html"));
 });
@@ -951,156 +1203,19 @@ app.get("/api/session/:slug", (req, res) => {
             if (match) sessionName = match;
         }
 
-        // Load metadata
         const slugToTitle = loadMarketTitles();
-        const resolutions = loadResolutions();
         const mediaSources = parseMediaSources();
-
-        // Parse signals for this session only
-        const signals = parseLogFiles(slug);
-
-        // Open session DB
-        const db = openDb(slug);
-        const tickers = db ? getTickers(db) : [];
-
-        // Deduplicate signals by timestamp
-        const seen = new Set();
-        const uniqueSignals = [];
-        for (const sig of signals) {
-            if (!seen.has(sig.timestamp)) {
-                seen.add(sig.timestamp);
-                uniqueSignals.push(sig);
-            }
-        }
-
-        // Analyze each signal
-        const tickerSet = new Set();
-        const results = [];
-        for (const sig of uniqueSignals) {
-            // Resolve ticker
-            let matchedTicker = null;
-            if (tickers.length > 0) {
-                matchedTicker = fuzzyMatchTicker(sig.word, tickers);
-            }
-            if (matchedTicker) tickerSet.add(matchedTicker);
-
-            const signalTime = parseSignalTs(sig.timestamp, sig.tz);
-            const signalIso = signalTime.toISOString();
-
-            // Market change analysis
-            const mktChange = (db && matchedTicker) ? findMarketChange(db, matchedTicker, signalIso) : null;
-            const mktChangeTs = mktChange ? mktChange.ts : null;
-            const mktChangeTime = mktChangeTs ? new Date(mktChangeTs) : null;
-
-            let deltaMs = null;
-            let status = "NO_CHANGE";
-            if (mktChangeTime) {
-                deltaMs = mktChangeTime.getTime() - signalTime.getTime();
-                status = deltaMs > 0 ? "BEFORE" : "AFTER";
-            }
-
-            let signalPrice = null;
-            let changePrice = null;
-            let changeSide = "—";
-            if (db && matchedTicker) {
-                signalPrice = getNoPriceAt(db, matchedTicker, signalIso);
-                if (mktChange) {
-                    changePrice = mktChange.price;
-                    changeSide = mktChange.side || "no";
-                    if (changeSide === 'yes') {
-                        signalPrice = getYesPriceAt(db, matchedTicker, signalIso);
-                    }
-                }
-            }
-
-            // Resolution
-            let resolution = "PENDING";
-            let resolutionResult = null;
-            if (matchedTicker && resolutions[matchedTicker]) {
-                const r = resolutions[matchedTicker];
-                if (r.status === "settled" && r.result) {
-                    resolution = r.result.toUpperCase();
-                    resolutionResult = r.result;
-                }
-            }
-
-            const suffix = matchedTicker ? matchedTicker.split("-").pop() : "???";
-
-            results.push({
-                session: slug,
-                word: sig.word,
-                ticker: matchedTicker || null,
-                suffix,
-                signalTs: sig.timestamp,
-                signalIso,
-                mktChangeTs: mktChangeTs || null,
-                mktChangeQty: mktChange ? mktChange.absChange : 0,
-                deltaMs,
-                deltaHuman: formatDeltaHuman(deltaMs),
-                deltaCs: deltaMs !== null ? (deltaMs / 10).toFixed(0) : null,
-                status,
-                changeSide,
-                changePrice,
-                signalPrice,
-                resolution,
-                resolutionResult,
-                noAskSeries: (db && matchedTicker) ? getNoAskSeries(db, matchedTicker) : [],
-                yesBidSeries: (db && matchedTicker) ? getYesBidSeries(db, matchedTicker) : [],
-            });
-        }
-
-        // Sort by signal time
-        results.sort((a, b) => new Date(b.signalIso).getTime() - new Date(a.signalIso).getTime());
-
-        // Summary stats
-        const beforeCount = results.filter(r => r.status === "BEFORE").length;
-        const afterCount = results.filter(r => r.status === "AFTER").length;
-        const noChangeCount = results.filter(r => r.status === "NO_CHANGE").length;
-        const resolvedYes = results.filter(r => r.resolution === "YES").length;
-        const resolvedNo = results.filter(r => r.resolution === "NO").length;
-        const resolvedPending = results.filter(r => r.resolution === "PENDING").length;
-
-        const beforeDeltas = results.filter(r => r.status === "BEFORE" && r.deltaMs !== null).map(r => r.deltaMs);
-        const avgLeadMs = beforeDeltas.length ? beforeDeltas.reduce((a, b) => a + b, 0) / beforeDeltas.length : 0;
-        const medianLeadMs = beforeDeltas.length ? [...beforeDeltas].sort((a, b) => a - b)[Math.floor(beforeDeltas.length / 2)] : 0;
-
-        // Per-ticker summaries
-        const tickerSummaries = [];
-        for (const ticker of tickerSet) {
-            const tickerResults = results.filter(r => r.ticker === ticker);
-            const tickerRes = resolutions[ticker];
-            let tickerResolution = "PENDING";
-            if (tickerRes && tickerRes.status === "settled" && tickerRes.result) {
-                tickerResolution = tickerRes.result.toUpperCase();
-            }
-            tickerSummaries.push({
-                ticker,
-                suffix: ticker.split("-").pop(),
-                resolution: tickerResolution,
-                signalCount: tickerResults.length,
-                noAskSeries: (db ? getNoAskSeries(db, ticker) : []),
-                yesBidSeries: (db ? getYesBidSeries(db, ticker) : []),
-            });
-        }
-
-        if (db) db.close();
+        const analysis = analyzeSession(slug);
 
         res.json({
             slug,
             session: sessionName,
             title: slugToTitle.get(slug) || slug,
             mediaSource: mediaSources.get(slug) || slug.split("-")[0],
-            tickers: [...tickerSet],
-            stats: {
-                totalSignals: results.length,
-                uniqueWords: new Set(results.map(r => r.word)).size,
-                beforeCount, afterCount, noChangeCount,
-                resolvedYes, resolvedNo, resolvedPending,
-                avgLeadMs, avgLeadHuman: formatDeltaHuman(avgLeadMs),
-                medianLeadMs, medianLeadHuman: formatDeltaHuman(medianLeadMs),
-            },
-            signals: results,
-            tickerSummaries,
+            tickers: analysis.tickers,
+            stats: analysis.stats,
+            signals: analysis.signals,
+            tickerSummaries: analysis.tickerSummaries,
         });
     } catch (e) {
         console.error(`Error in /api/session/:slug: ${e.message}`);
