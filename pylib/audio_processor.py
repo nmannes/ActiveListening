@@ -127,7 +127,7 @@ class AudioProcessor:
             # Save market data (slug.json) in the root of the recordings directory
             if self._recordings_dir and hasattr(self.session, 'market') and self.session.market:
                 slug = self.session.market.get('slug', 'market')
-                market_path = self._recordings_dir / f"{slug}.json"
+                market_path = self._recordings_dir / "event.json"
                 logger.info(f"[{self.session.session_id}] Saving market metadata to {market_path}")
                 with open(market_path, "w") as f:
                     json.dump(self.session.market, f, indent=2)
