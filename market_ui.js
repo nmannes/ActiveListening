@@ -257,6 +257,185 @@ app.delete("/api/scheduled/:slug", async (req, res) => {
     }
 });
 
+// ── Process status & stop ──────────────────────────────────────────────
+const LOCKS_DIR = path.join(DATA_DIR, "locks");
+const SCHEDULED_DIR = path.join(DATA_DIR, "scheduled");
+
+function checkProcessRunning(slug) {
+    const lockPath = path.join(LOCKS_DIR, `${slug}.lock`);
+    if (!fs.existsSync(lockPath)) return { running: false, source: null, pid: null };
+
+    try {
+        const pid = parseInt(fs.readFileSync(lockPath, "utf8").trim(), 10);
+        if (!pid || isNaN(pid)) return { running: false, source: null, pid: null };
+        process.kill(pid, 0); // signal 0 just checks existence
+        return { running: true, source: "lockfile", pid };
+    } catch (e) {
+        if (e.code === "ESRCH") {
+            // Stale lock — process is dead
+            try { fs.unlinkSync(lockPath); } catch (_) {}
+            return { running: false, source: null, pid: null };
+        }
+        return { running: false, source: null, pid: null };
+    }
+}
+
+app.get("/api/market/:slug/status", async (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const localStatus = checkProcessRunning(slug);
+
+        // Also check BullMQ queue for pending/active jobs
+        let queueStatus = { pending: false, active: false, completed: false };
+        try {
+            const allJobs = [
+                ...(await runClientQueue.getJobs(["waiting", "delayed"])),
+                ...(await runClientQueue.getJobs(["active"])),
+            ];
+            for (const job of allJobs) {
+                if (job.data && job.data.slug === slug) {
+                    const state = await runClientQueue.getJobState(job.id).catch(() => null);
+                    if (state === "active") queueStatus.active = true;
+                    else queueStatus.pending = true;
+                }
+            }
+            // Check if this slug has ever completed a job
+            const completedJobs = await runClientQueue.getJobs(["completed", "failed"]);
+            for (const job of completedJobs) {
+                if (job.data && job.data.slug === slug) {
+                    queueStatus.completed = true;
+                    break;
+                }
+            }
+        } catch (e) {
+            // Queue check is best-effort
+        }
+
+        // Check for s3 session data (recordings from a previous run)
+        let hasSessionData = false;
+        try {
+            const s3Dir = path.join(DATA_DIR, "s3");
+            if (fs.existsSync(s3Dir)) {
+                const dirs = fs.readdirSync(s3Dir, { withFileTypes: true })
+                    .filter(d => d.isDirectory())
+                    .map(d => d.name);
+                hasSessionData = dirs.some(d => d.startsWith(slug + "_"));
+            }
+        } catch (_) {}
+
+        // Running = process is actively executing (lockfile exists + PID alive, or active BullMQ job)
+        const running = localStatus.running || queueStatus.active;
+        // Pending = scheduled but not started yet (delayed/waiting job, no active process)
+        const pending = !running && queueStatus.pending;
+        // Previously run = completed BullMQ job or session data exists, and not currently running/pending
+        const previouslyRun = !running && !pending && (queueStatus.completed || hasSessionData);
+
+        res.json({
+            slug,
+            running,
+            pending,
+            previouslyRun,
+            local: localStatus,
+            queue: queueStatus,
+        });
+    } catch (e) {
+        console.error(`Error in /api/market/:slug/status: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/market/:slug/stop", async (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const results = [];
+
+        // 1. Kill local process via lockfile
+        const lockPath = path.join(LOCKS_DIR, `${slug}.lock`);
+        if (fs.existsSync(lockPath)) {
+            try {
+                const pid = parseInt(fs.readFileSync(lockPath, "utf8").trim(), 10);
+                if (pid && !isNaN(pid)) {
+                    process.kill(pid, "SIGTERM");
+                    results.push(`Sent SIGTERM to PID ${pid}`);
+                }
+            } catch (e) {
+                if (e.code === "ESRCH") {
+                    results.push("Process already exited");
+                } else {
+                    results.push(`Failed to kill process: ${e.message}`);
+                }
+            }
+            // Clean up stale lockfile
+            try { fs.unlinkSync(lockPath); } catch (_) {}
+        }
+
+        // 2. Remove pending BullMQ run-client jobs for this slug
+        try {
+            const jobs = await runClientQueue.getJobs(["delayed", "waiting", "paused", "active"]);
+            let removed = 0;
+            for (const job of jobs) {
+                if (job.data && job.data.slug === slug) {
+                    await job.remove().catch(() => {});
+                    removed++;
+                }
+            }
+            if (removed > 0) results.push(`Removed ${removed} BullMQ job(s)`);
+        } catch (e) {
+            results.push(`Queue cleanup warning: ${e.message}`);
+        }
+
+        // 3. Terminate EC2 instances tagged with this slug
+        try {
+            const awsOut = execSync(
+                `aws ec2 describe-instances --region us-east-1 --filters "Name=tag:Name,Values=${slug}" "Name=instance-state-name,Values=running,pending,stopped" --query 'Reservations[].Instances[].InstanceId' --output text`,
+                { encoding: "utf8", timeout: 15000 }
+            ).trim();
+            if (awsOut) {
+                const instanceIds = awsOut.split(/\s+/).filter(Boolean);
+                for (const id of instanceIds) {
+                    execSync(`aws ec2 terminate-instances --region us-east-1 --instance-ids ${id}`,
+                        { encoding: "utf8", timeout: 15000 });
+                    results.push(`Terminated EC2 instance ${id}`);
+                }
+            }
+        } catch (e) {
+            // EC2 cleanup is best-effort
+            if (!e.message.includes("No instances")) {
+                results.push(`EC2 cleanup note: ${(e.stderr || e.message || "").slice(0, 100)}`);
+            }
+        }
+
+        // 4. Remove scheduled file
+        const schedPath = path.join(SCHEDULED_DIR, `${slug}.json`);
+        if (fs.existsSync(schedPath)) {
+            try { fs.unlinkSync(schedPath); results.push("Removed scheduled file"); } catch (e) {
+                results.push(`Failed to remove scheduled file: ${e.message}`);
+            }
+        }
+
+        // 5. Add to blocklist
+        const blocked = readJsonFile(UNSCHEDULED_PATH, []);
+        if (!blocked.includes(slug)) {
+            blocked.push(slug);
+            fs.writeFileSync(UNSCHEDULED_PATH, JSON.stringify(blocked, null, 2));
+            results.push("Added to unscheduled blocklist");
+        }
+
+        res.json({ success: true, slug, results });
+    } catch (e) {
+        console.error(`Error in /api/market/:slug/stop: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/signals", (req, res) => {
     res.sendFile(path.join(DATA_DIR, "signal_vs_no_closeout.html"));
 });

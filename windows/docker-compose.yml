@@ -4,9 +4,12 @@
 #   docker compose -f windows/docker-compose.yml up -d
 #   docker compose -f windows/docker-compose.yml down
 #
-# The VM disk (data.img), firmware, and state files live directly in this
-# directory.  win11x64.iso is a pre-downloaded Windows 11 image — mounting it
-# at /custom.iso tells dockur to use it instead of downloading one.
+# On first start, dockur auto-downloads a Windows 11 ISO and installs
+# unattended (no OOBE) using the env vars below. The VM disk (data.img)
+# and firmware files persist in this directory — subsequent starts boot
+# directly into Windows.
+#
+# Use scripts/launch_windows_vm.sh for the full automated workflow.
 
 services:
   windows:
@@ -40,6 +43,6 @@ services:
       - "3389:3389"   # RDP — connect with: xfreerdp /v:localhost /u:Docker /p:admin
 
     volumes:
-      - .:/storage              # VM disk (data.img), firmware, ISO — direct mount
+      - .:/storage              # VM disk (data.img), firmware — direct mount
       - ./oem:/oem              # Post-install scripts (install.bat runs automatically)
       - ./shared:/shared        # Shared folder → Desktop\Shared in Windows

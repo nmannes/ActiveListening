@@ -39,6 +39,7 @@ s3/*
 nohup.out
 *.embedding
 
+windows/shared/tmp/
 windows/data.img
 windows/windows.base
 windows/windows.boot

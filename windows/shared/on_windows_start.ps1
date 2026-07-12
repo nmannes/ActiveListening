@@ -1,4 +1,4 @@
-# watchdog.ps1 — Watches for stream.json, logs in if needed, captures audio
+# on_windows_start.ps1 — Watches for stream.json, logs in if needed, captures audio
 #
 # Runs at startup via scheduled task. Linux host drops a JSON file:
 #   windows/shared/stream.json
@@ -15,11 +15,11 @@
 $ErrorActionPreference = "Continue"
 Add-Type -AssemblyName System.Windows.Forms
 
-$JobFile    = "C:\Shared\stream.json"
-$MarketFile = "C:\Shared\market.json"
-$PcmFile    = "C:\Shared\audio.tmp.pcm"
-$StopFile   = "C:\Shared\stop.txt"
-$StatusFile = "C:\Shared\status.txt"
+$JobFile    = "C:\Users\Docker\Desktop\Shared\tmp\stream.json"
+$MarketFile = "C:\Users\Docker\Desktop\Shared\tmp\market.json"
+$PcmFile    = "C:\Users\Docker\Desktop\Shared\tmp\audio.tmp.pcm"
+$StopFile   = "C:\Users\Docker\Desktop\Shared\tmp\stop.txt"
+$StatusFile = "C:\Users\Docker\Desktop\Shared\tmp\status.txt"
 
 function Write-Status($msg) {
   $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -45,6 +45,59 @@ function Do-Login($email, $password) {
 }
 
 Write-Status "== Kalshi Watchdog started =="
+
+# Touch a heartbeat file at shared root so the host knows we started
+$HeartbeatFile = "C:\Users\Docker\Desktop\Shared\watchdog.heartbeat"
+$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+"$timestamp  Watchdog process started (PID $pid)" | Out-File $HeartbeatFile -Encoding utf8
+
+# Ensure tmp directory exists
+New-Item -ItemType Directory -Force -Path "C:\Users\Docker\Desktop\Shared\tmp" | Out-Null
+
+# ── Ensure dependencies ────────────────────────────────────────────────
+function Ensure-Deps {
+  # Chocolatey
+  $choco = Get-Command choco -ErrorAction SilentlyContinue
+  if (-not $choco) {
+    Write-Status "Installing Chocolatey..."
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine")
+  }
+
+  # Google Chrome
+  $chrome = Get-Command chrome -ErrorAction SilentlyContinue
+  if (-not $chrome) { $chrome = Test-Path "${env:ProgramFiles}\Google\Chrome\Application\chrome.exe" }
+  if (-not $chrome) { $chrome = Test-Path "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe" }
+  if (-not $chrome) {
+    Write-Status "Installing Google Chrome..."
+    choco install googlechrome -y --no-progress --limit-output
+  }
+
+  # VB-Cable Virtual Audio Cable
+  $cable = Get-Command "CABLE Output (VB-Audio Virtual Cable)" -ErrorAction SilentlyContinue
+  if (-not $cable) {
+    Write-Status "Installing VB-Cable..."
+    $zip = "$env:TEMP\vbcable.zip"
+    $dir = "$env:TEMP\vbcable"
+    Invoke-WebRequest -Uri 'https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip' -OutFile $zip
+    Expand-Archive -Path $zip -DestinationPath $dir -Force
+    Start-Process -Wait -FilePath "$dir\VBCABLE_Setup_x64.exe" -ArgumentList "/S"
+    Write-Status "VB-Cable installed (reboot recommended)"
+  }
+
+  # ffmpeg
+  $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+  if (-not $ffmpeg) {
+    Write-Status "Installing ffmpeg..."
+    choco install ffmpeg-full -y --no-progress --limit-output
+  }
+
+  Write-Status "Dependencies ready."
+}
+
+Ensure-Deps
 
 # Clean up stale files
 Remove-Item $JobFile   -Force -ErrorAction SilentlyContinue

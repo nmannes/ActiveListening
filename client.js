@@ -100,45 +100,44 @@ if (!fs.existsSync(LOCK_DIR)) {
 
 const lockPath = path.join(LOCK_DIR, `${sessionId}.lock`);
 
-try {
-  // Atomic write with 'wx' flag (create and fail if exists)
-  fs.writeFileSync(lockPath, process.pid.toString(), { flag: "wx" });
-  logger.info(`[client] Lockfile created: ${lockPath}`);
-} catch (err) {
-  if (err.code === "EEXIST") {
-    let existingPid;
-    try {
-      existingPid = fs.readFileSync(lockPath, "utf8").trim();
-    } catch (readErr) {
-      logger.error(`[client] Lockfile exists but could not be read: ${readErr.message}`);
-      process.exit(1);
-    }
-
-    // Check if the process is actually running
-    try {
-      process.kill(parseInt(existingPid, 10), 0);
-      // If no error, the process exists
-      logger.error(
-        `[client] Lockfile exists for session "${sessionId}" (PID: ${existingPid}). Another instance is running. Exiting.`,
-      );
-      process.exit(1);
-    } catch (killErr) {
-      if (killErr.code === "ESRCH") {
-        logger.warn(
-          `[client] Stale lockfile found for PID ${existingPid}. Overwriting...`,
-        );
-        fs.writeFileSync(lockPath, process.pid.toString());
-        logger.info(`[client] Lockfile created (stale overwritten): ${lockPath}`);
-      } else {
-        logger.error(
-          `[client] Lockfile exists (PID: ${existingPid}) and status check failed: ${killErr.message}`,
-        );
+function acquireLockfile() {
+  try {
+    fs.writeFileSync(lockPath, process.pid.toString(), { flag: "wx" });
+    logger.info(`[client] Lockfile created: ${lockPath}`);
+  } catch (err) {
+    if (err.code === "EEXIST") {
+      let existingPid;
+      try {
+        existingPid = fs.readFileSync(lockPath, "utf8").trim();
+      } catch (readErr) {
+        logger.error(`[client] Lockfile exists but could not be read: ${readErr.message}`);
         process.exit(1);
       }
+
+      try {
+        process.kill(parseInt(existingPid, 10), 0);
+        logger.error(
+          `[client] Lockfile exists for session "${sessionId}" (PID: ${existingPid}). Another instance is running. Exiting.`,
+        );
+        process.exit(1);
+      } catch (killErr) {
+        if (killErr.code === "ESRCH") {
+          logger.warn(
+            `[client] Stale lockfile found for PID ${existingPid}. Overwriting...`,
+          );
+          fs.writeFileSync(lockPath, process.pid.toString());
+          logger.info(`[client] Lockfile created (stale overwritten): ${lockPath}`);
+        } else {
+          logger.error(
+            `[client] Lockfile exists (PID: ${existingPid}) and status check failed: ${killErr.message}`,
+          );
+          process.exit(1);
+        }
+      }
+    } else {
+      logger.error(`[client] Failed to create lockfile: ${err.message}`);
+      process.exit(1);
     }
-  } else {
-    logger.error(`[client] Failed to create lockfile: ${err.message}`);
-    process.exit(1);
   }
 }
 
@@ -421,6 +420,10 @@ setTimeout(async () => {
       logger,
       isShuttingDown: () => isShuttingDown,
     });
+
+    // Only now is the stream actually running — acquire the lockfile
+    acquireLockfile();
+
     connectWebSocket();
     // Reset transcript timeout now that the provider is actually streaming
     providerStarted = true;
