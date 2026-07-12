@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Runtime Logs</title>
+<title>Market Logs</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; background: #111; color: #ddd; display: flex; height: 100vh; overflow: hidden; }
@@ -11,31 +11,57 @@ body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, mo
 #nav-sidebar .logo { font-size: 13px; font-weight: 600; color: #68f; margin-bottom: 10px; }
 #nav-sidebar a { color: #999; text-decoration: none; padding: 5px 8px; border-radius: 4px; display: block; }
 #nav-sidebar a:hover { color: #ddd; background: #252525; }
+#nav-sidebar a.active { color: #ddd; background: #252525; }
+
+/* Market list panel */
 #sidebar { width: 360px; min-width: 260px; background: #1a1a1a; border-right: 1px solid #333; display: flex; flex-direction: column; overflow: hidden; resize: horizontal; }
-#sidebar h2 { padding: 12px 16px; font-size: 14px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; }
-#file-list { flex: 1; overflow-y: auto; }
-.file-entry { padding: 10px 16px; cursor: pointer; border-bottom: 1px solid #222; font-size: 12px; transition: background .1s; }
-.file-entry:hover { background: #252525; }
-.file-entry.active { background: #2a3a5c; }
-.file-entry .name { font-size: 13px; color: #cde; font-weight: 600; word-break: break-all; margin-bottom: 2px; }
-.file-entry .meta { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sidebar .header { padding: 10px 16px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; }
+#sidebar .header h2 { font-size: 13px; color: #ddd; margin-bottom: 8px; }
+#sidebar .header input { width: 100%; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 10px; font-family: inherit; font-size: 12px; border-radius: 4px; }
+#sidebar .header input:focus { border-color: #68f; outline: none; }
+#market-list { flex: 1; overflow-y: auto; }
+.market-entry { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #222; transition: background .1s; }
+.market-entry:hover { background: #252525; }
+.market-entry.active { background: #2a3a5c; }
+.market-entry .title { font-size: 13px; color: #cde; font-weight: 600; line-height: 1.3; margin-bottom: 4px; }
+.market-entry .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.market-entry .slug { font-size: 10px; color: #68f; background: rgba(102,136,255,0.15); padding: 1px 5px; border-radius: 3px; }
+.market-entry .stats { font-size: 10px; color: #777; white-space: nowrap; }
+.market-entry .counts { display: flex; gap: 6px; margin-top: 4px; }
+.market-entry .count-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+.count-badge.runtime { background: rgba(59,130,246,0.15); color: #93c5fd; }
+.count-badge.signals { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+.count-badge.orderbook { background: rgba(245,158,11,0.15); color: #fcd34d; }
+
+/* Main viewer */
 #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-#toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; }
-#toolbar input { flex: 1; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 10px; font-family: inherit; font-size: 13px; border-radius: 4px; }
+#toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #222; border-bottom: 1px solid #333; flex-shrink: 0; flex-wrap: wrap; }
+#toolbar .filter-tabs { display: flex; gap: 0; border-radius: 4px; overflow: hidden; border: 1px solid #444; }
+#toolbar .filter-tab { background: #2a2a2a; color: #999; border: none; padding: 5px 10px; font-family: inherit; font-size: 11px; cursor: pointer; border-right: 1px solid #444; }
+#toolbar .filter-tab:last-child { border-right: none; }
+#toolbar .filter-tab:hover { background: #333; color: #ddd; }
+#toolbar .filter-tab.active { background: #68f; color: #fff; }
+#toolbar input { flex: 1; min-width: 120px; background: #111; border: 1px solid #444; color: #ddd; padding: 6px 10px; font-family: inherit; font-size: 13px; border-radius: 4px; }
 #toolbar input:focus { border-color: #68f; outline: none; }
 #toolbar button { background: #333; color: #ddd; border: 1px solid #444; padding: 6px 12px; font-family: inherit; font-size: 12px; cursor: pointer; border-radius: 4px; white-space: nowrap; }
 #toolbar button:hover { background: #444; }
-#toolbar .file-info { font-size: 11px; color: #888; white-space: nowrap; }
+#toolbar .info { font-size: 11px; color: #888; white-space: nowrap; }
 #viewer { flex: 1; overflow-y: auto; padding: 0; }
 #viewer table { width: 100%; border-collapse: collapse; }
 #viewer td { padding: 2px 0; font-size: 12px; line-height: 1.4; vertical-align: top; }
 #viewer td.ln { color: #555; text-align: right; padding: 2px 8px 2px 12px; user-select: none; width: 1%; white-space: nowrap; border-right: 1px solid #222; }
-#viewer td.content { padding-left: 12px; padding-right: 12px; white-space: pre-wrap; word-break: break-all; }
+#viewer td.type-badge { padding: 2px 8px; width: 1%; white-space: nowrap; text-align: center; }
+#viewer td.type-badge span { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-transform: uppercase; }
+#viewer td.type-badge span.runtime { background: rgba(59,130,246,0.15); color: #93c5fd; }
+#viewer td.type-badge span.signals { background: rgba(16,185,129,0.15); color: #6ee7b7; }
+#viewer td.type-badge span.orderbook { background: rgba(245,158,11,0.15); color: #fcd34d; }
+#viewer td.content { padding-left: 8px; padding-right: 12px; white-space: pre-wrap; word-break: break-all; }
 #viewer tr:hover td { background: #1a1a1a; }
 #viewer tr.highlight td.content { background: #332200; }
 #viewer tr.highlight td.ln { background: #332200; }
-#info-bar { border-top: 1px solid #333; padding: 8px 12px; font-size: 11px; color: #666; background: #1a1a1a; flex-shrink: 0; }
-.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 14px; }
+#viewer tr.highlight td.type-badge { background: #332200; }
+#info-bar { border-top: 1px solid #333; padding: 8px 12px; font-size: 11px; color: #666; background: #1a1a1a; flex-shrink: 0; display: flex; justify-content: space-between; }
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 14px; flex-direction: column; gap: 8px; }
 .spinner { border: 2px solid #333; border-top-color: #68f; border-radius: 50%; width: 16px; height: 16px; animation: spin .6s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
 </style>
@@ -44,136 +70,220 @@ body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, mo
 <div id="nav-sidebar">
   <div class="logo">Kalshi Market Manager</div>
   <a href="/">🏠 Dashboard</a>
-  <a href="/logs" style="color: #ddd; background: #252525;">📋 Logs</a>
+  <a href="/logs" class="active">📋 Logs</a>
   <a href="/signals" target="_blank">📈 Signal Dashboard</a>
   <a href="/voice" target="_blank">🎙️ Voice &amp; Data</a>
   <a href="/admin/queues" target="_blank">📊 Queues</a>
 </div>
+
 <div id="sidebar">
-  <h2>Workspace Logs</h2>
-  <div id="file-list"></div>
+  <div class="header">
+    <h2>Market Logs</h2>
+    <input id="market-search" type="text" placeholder="Filter markets...">
+  </div>
+  <div id="market-list"></div>
 </div>
+
 <div id="main">
   <div id="toolbar">
-    <input id="search" type="text" placeholder="Search in current file..." disabled>
-    <button id="toggle-fmt" disabled>Raw JSON</button>
+    <div class="filter-tabs" id="filter-tabs">
+      <button class="filter-tab active" data-type="all">All</button>
+      <button class="filter-tab" data-type="runtime">Runtime</button>
+      <button class="filter-tab" data-type="signals">Signals</button>
+      <button class="filter-tab" data-type="orderbook">Orderbook</button>
+    </div>
+    <input id="search" type="text" placeholder="Search in logs..." disabled>
     <button id="load-all" disabled>Load all</button>
-    <span class="file-info" id="file-info"></span>
+    <span class="info" id="market-info"></span>
   </div>
   <div id="viewer">
-    <div class="empty-state">Select a log file to view</div>
+    <div class="empty-state">Select a market to view its logs</div>
   </div>
-  <div id="info-bar">Ready</div>
+  <div id="info-bar"><span id="status-text">Ready</span><span id="line-count"></span></div>
 </div>
+
 <script>
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => document.querySelectorAll(s);
 
-const fileList = $("#file-list");
+const marketList = $("#market-list");
 const viewer = $("#viewer");
 const searchInput = $("#search");
 const loadAllBtn = $("#load-all");
-const fileInfo = $("#file-info");
-const infoBar = $("#info-bar");
-const toggleFmt = $("#toggle-fmt");
+const marketInfo = $("#market-info");
+const statusText = $("#status-text");
+const lineCount = $("#line-count");
+const marketSearch = $("#market-search");
+const filterTabs = $("#filter-tabs");
 
-let currentFile = null;
+let activeMarket = null;
 let currentLines = [];
-let activeFileEl = null;
-let showRaw = false; // default: compact (time + msg only)
+let activeType = "all";
+let allMarkets = [];
 
-async function loadFileList() {
+// ── Market list ──────────────────────────────────────────────────────────
+
+async function loadMarketList() {
   try {
-    const res = await fetch("/api/runtime-logs");
+    const res = await fetch("/api/market-logs");
     const data = await res.json();
-    fileList.innerHTML = "";
-    for (const f of data.files) {
-      const el = document.createElement("div");
-      el.className = "file-entry";
-      const sizeStr = f.size > 1024*1024 ? (f.size/1024/1024).toFixed(1)+"M" : f.size > 1024 ? (f.size/1024).toFixed(0)+"K" : f.size+"B";
-      const timeStr = f.firstTime ? f.firstTime.replace("T", " ").slice(0, 19) : "unknown start";
-      el.innerHTML = `<div class="name">${f.filename}</div><div class="meta">${sizeStr} · ~${f.lines.toLocaleString()} lines · ${timeStr}</div>`;
-      el.addEventListener("click", () => loadFile(f, el));
-      fileList.appendChild(el);
-    }
-    infoBar.textContent = `${data.files.length} log files`;
+    allMarkets = data.markets || [];
+    renderMarketList(allMarkets);
 
-    // Auto-load the most recent file (first in sorted list)
-    if (data.files.length > 0) {
-      const firstEntry = fileList.firstElementChild;
-      loadFile(data.files[0], firstEntry);
+    if (allMarkets.length > 0) {
+      statusText.textContent = `${allMarkets.length} markets`;
+    } else {
+      statusText.textContent = "No market logs yet — run a market session to create logs";
     }
   } catch (e) {
-    infoBar.textContent = `Error: ${e.message}`;
+    statusText.textContent = `Error: ${e.message}`;
   }
 }
 
-async function loadFile(file, el) {
-  if (activeFileEl) activeFileEl.classList.remove("active");
-  el.classList.add("active");
-  activeFileEl = el;
-  currentFile = file;
+function renderMarketList(markets) {
+  const query = marketSearch.value.toLowerCase();
+  const filtered = query
+    ? markets.filter(m => m.slug.toLowerCase().includes(query) || (m.title && m.title.toLowerCase().includes(query)))
+    : markets;
 
+  marketList.innerHTML = "";
+  if (filtered.length === 0) {
+    marketList.innerHTML = '<div style="padding: 24px 16px; color: #555; font-size: 12px; text-align: center;">' +
+      (query ? 'No markets match your filter' : 'No market logs found') + '</div>';
+    return;
+  }
+
+  for (const m of filtered) {
+    const el = document.createElement("div");
+    el.className = "market-entry";
+    if (activeMarket && activeMarket.slug === m.slug) el.classList.add("active");
+
+    const sizeStr = (bytes) => {
+      if (!bytes) return "0";
+      if (bytes > 1024*1024) return (bytes/1024/1024).toFixed(1)+"M";
+      if (bytes > 1024) return (bytes/1024).toFixed(0)+"K";
+      return bytes+"B";
+    };
+
+    let countsHtml = "";
+    const typeOrder = ["runtime","signals","orderbook"];
+    for (const t of typeOrder) {
+      if (m.counts[t]) {
+        countsHtml += `<span class="count-badge ${t}">${t} ${sizeStr(m.counts[t])}</span>`;
+      }
+    }
+
+    const timeStr = m.lastActivity
+      ? m.lastActivity.replace("T", " ").slice(0, 19)
+      : "no activity";
+
+    el.innerHTML = `
+      <div class="title">${m.title}</div>
+      <div class="meta">
+        <span class="slug">${m.slug}</span>
+        <span class="stats">${timeStr}</span>
+      </div>
+      <div class="counts">${countsHtml || '<span class="stats">empty</span>'}</div>
+    `;
+    el.addEventListener("click", () => selectMarket(m, el));
+    marketList.appendChild(el);
+  }
+}
+
+function selectMarket(market, el) {
+  // Update active state
+  if (activeMarket && activeMarket.slug === market.slug) return; // already selected
+  activeMarket = market;
+  $$(".market-entry.active").forEach(e => e.classList.remove("active"));
+  if (el) el.classList.add("active");
+
+  // Enable controls
   searchInput.disabled = false;
   loadAllBtn.disabled = false;
-  toggleFmt.disabled = false;
-  fileInfo.textContent = `~${file.lines.toLocaleString()} lines, ${file.firstTime ? file.firstTime.replace("T"," ").slice(0,19) : "unknown time"}`;
-  infoBar.textContent = "Loading...";
+  marketInfo.textContent = market.title;
 
-  await loadLines();
+  // Load logs
+  loadLogs();
 }
 
-async function loadLines(loadAll) {
+marketSearch.addEventListener("input", () => renderMarketList(allMarkets));
+
+// ── Log loading ──────────────────────────────────────────────────────────
+
+async function loadLogs(loadAll) {
+  if (!activeMarket) return;
+
+  const linesParam = loadAll ? "lines=100000" : "lines=5000";
+  const typeParam = activeType !== "all" ? `&type=${activeType}` : "";
+  const searchParam = searchInput.value ? `&search=${encodeURIComponent(searchInput.value)}` : "";
+
+  statusText.textContent = "Loading...";
+
   try {
-    const linesParam = loadAll ? "lines=100000" : "lines=5000";
-    const res = await fetch(`/api/runtime-logs-view/${encodeURIComponent(currentFile.filename)}?${linesParam}`);
-    const text = await res.text();
-    currentLines = text.split("\n").filter(Boolean);
-    applySearch(currentLines);
-    infoBar.textContent = `${currentLines.length.toLocaleString()} lines loaded`;
+    const res = await fetch(`/api/market-logs/${encodeURIComponent(activeMarket.slug)}?${linesParam}${typeParam}${searchParam}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Server returned ${res.status}`);
+    }
+    const data = await res.json();
+    currentLines = data.logs || [];
+    renderLines(currentLines);
+    lineCount.textContent = `${currentLines.length.toLocaleString()} of ${data.total.toLocaleString()} lines`;
+    statusText.textContent = "Ready";
   } catch (e) {
-    infoBar.textContent = `Error: ${e.message}`;
+    statusText.textContent = `Error: ${e.message}`;
+    viewer.innerHTML = `<div class="empty-state">Failed to load: ${e.message}</div>`;
   }
 }
 
-function applySearch(lines) {
-  const query = searchInput.value.toLowerCase();
+function renderLines(lines) {
   viewer.innerHTML = "";
   if (lines.length === 0) {
-    viewer.innerHTML = '<div class="empty-state">No content</div>';
+    viewer.innerHTML = '<div class="empty-state">No log entries match the current filters</div>';
     return;
   }
 
   const tbody = document.createElement("table");
   let count = 0;
-  for (const line of lines) {
-    if (query && !line.toLowerCase().includes(query)) continue;
+  for (const entry of lines) {
     count++;
+    const line = entry.text || "";
+    const type = entry.type || "";
+
     const tr = document.createElement("tr");
+    // Line number
     const tdLn = document.createElement("td");
     tdLn.className = "ln";
     tdLn.textContent = count;
+    // Type badge
+    const tdType = document.createElement("td");
+    tdType.className = "type-badge";
+    if (type) {
+      const span = document.createElement("span");
+      span.className = type;
+      span.textContent = type.slice(0, 1).toUpperCase();
+      tdType.appendChild(span);
+    }
+    // Content
     const tdContent = document.createElement("td");
     tdContent.className = "content";
     tdContent.textContent = formatLine(line);
-    if (query) {
-      const idx = tdContent.textContent.toLowerCase().indexOf(query);
-      if (idx >= 0) {
-        tr.classList.add("highlight");
-      }
+
+    // Search highlight
+    if (searchInput.value) {
+      const idx = tdContent.textContent.toLowerCase().indexOf(searchInput.value.toLowerCase());
+      if (idx >= 0) tr.classList.add("highlight");
     }
+
     tr.appendChild(tdLn);
+    tr.appendChild(tdType);
     tr.appendChild(tdContent);
     tbody.appendChild(tr);
   }
   viewer.appendChild(tbody);
-  infoBar.textContent = query
-    ? `${count} matches of ${currentLines.length.toLocaleString()} lines`
-    : `${currentLines.length.toLocaleString()} lines`;
 }
 
 function formatLine(line) {
-  if (showRaw) return line;
   try {
     const obj = JSON.parse(line);
     const time = obj.time ? obj.time.replace("T", " ").slice(0, 23) : "";
@@ -184,19 +294,34 @@ function formatLine(line) {
   }
 }
 
-toggleFmt.addEventListener("click", () => {
-  showRaw = !showRaw;
-  toggleFmt.textContent = showRaw ? "Compact" : "Raw JSON";
-  if (currentLines.length) applySearch(currentLines);
+// ── Controls ─────────────────────────────────────────────────────────────
+
+filterTabs.addEventListener("click", (e) => {
+  if (!e.target.classList.contains("filter-tab")) return;
+  $$(".filter-tab.active").forEach(t => t.classList.remove("active"));
+  e.target.classList.add("active");
+  activeType = e.target.dataset.type;
+  if (activeMarket) loadLogs();
 });
 
 searchInput.addEventListener("input", () => {
-  if (currentLines.length) applySearch(currentLines);
+  if (activeMarket) loadLogs();
 });
 
-loadAllBtn.addEventListener("click", () => loadLines(true));
+loadAllBtn.addEventListener("click", () => {
+  if (activeMarket) loadLogs(true);
+});
 
-loadFileList();
+// ── Keyboard shortcut: / to focus search ──────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement === document.body) {
+    e.preventDefault();
+    searchInput.focus();
+  }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────
+loadMarketList();
 </script>
 </body>
 </html>
