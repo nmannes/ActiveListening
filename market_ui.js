@@ -13,6 +13,7 @@ const {
   formatDelta, formatDeltaHuman, formatPriceChange,
 } = require("./lib/signal_analysis");
 const { getDuration } = require("./lib/market_duration");
+const { listMarkets, getMarketLogs, getMarketManifest } = require("./lib/market_logs");
 
 const app = express();
 const PORT = 3000;
@@ -871,6 +872,61 @@ app.get("/api/runtime-logs-view/:filename", (req, res) => {
         res.type("text/plain").send(content);
     } catch (e) {
         console.error(`Error in /api/runtime-logs-view/:filename: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── Market Logs API ──────────────────────────────────────────────────────────
+app.get("/api/market-logs", (req, res) => {
+    try {
+        const markets = listMarkets();
+        res.json({ markets });
+    } catch (e) {
+        console.error(`Error in /api/market-logs: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/market-logs/:slug", async (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w.-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const result = await getMarketLogs(slug, {
+            type: req.query.type || "all",
+            lines: req.query.lines,
+            offset: req.query.offset,
+            search: req.query.search,
+        });
+
+        if (!result) {
+            return res.status(404).json({ error: "Market not found" });
+        }
+
+        res.json(result);
+    } catch (e) {
+        console.error(`Error in /api/market-logs/:slug: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get("/api/market-logs/:slug/manifest", (req, res) => {
+    try {
+        const slug = req.params.slug;
+        if (!/^[\w.-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        const manifest = getMarketManifest(slug);
+        if (!manifest) {
+            return res.status(404).json({ error: "Market not found" });
+        }
+
+        res.json(manifest);
+    } catch (e) {
+        console.error(`Error in /api/market-logs/:slug/manifest: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });
