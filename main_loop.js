@@ -34,7 +34,7 @@ async function start() {
     proc.on("exit", (code, signal) => {
       if (shuttingDown) return;
       console.error(`${name} exited (code=${code}, signal=${signal}). Restarting in 5s...`);
-      sendTelegram(`⚠️ ${name} crashed (code=${code}, signal=${signal}), restarting in 5s`, "debug").catch(() => {});
+      sendTelegram(`⚠️ ${name} crashed (code=${code}, signal=${signal}), restarting in 5s`, "debug").catch(() => { });
       setTimeout(() => {
         if (!shuttingDown) spawnChild(name, cmd, args);
       }, 5000);
@@ -44,7 +44,7 @@ async function start() {
   }
 
   // 1. Start UI Server in background
-  spawnChild("market_ui.js", process.execPath, ["run", "market_ui.js"]);
+  spawnChild("market_ui.js", process.execPath, ["run", "--hot", "market_ui.js"]);
 
   // 2. Start BullMQ Worker in background
   spawnChild("worker.js", process.execPath, ["run", "worker.js"]);
@@ -66,7 +66,7 @@ async function start() {
   // 3. Initial scheduling loop with discovery
   console.log("Enqueuing initial scheduling loop...");
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
-  sendTelegram("Scheduling loop started").catch(() => {});
+  sendTelegram("Scheduling loop started").catch(() => { });
 
   // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop
   await connection.set(REDIS_KEY, Date.now() + POLL_INTERVAL_MS);
@@ -96,7 +96,7 @@ async function enqueueSchedulingLoop() {
   try {
     await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
     const timestamp = new Date().toISOString();
-    sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => {});
+    sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => { });
   } catch (e) {
     console.error("Failed to enqueue scheduling loop:", e);
   }
