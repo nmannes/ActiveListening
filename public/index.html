@@ -397,6 +397,11 @@
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Speaker Entities (comma-separated)</label>
+                <input type="text" id="modal-entities" placeholder="e.g. Donald Trump, JD Vance">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                 <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Duration (minutes)</label>
                 <input type="number" id="modal-duration" placeholder="Auto (computed)" min="1" step="1">
             </div>
@@ -875,6 +880,11 @@
             const duration = item.market.duration;
             document.getElementById("modal-duration").value = duration ? duration : "";
 
+            const entities = (item.market.speakerEntities && Array.isArray(item.market.speakerEntities))
+                ? item.market.speakerEntities.join(", ")
+                : "";
+            document.getElementById("modal-entities").value = entities;
+
             const modal = document.getElementById("edit-modal");
             modal.style.display = "flex";
             modal.offsetHeight; // force reflow
@@ -900,6 +910,11 @@
             const newTime = document.getElementById("modal-time").value;
             const durationVal = document.getElementById("modal-duration").value;
             const duration = durationVal ? parseInt(durationVal, 10) : null;
+
+            const entitiesRaw = document.getElementById("modal-entities").value.trim();
+            const speakerEntities = entitiesRaw
+                ? entitiesRaw.split(",").map(s => s.trim()).filter(Boolean)
+                : null;
 
             const res = await fetch("/api/markets");
             const data = await res.json();
@@ -929,7 +944,8 @@
                     market: item.market,
                     mediaStreamURL: url,
                     startTime: startTime,
-                    duration: duration
+                    duration: duration,
+                    speakerEntities: speakerEntities
                 })
             });
 

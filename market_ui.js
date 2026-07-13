@@ -179,7 +179,7 @@ app.get("/api/markets", (req, res) => {
 
 app.post("/api/manual-match", (req, res) => {
     try {
-        const { market, mediaStreamURL, startTime, duration } = req.body;
+        const { market, mediaStreamURL, startTime, duration, speakerEntities } = req.body;
         if (!market || !mediaStreamURL) {
             return res.status(400).json({ error: "Missing market or mediaStreamURL" });
         }
@@ -189,7 +189,7 @@ app.post("/api/manual-match", (req, res) => {
         // Update if exists, otherwise append
         const index = manual.findIndex(m => m.market.slug === market.slug);
         const updatedMarket = {
-            market: { ...market, mediaStreamURL },
+            market: { ...market, mediaStreamURL, speakerEntities: speakerEntities || market.speakerEntities },
             startTime: startTime || market.eventStartTime,
             manual: true,
             duration: duration != null ? duration : undefined,
@@ -206,6 +206,16 @@ app.post("/api/manual-match", (req, res) => {
         }
 
         fs.writeFileSync(MANUAL_MATCHES_PATH, JSON.stringify(manual, null, 2));
+
+        // Also update the scheduled job file if it exists
+        const schedPath = path.join(SCHEDULED_DIR, `${market.slug}.json`);
+        if (speakerEntities !== undefined && fs.existsSync(schedPath)) {
+            const sched = JSON.parse(fs.readFileSync(schedPath, "utf8"));
+            sched.speakerEntities = speakerEntities || market.speakerEntities;
+            fs.writeFileSync(schedPath, JSON.stringify(sched, null, 2));
+            console.log(`Updated speakerEntities in scheduled file: ${market.slug} -> [${sched.speakerEntities.join(", ")}]`);
+        }
+
         res.json({ success: true, market: updatedMarket });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -1599,6 +1609,39 @@ app.delete("/api/voice/library/:file", (req, res) => {
         res.json({ success: true });
     } catch (e) {
         console.error(`Error deleting library file: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete("/api/voice/library/speaker/:slug", (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug) || slug.includes("..")) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        if (!fs.existsSync(AUDIO_LIBRARY)) {
+            return res.status(404).json({ error: "Library not found" });
+        }
+
+        const files = fs.readdirSync(AUDIO_LIBRARY);
+        const prefix = slug + "-";
+        const prefixAlt = slug + ".";
+        let deleted = 0;
+
+        for (const f of files) {
+            if (f.startsWith(prefix) || f.startsWith(prefixAlt)) {
+                const filePath = path.join(AUDIO_LIBRARY, f);
+                if (!f.includes("..")) {
+                    fs.unlinkSync(filePath);
+                    deleted++;
+                }
+            }
+        }
+
+        res.json({ success: true, deleted });
+    } catch (e) {
+        console.error(`Error deleting speaker: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });
