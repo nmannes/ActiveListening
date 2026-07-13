@@ -3,12 +3,17 @@
         "test": "bun test tests/matching.test.js tests/e2e_discovery.test.js tests/speaker_identification.test.js"
     },
     "dependencies": {
+        "@anthropic-ai/sdk": "^0.111.0",
+        "@bull-board/api": "^5.0.0",
+        "@bull-board/express": "^5.0.0",
         "axios": "^1.13.5",
         "body-parser": "^2.2.2",
+        "bullmq": "^5.0.0",
         "cheerio": "^1.2.0",
         "compromise": "^14.15.0",
         "dotenv": "^17.3.1",
         "express": "^5.2.1",
+        "ioredis": "^5.4.0",
         "kalshi-typescript": "^3.6.0",
         "lodash": "^4.17.23",
         "pino": "^10.3.1",
@@ -22,10 +27,6 @@
         "telegraf": "^4.16.3",
         "typescript-telegram-bot-api": "^0.13.0",
         "ws": "^8.17.1",
-        "xml2js": "^0.6.2",
-        "bullmq": "^5.0.0",
-        "@bull-board/express": "^5.0.0",
-        "@bull-board/api": "^5.0.0",
-        "ioredis": "^5.4.0"
+        "xml2js": "^0.6.2"
     }
 }

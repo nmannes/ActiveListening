@@ -51,6 +51,9 @@ function parseArgs(argv) {
       case "--slug":
         opts.slug = argv[++i];
         break;
+      case "--verify":
+        opts.verify = true;
+        break;
       default:
         // Legacy: first positional arg is ticker
         if (!opts.ticker && !argv[i].startsWith("-")) {
@@ -121,8 +124,10 @@ async function testMarket(sourceFinder, market) {
 
   if (result) {
     logger.info(`FOUND (${elapsed}s): ${result}`);
+    return { slug: market.slug, company, date, url: result, elapsed };
   } else {
     logger.info(`NOT FOUND (${elapsed}s)`);
+    return { slug: market.slug, company, date, url: null, elapsed };
   }
 }
 
@@ -234,8 +239,51 @@ async function main() {
     );
 
     const sourceFinder = new EarningsSourceFinder(browser);
+    const results = [];
     for (const market of targets) {
-      await testMarket(sourceFinder, market);
+      const r = await testMarket(sourceFinder, market);
+      results.push(r);
+    }
+
+    // ── Verification mode ──────────────────────────────────────────────────
+    if (opts.verify) {
+      logger.info("");
+      logger.info("=".repeat(70));
+      logger.info("VERIFYING FOUND URLS...");
+      logger.info("=".repeat(70));
+
+      for (const r of results) {
+        if (!r.url) {
+          logger.info(`SKIP ${r.slug}: no URL to verify`);
+          continue;
+        }
+        logger.info(`Verifying ${r.slug} (${r.company})...`);
+        const v = await sourceFinder.verifyUrl(r.url, r.company, r.date);
+        const icon = v.verdict === "yes" ? "✅" : v.verdict === "maybe" ? "⚠️" : "❌";
+        logger.info(`  ${icon} ${v.verdict.toUpperCase()}: ${v.reason}`);
+        if (v.companyOnPage) logger.info(`     Company on page: ${v.companyOnPage}`);
+        if (v.dateOnPage) logger.info(`     Date on page: ${v.dateOnPage}`);
+        if (v.pageTitle) logger.info(`     Page title: ${v.pageTitle}`);
+        logger.info(`     URL: ${v.url}`);
+        r.verification = v;
+      }
+
+      // Summary table
+      logger.info("");
+      logger.info("=".repeat(70));
+      logger.info("VERIFICATION SUMMARY");
+      logger.info("=".repeat(70));
+      for (const r of results) {
+        const v = r.verification;
+        if (!r.url) {
+          logger.info(`  🔴 ${r.company}: NOT FOUND`);
+        } else if (!v) {
+          logger.info(`  ⚪ ${r.company}: ${r.url}`);
+        } else {
+          const icon = v.verdict === "yes" ? "🟢" : v.verdict === "maybe" ? "🟡" : "🔴";
+          logger.info(`  ${icon} ${r.company}: ${v.verdict.toUpperCase()} — ${v.reason}`);
+        }
+      }
     }
 
     logger.info("=".repeat(70));
