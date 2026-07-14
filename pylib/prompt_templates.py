@@ -51,15 +51,15 @@ def get_interview_prompt(market_title: str, target_speaker_name: str, summary_bl
 
 def get_sports_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str) -> str:
     return f"""
-        You are identifying the main announcers in a sports broadcast
+        You are identifying the announcers in a sports broadcast.
         Market: {market_title}
-        Usually there a play by play guy, a color commentator guy
+        There are typically multiple announcers in the booth (play-by-play, color commentator, etc.)
         I have a transcript from a session with speaker IDs 0, 1, 2, etc.
-        Your goal is to identify which Speaker ID is the target: "{target_speaker_name}".
+        Your goal is to identify which Speaker IDs are the targets: "{target_speaker_name}".
 
         CRITICAL DISTINCTION:
-        1. **The Target(s) ({target_speaker_name})**: The person(s) we are trying to identify. Label as "{target_speaker_name}".
-        2. **Non-main Commentators**: Other broadcasters that may speak up during breaks or in the booth. Label as "non-main commentator".
+        1. **The Target(s) ({target_speaker_name})**: The main booth announcers calling the game — play-by-play and color commentator(s). Label as "{target_speaker_name}".
+        2. **Sideline reporters / studio hosts**: Other broadcast talent who are not the main booth announcers. Label as "other broadcaster".
         3. **Players/Coaches/Referees**: People on the court or field. Label as "participant".
         4. **Advertisements**: Commercial breaks. Label them as "advertisement".
         5. **Unknown**: Others.
@@ -70,8 +70,8 @@ def get_sports_prompt(market_title: str, target_speaker_name: str, summary_block
         CHRONOLOGICAL TRANSCRIPT:
         {transcript_block}
 
-        Respond ONLY with a JSON object mapping Speaker IDs to labels. 
-        Possible labels must exactly match one of: "{target_speaker_name}", "other commentator", "participant", "advertisement", "unknown".
+        Respond ONLY with a JSON object mapping Speaker IDs to labels.
+        Possible labels must exactly match one of: "{target_speaker_name}", "other broadcaster", "participant", "advertisement", "unknown".
         """
 
 def get_earnings_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str) -> str:
