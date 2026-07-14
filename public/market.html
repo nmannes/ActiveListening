@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Market — Kalshi</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; background: #0d1117; color: #c9d1d9; display: flex; height: 100vh; overflow: hidden; }
+
+#nav-sidebar { width: 180px; min-width: 180px; background: #161b22; border-right: 1px solid #30363d; padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; font-size: 12px; z-index: 100; }
+#nav-sidebar .logo { font-size: 13px; font-weight: 600; color: #58a6ff; margin-bottom: 10px; }
+#nav-sidebar a { color: #8b949e; text-decoration: none; padding: 5px 8px; border-radius: 4px; display: block; }
+#nav-sidebar a:hover { color: #c9d1d9; background: #1c2128; }
+#nav-sidebar a.active { color: #c9d1d9; background: #1c2128; }
+
+/* Market list panel */
+#sidebar { width: 340px; min-width: 260px; background: #161b22; border-right: 1px solid #30363d; display: flex; flex-direction: column; overflow: hidden; resize: horizontal; }
+#sidebar .header { padding: 10px 16px; background: #1c2128; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+#sidebar .header h2 { font-size: 13px; color: #c9d1d9; margin-bottom: 8px; }
+#sidebar .header input { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; font-family: inherit; font-size: 12px; border-radius: 4px; }
+#sidebar .header input:focus { border-color: #58a6ff; outline: none; }
+#market-list { flex: 1; overflow-y: auto; }
+.market-entry { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #21262d; transition: background .1s; }
+.market-entry:hover { background: #1c2128; }
+.market-entry.active { background: #1f2a3f; border-left: 3px solid #58a6ff; }
+.market-entry .title { font-size: 13px; color: #c9d1d9; font-weight: 600; line-height: 1.3; margin-bottom: 4px; }
+.market-entry .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.market-entry .slug { font-size: 10px; color: #58a6ff; background: rgba(88,166,255,0.1); padding: 1px 5px; border-radius: 3px; }
+.market-entry .stats { font-size: 10px; color: #8b949e; white-space: nowrap; }
+.market-entry .counts { display: flex; gap: 6px; margin-top: 4px; }
+.market-entry .count-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; }
+.count-badge.runtime { background: rgba(56,139,253,0.15); color: #79c0ff; }
+.count-badge.signals { background: rgba(63,185,80,0.15); color: #7ee787; }
+.count-badge.orderbook { background: rgba(210,168,255,0.15); color: #d2a8ff; }
+.count-badge.tickers { background: rgba(255,166,87,0.15); color: #ffa657; }
+.count-badge.has-run { background: rgba(63,185,80,0.2); color: #7ee787; }
+.count-badge.has-ob { background: rgba(210,168,255,0.2); color: #d2a8ff; }
+.count-badge.named { background: rgba(88,166,255,0.2); color: #79c0ff; }
+
+/* Filter chips */
+.filter-chip { background: #21262d; color: #8b949e; border: 1px solid #30363d; padding: 3px 8px; font-family: inherit; font-size: 10px; cursor: pointer; border-radius: 4px; }
+.filter-chip:hover { background: #30363d; color: #c9d1d9; }
+.filter-chip.active { background: #388bfd; color: #fff; border-color: #388bfd; }
+
+/* Main content */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* Market header */
+#market-header { padding: 12px 16px; background: #1c2128; border-bottom: 1px solid #30363d; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+#market-header .mh-title { font-size: 16px; font-weight: 600; color: #e6edf3; }
+#market-header .mh-status { font-size: 11px; padding: 2px 8px; border-radius: 3px; }
+.mh-status.running { background: rgba(63,185,80,0.2); color: #7ee787; }
+.mh-status.stopped { background: rgba(139,148,158,0.2); color: #8b949e; }
+.mh-status.pending { background: rgba(255,166,87,0.2); color: #ffa657; }
+#market-header .mh-meta { font-size: 11px; color: #8b949e; }
+
+/* Tabs */
+#tab-bar { display: flex; gap: 0; background: #1c2128; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+.tab-btn { background: none; border: none; color: #8b949e; font-family: inherit; font-size: 12px; padding: 8px 16px; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; }
+.tab-btn:hover { color: #c9d1d9; }
+.tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+
+/* Tab content */
+#tab-content { flex: 1; overflow-y: auto; padding: 16px; }
+
+/* Stats bar */
+.stats-bar { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.stat-card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; }
+.stat-card .label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+.stat-card .value { font-size: 20px; font-weight: 700; color: #e6edf3; margin-top: 2px; }
+.stat-card .value.green { color: #3fb950; }
+.stat-card .value.red { color: #f85149; }
+.stat-card .value.blue { color: #58a6ff; }
+.stat-card .value.purple { color: #d2a8ff; }
+
+/* Ticker cards */
+.ticker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.ticker-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; }
+.ticker-card-header { padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #21262d; }
+.ticker-card-title { font-size: 13px; font-weight: 600; color: #e6edf3; }
+.ticker-card-body { padding: 10px 14px; }
+.ticker-card-body canvas { width: 100%; height: 220px; }
+
+/* Live orderbook display */
+.orderbook-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; font-size: 11px; }
+.orderbook-side { background: #0d1117; border: 1px solid #21262d; border-radius: 4px; padding: 6px 10px; }
+.orderbook-side h4 { font-size: 10px; text-transform: uppercase; color: #8b949e; margin-bottom: 4px; }
+.orderbook-side .price { font-size: 18px; font-weight: 700; }
+.orderbook-side .price.yes { color: #3fb950; }
+.orderbook-side .price.no { color: #f85149; }
+
+/* Tables */
+.section-title { font-size: 13px; color: #58a6ff; margin: 20px 0 10px; padding-bottom: 6px; border-bottom: 1px solid #21262d; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 16px; }
+th { background: #161b22; color: #8b949e; text-align: left; padding: 8px 10px; border-bottom: 2px solid #30363d; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; position: sticky; top: 0; }
+td { padding: 6px 10px; border-bottom: 1px solid #21262d; white-space: nowrap; }
+tr:hover td { background: #1c2128; }
+.before { color: #3fb950; font-weight: 600; }
+.after { color: #f85149; }
+.no_change { color: #484f58; }
+.resolved-yes { color: #3fb950; font-weight: 600; }
+.resolved-no { color: #f85149; font-weight: 600; }
+.word { color: #d2a8ff; font-weight: 600; }
+.sfx { color: #79c0ff; }
+.delta { text-align: right; }
+
+/* Log viewer (tab 3) */
+#log-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.filter-tabs { display: flex; gap: 0; border-radius: 4px; overflow: hidden; border: 1px solid #30363d; }
+.filter-tab { background: #21262d; color: #8b949e; border: none; padding: 5px 10px; font-family: inherit; font-size: 11px; cursor: pointer; border-right: 1px solid #30363d; }
+.filter-tab:last-child { border-right: none; }
+.filter-tab:hover { background: #30363d; color: #c9d1d9; }
+.filter-tab.active { background: #58a6ff; color: #fff; }
+#log-toolbar input { flex: 1; min-width: 120px; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; font-family: inherit; font-size: 12px; border-radius: 4px; }
+#log-toolbar input:focus { border-color: #58a6ff; outline: none; }
+#log-toolbar button { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; padding: 6px 12px; font-family: inherit; font-size: 11px; cursor: pointer; border-radius: 4px; }
+#log-toolbar button:hover { background: #30363d; }
+#log-viewer { overflow-y: auto; flex: 1; }
+#log-viewer table { width: 100%; border-collapse: collapse; }
+#log-viewer td { padding: 2px 0; font-size: 11px; line-height: 1.4; vertical-align: top; }
+#log-viewer td.ln { color: #484f58; text-align: right; padding: 2px 8px 2px 12px; user-select: none; width: 1%; white-space: nowrap; border-right: 1px solid #21262d; }
+#log-viewer td.type-badge { padding: 2px 8px; width: 1%; white-space: nowrap; text-align: center; }
+#log-viewer td.type-badge span { font-size: 9px; padding: 1px 4px; border-radius: 2px; text-transform: uppercase; }
+#log-viewer td.type-badge span.runtime { background: rgba(56,139,253,0.15); color: #79c0ff; }
+#log-viewer td.type-badge span.signals { background: rgba(63,185,80,0.15); color: #7ee787; }
+#log-viewer td.type-badge span.orderbook { background: rgba(210,168,255,0.15); color: #d2a8ff; }
+#log-viewer td.content { padding-left: 8px; padding-right: 12px; white-space: pre-wrap; word-break: break-all; }
+#log-viewer tr:hover td { background: #1a1a1a; }
+#log-viewer tr.highlight td.content { background: #332200; }
+#log-viewer tr.highlight td.ln { background: #332200; }
+#log-viewer tr.highlight td.type-badge { background: #332200; }
+
+.empty-state { display: flex; align-items: center; justify-content: center; height: 100%; color: #484f58; font-size: 14px; flex-direction: column; gap: 8px; padding: 40px; }
+.spinner { border: 2px solid #21262d; border-top-color: #58a6ff; border-radius: 50%; width: 16px; height: 16px; animation: spin .6s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#info-bar { border-top: 1px solid #30363d; padding: 6px 12px; font-size: 11px; color: #8b949e; background: #161b22; flex-shrink: 0; display: flex; justify-content: space-between; }
+
+.info-tag { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 4px; }
+.info-tag.yes { background: rgba(63,185,80,0.15); color: #7ee787; }
+.info-tag.no { background: rgba(248,81,73,0.15); color: #f85149; }
+
+.pnl-positive { color: #3fb950; }
+.pnl-negative { color: #f85149; }
+
+/* Speakers UI */
+#speakers-sidebar { width: 340px; min-width: 260px; background: #161b22; border-right: 1px solid #30363d; display: none; flex-direction: column; overflow: hidden; resize: horizontal; }
+#speakers-sidebar .header { padding: 10px 16px; background: #1c2128; border-bottom: 1px solid #30363d; flex-shrink: 0; }
+#speakers-sidebar .header h2 { font-size: 13px; color: #c9d1d9; margin-bottom: 8px; }
+#speakers-sidebar .header input { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; font-family: inherit; font-size: 12px; border-radius: 4px; }
+#speakers-sidebar .header input:focus { border-color: #58a6ff; outline: none; }
+#speakers-list { flex: 1; overflow-y: auto; }
+.speaker-entry { padding: 12px 16px; cursor: pointer; border-bottom: 1px solid #21262d; transition: background .1s; display: flex; justify-content: space-between; align-items: center; }
+.speaker-entry:hover { background: #1c2128; }
+.speaker-entry.active { background: #1f2a3f; border-left: 3px solid #58a6ff; }
+.speaker-entry .info { flex: 1; min-width: 0; }
+.speaker-entry .name { font-size: 13px; color: #c9d1d9; font-weight: 600; }
+.speaker-entry .meta { font-size: 10px; color: #8b949e; margin-top: 2px; }
+.speaker-entry .actions { display: flex; gap: 4px; flex-shrink: 0; }
+.speaker-entry .btn-delete { background: none; border: 1px solid #f85149; color: #f85149; font-size: 10px; padding: 2px 6px; border-radius: 3px; cursor: pointer; }
+.speaker-entry .btn-delete:hover { background: #f85149; color: #fff; }
+
+#speakers-main { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+#speakers-header { padding: 12px 16px; background: #1c2128; border-bottom: 1px solid #30363d; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; }
+#speakers-header h2 { font-size: 16px; font-weight: 600; color: #e6edf3; }
+#speakers-content { flex: 1; overflow-y: auto; padding: 16px; }
+
+.add-speaker-form { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+.add-speaker-form h3 { font-size: 13px; color: #58a6ff; margin-bottom: 12px; }
+.add-speaker-form .field { margin-bottom: 10px; }
+.add-speaker-form label { display: block; font-size: 11px; color: #8b949e; margin-bottom: 4px; text-transform: uppercase; }
+.add-speaker-form input, .add-speaker-form textarea { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 10px; font-family: inherit; font-size: 12px; border-radius: 4px; }
+.add-speaker-form input:focus, .add-speaker-form textarea:focus { border-color: #58a6ff; outline: none; }
+.add-speaker-form textarea { resize: vertical; min-height: 60px; }
+.add-speaker-form .btn-submit { background: #238636; color: #fff; border: none; padding: 8px 20px; font-family: inherit; font-size: 12px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+.add-speaker-form .btn-submit:hover { background: #2ea043; }
+.add-speaker-form .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.add-speaker-form .feedback { font-size: 11px; margin-top: 8px; min-height: 18px; }
+.add-speaker-form .feedback.ok { color: #3fb950; }
+.add-speaker-form .feedback.err { color: #f85149; }
+
+.verification-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #161b22; border: 1px solid #21262d; border-radius: 4px; margin-bottom: 4px; }
+.verification-row .v-name { font-size: 12px; color: #c9d1d9; }
+.verification-row .v-stats { font-size: 10px; color: #8b949e; }
+.verification-row .v-link { font-size: 10px; color: #58a6ff; text-decoration: none; margin-left: 8px; }
+.verification-row .v-link:hover { text-decoration: underline; }
+.speaker-verified { color: #3fb950; }
+.speaker-pending { color: #ffa657; }
+.speaker-rejected { color: #f85149; }
+</style>
+</head>
+<body>
+<div id="nav-sidebar">
+  <div class="logo">Kalshi Market Manager</div>
+  <a href="/">Dashboard</a>
+  <a href="#" class="active" data-view="markets">Markets</a>
+  <a href="#" data-view="speakers">Speakers</a>
+  <a href="/signals" target="_blank">Signal Dashboard</a>
+  <a href="/voice" target="_blank">Voice &amp; Data</a>
+  <a href="/admin/queues" target="_blank">Queues</a>
+</div>
+
+<div id="sidebar">
+  <div class="header">
+    <h2>Markets <span id="market-count" style="font-size:11px;color:#8b949e;font-weight:normal"></span></h2>
+    <input id="market-search" type="text" placeholder="Filter markets...">
+    <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap;" id="filter-btns">
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="hasRun">Has Run</button>
+      <button class="filter-chip" data-filter="hasOB">Has Orderbook</button>
+      <button class="filter-chip" data-filter="traded">Traded</button>
+      <button class="filter-chip" data-filter="titled">Named</button>
+    </div>
+  </div>
+  <div id="market-list"></div>
+</div>
+
+<div id="speakers-sidebar">
+  <div class="header">
+    <h2>Speakers <span id="speaker-count" style="font-size:11px;color:#8b949e;font-weight:normal"></span></h2>
+    <input id="speaker-search" type="text" placeholder="Filter speakers...">
+  </div>
+  <div id="speakers-list"></div>
+</div>
+
+<div id="main">
+  <div id="market-header">
+    <div>
+      <span class="mh-title" id="mh-title">Select a market</span>
+      <span class="mh-meta" id="mh-slug" style="margin-left:10px"></span>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span class="mh-meta" id="mh-time"></span>
+      <span class="mh-status" id="mh-status" style="display:none"></span>
+    </div>
+  </div>
+
+  <div id="tab-bar">
+    <button class="tab-btn active" data-tab="overview">Overview</button>
+    <button class="tab-btn" data-tab="trades">Trades</button>
+    <button class="tab-btn" data-tab="logs">Logs</button>
+  </div>
+
+  <div id="tab-content">
+    <div id="tab-overview" class="empty-state">Select a market to see analysis</div>
+    <div id="tab-trades" style="display:none"></div>
+    <div id="tab-logs" style="display:none"></div>
+  </div>
+
+  <div id="info-bar"><span id="status-text">Ready</span><span id="line-count"></span></div>
+</div>
+
+<div id="speakers-main">
+  <div id="speakers-header">
+    <h2>Speaker Management</h2>
+    <span id="speakers-status" style="font-size:11px;color:#8b949e"></span>
+  </div>
+  <div id="speakers-content">
+    <div class="add-speaker-form">
+      <h3>Add Speaker to Identify</h3>
+      <div class="field">
+        <label>Speaker Name</label>
+        <input id="add-speaker-name" type="text" placeholder="e.g. Donald Trump">
+      </div>
+      <div class="field">
+        <label>YouTube URLs (one per line)</label>
+        <textarea id="add-speaker-urls" placeholder="https://youtube.com/watch?v=...&#10;https://youtu.be/..."></textarea>
+      </div>
+      <button class="btn-submit" id="btn-add-speaker">Generate Voice Samples</button>
+      <div class="feedback" id="add-speaker-feedback"></div>
+    </div>
+
+    <div class="section-title">Pending Verifications</div>
+    <div id="pending-verifications"><div style="color:#484f58;font-size:12px;padding:12px">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => document.querySelectorAll(s);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let activeMarket = null;
+let activeTab = "overview";
+let allMarkets = [];
+let activeFilter = "all";
+let revenueBySlug = {};
+let ordersBySlug = {};
+let tickerCharts = {};
+
+// ── Market list ────────────────────────────────────────────────────────────
+
+async function loadMarketList() {
+  try {
+    const res = await fetch("/api/market-logs");
+    const data = await res.json();
+    allMarkets = data.markets || [];
+    renderMarketList(allMarkets);
+    updateMarketCount();
+  } catch (e) {
+    $("#status-text").textContent = `Error: ${e.message}`;
+  }
+}
+
+function updateMarketCount() {
+  const query = $("#market-search").value.toLowerCase();
+  let filtered = allMarkets;
+  if (activeFilter === "hasRun") filtered = filtered.filter(m => m.hasRun);
+  else if (activeFilter === "hasOB") filtered = filtered.filter(m => m.hasOrderbook);
+  else if (activeFilter === "traded") filtered = filtered.filter(m => ordersBySlug[m.slug] > 0);
+  else if (activeFilter === "titled") filtered = filtered.filter(m => m.hasTitle);
+  if (query) filtered = filtered.filter(m => m.slug.toLowerCase().includes(query) || (m.title && m.title.toLowerCase().includes(query)));
+  $("#market-count").textContent = `(${filtered.length}/${allMarkets.length})`;
+}
+
+function renderMarketList(markets) {
+  const query = $("#market-search").value.toLowerCase();
+  let filtered = markets;
+  // Apply chip filter
+  if (activeFilter === "hasRun") filtered = filtered.filter(m => m.hasRun);
+  else if (activeFilter === "hasOB") filtered = filtered.filter(m => m.hasOrderbook);
+  else if (activeFilter === "traded") filtered = filtered.filter(m => ordersBySlug[m.slug] > 0);
+  else if (activeFilter === "titled") filtered = filtered.filter(m => m.hasTitle);
+  // Apply text search
+  if (query) {
+    filtered = filtered.filter(m => m.slug.toLowerCase().includes(query) || (m.title && m.title.toLowerCase().includes(query)));
+  }
+
+  const el = $("#market-list");
+  el.innerHTML = "";
+  if (filtered.length === 0) {
+    el.innerHTML = `<div style="padding:24px 16px;color:#484f58;font-size:12px;text-align:center;">${query || activeFilter !== 'all' ? 'No markets match filters' : 'No market logs found'}</div>`;
+    return;
+  }
+
+  for (const m of filtered) {
+    const div = document.createElement("div");
+    div.className = "market-entry";
+    if (activeMarket && activeMarket.slug === m.slug) div.classList.add("active");
+
+    const sizeStr = (bytes) => {
+      if (!bytes) return "0";
+      if (bytes > 1024*1024) return (bytes/1024/1024).toFixed(1)+"M";
+      if (bytes > 1024) return (bytes/1024).toFixed(0)+"K";
+      return bytes+"B";
+    };
+
+    const revenue = revenueBySlug[m.slug] || 0;
+    const orderCount = ordersBySlug[m.slug] || 0;
+    const revStr = revenue > 0 ? `$${revenue.toFixed(0)}` : '';
+
+    let badgesHtml = "";
+    if (m.hasRun) badgesHtml += '<span class="count-badge has-run">ran</span>';
+    if (m.hasOrderbook) badgesHtml += '<span class="count-badge has-ob">OB</span>';
+    if (orderCount > 0) badgesHtml += `<span class="count-badge named" title="Orders">${orderCount} ord</span>`;
+    if (revenue > 0) badgesHtml += `<span class="count-badge named" title="Revenue">${revStr}</span>`;
+    if (m.hasTitle) badgesHtml += '<span class="count-badge named">named</span>';
+
+    let countsHtml = "";
+    if (m.counts.orderbook) countsHtml += `<span class="count-badge orderbook">OB ${sizeStr(m.counts.orderbook)}</span>`;
+    if (m.counts.signals) countsHtml += `<span class="count-badge signals">sig ${m.sessionCount || ''}</span>`;
+
+    const timeStr = m.lastActivity ? m.lastActivity.replace("T"," ").slice(0,19) : "no activity";
+
+    div.innerHTML = `
+      <div class="title">${m.title}</div>
+      <div class="meta">
+        <span class="slug">${m.slug}</span>
+        <span class="stats">${timeStr}</span>
+      </div>
+      <div class="counts">${badgesHtml} ${countsHtml}</div>
+    `;
+    div.addEventListener("click", () => selectMarket(m, div));
+    el.appendChild(div);
+  }
+}
+
+// ── Filter chips ───────────────────────────────────────────────────────────
+$("#filter-btns").addEventListener("click", async (e) => {
+  if (!e.target.classList.contains("filter-chip")) return;
+  $$("#filter-btns .filter-chip.active").forEach(c => c.classList.remove("active"));
+  e.target.classList.add("active");
+  activeFilter = e.target.dataset.filter;
+
+  // Fetch orders/revenue data from Kalshi on demand
+  if (activeFilter === "traded" && Object.keys(ordersBySlug).length === 0) {
+    $("#status-text").textContent = "Fetching orders from Kalshi...";
+    try {
+      const res = await fetch("/api/market-revenue");
+      const data = await res.json();
+      revenueBySlug = data.revenue || {};
+      ordersBySlug = data.orders || {};
+      if (!data.available && data.message) {
+        $("#status-text").textContent = data.message;
+      } else {
+        const ordCount = Object.keys(ordersBySlug).length;
+        const revCount = Object.keys(revenueBySlug).length;
+        $("#status-text").textContent = data.cached ? `${ordCount} traded, ${revCount} revenue (cached)` : `${ordCount} traded, ${revCount} w/ revenue`;
+      }
+    } catch (e) {
+      $("#status-text").textContent = `Fetch failed: ${e.message}`;
+    }
+  }
+
+  updateMarketCount();
+  renderMarketList(allMarkets);
+});
+
+$("#market-search").addEventListener("input", () => {
+  updateMarketCount();
+  renderMarketList(allMarkets);
+});
+
+function selectMarket(market, el) {
+  if (activeMarket && activeMarket.slug === market.slug) return;
+  activeMarket = market;
+  $$(".market-entry.active").forEach(e => e.classList.remove("active"));
+  if (el) el.classList.add("active");
+
+  $("#mh-title").textContent = market.title;
+  $("#mh-slug").textContent = market.slug;
+  $("#mh-time").textContent = market.lastActivity ? market.lastActivity.replace("T"," ").slice(0,16) : "";
+
+  // Show status
+  fetch(`/api/market/${encodeURIComponent(market.slug)}/status`)
+    .then(r => r.json()).then(s => {
+      const el = $("#mh-status");
+      el.style.display = "inline";
+      if (s.running) { el.textContent = "RUNNING"; el.className = "mh-status running"; }
+      else if (s.pending) { el.textContent = "SCHEDULED"; el.className = "mh-status pending"; }
+      else { el.textContent = "STOPPED"; el.className = "mh-status stopped"; }
+    }).catch(() => {});
+
+  loadTabContent();
+}
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+
+$("#tab-bar").addEventListener("click", (e) => {
+  if (!e.target.classList.contains("tab-btn")) return;
+  $$(".tab-btn.active").forEach(t => t.classList.remove("active"));
+  e.target.classList.add("active");
+  activeTab = e.target.dataset.tab;
+  $("#tab-overview").style.display = activeTab === "overview" ? "block" : "none";
+  $("#tab-trades").style.display = activeTab === "trades" ? "block" : "none";
+  $("#tab-logs").style.display = activeTab === "logs" ? "block" : "none";
+  loadTabContent();
+});
+
+async function loadTabContent() {
+  if (!activeMarket) return;
+  const slug = activeMarket.slug;
+
+  if (activeTab === "overview") await loadOverviewTab(slug);
+  else if (activeTab === "trades") await loadTradesTab(slug);
+  else if (activeTab === "logs") await loadLogsTab(slug);
+}
+
+// ── Overview Tab ───────────────────────────────────────────────────────────
+
+async function loadOverviewTab(slug) {
+  const tab = $("#tab-overview");
+  tab.className = "";
+  tab.innerHTML = '<div class="empty-state"><span class="spinner"></span>Loading analysis...</div>';
+
+  try {
+    const res = await fetch(`/api/market/${encodeURIComponent(slug)}/overview`);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    const sum = data.summary;
+
+    // P&L data
+    const th = data.tradeHistory;
+    const pnlClass = th.available && th.pnl && th.pnl.summary.netPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+    const pnl = th.available && th.pnl ? th.pnl.summary : null;
+
+    // Top row: cost summary (horizontal)
+    let html = `<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+      <div class="stat-card" style="flex:1;min-width:120px"><div class="label">Cost</div><div class="value red">${pnl ? '\$'+pnl.totalCost.toFixed(2) : '—'}</div></div>
+      <div class="stat-card" style="flex:1;min-width:120px"><div class="label">Fees</div><div class="value red">${pnl ? '\$'+pnl.totalFees.toFixed(2) : '—'}</div></div>
+      <div class="stat-card" style="flex:1;min-width:120px"><div class="label">Revenue</div><div class="value green">${pnl ? '\$'+pnl.totalRevenue.toFixed(2) : '—'}</div></div>
+      <div class="stat-card" style="flex:2;min-width:140px"><div class="label">Net P&amp;L</div><div class="value ${pnlClass}" style="font-size:24px">${pnl ? '\$'+pnl.netPnL.toFixed(2) : '—'}</div></div>
+    </div>`;
+
+    // Second row: metadata
+    html += `<div class="stats-bar">
+      <div class="stat-card"><div class="label">Fills</div><div class="value blue">${th.fills ? th.fills.length : 0}</div></div>
+      <div class="stat-card"><div class="label">Signals</div><div class="value">${sum.totalSignals}</div></div>
+      <div class="stat-card"><div class="label">Orders</div><div class="value ${sum.orderCount > 0 ? 'green' : ''}">${sum.orderCount}</div></div>
+      <div class="stat-card"><div class="label">Tickers</div><div class="value">${sum.totalTickers}</div></div>`;
+
+    if (sum.totalSignals > 0) {
+      html += `
+      <div class="stat-card"><div class="label">Leads (BEFORE)</div><div class="value green">${sum.beforeCount}</div></div>
+      <div class="stat-card"><div class="label">Lags (AFTER)</div><div class="value red">${sum.afterCount}</div></div>
+      <div class="stat-card"><div class="label">Resolved YES</div><div class="value green">${sum.resolvedYes}</div></div>
+      <div class="stat-card"><div class="label">Resolved NO</div><div class="value red">${sum.resolvedNo}</div></div>
+      <div class="stat-card"><div class="label">Avg Lead</div><div class="value green">${esc(sum.avgLead)}</div></div>`;
+    }
+    html += `</div>`;
+
+    // Trade details
+    if (th.available && th.fills && th.fills.length > 0) {
+      html += `<div class="section-title">Trades (${th.fills.length} fills)</div>`;
+      html += `<table><thead><tr>
+        <th>Time</th><th>Ticker</th><th>Side</th><th>Action</th><th>Count</th><th>Price</th><th>Fee</th>
+      </tr></thead><tbody>`;
+      const fillsSorted = [...th.fills].sort((a,b) => (b.created_time||0) - (a.created_time||0));
+      for (const f of fillsSorted.slice(0, 100)) {
+        const side = (f.side || '').toLowerCase();
+        const price = side === 'yes' ? parseFloat(f.yes_price_dollars || 0) : parseFloat(f.no_price_dollars || 0);
+        html += `<tr>
+          <td style="font-size:10px">${esc((f.created_time||'').toString().replace('T',' ').slice(0,19))}</td>
+          <td><span class="sfx">${esc((f.ticker||'').split('-').pop())}</span></td>
+          <td><span class="info-tag ${side}">${side.toUpperCase()}</span></td>
+          <td>${esc(f.action||'')}</td>
+          <td>${parseFloat(f.count_fp||f.count||0).toFixed(0)}</td>
+          <td>${price.toFixed(2)}</td>
+          <td>$${parseFloat(f.fee_cost||0).toFixed(2)}</td>
+        </tr>`;
+      }
+      if (th.fills.length > 100) html += `<tr><td colspan="7" style="text-align:center;color:#8b949e">+ ${th.fills.length - 100} more fills (see Trades tab)</td></tr>`;
+      html += `</tbody></table>`;
+
+      if (th.settlements && th.settlements.length > 0) {
+        html += `<div class="section-title">Settlements (${th.settlements.length})</div>`;
+        html += `<table><thead><tr><th>Time</th><th>Ticker</th><th>Result</th><th>YES Ct</th><th>NO Ct</th><th>Revenue</th></tr></thead><tbody>`;
+        for (const s of th.settlements.slice(0, 50)) {
+          html += `<tr>
+            <td style="font-size:10px">${esc((s.settled_time||'').toString().replace('T',' ').slice(0,19))}</td>
+            <td><span class="sfx">${esc((s.ticker||'').split('-').pop())}</span></td>
+            <td>${esc(s.market_result||'—')}</td>
+            <td>${parseFloat(s.yes_count_fp||s.yes_count||0).toFixed(0)}</td>
+            <td>${parseFloat(s.no_count_fp||s.no_count||0).toFixed(0)}</td>
+            <td>$${(parseFloat(s.revenue||0)/100).toFixed(2)}</td>
+          </tr>`;
+        }
+        html += `</tbody></table>`;
+      }
+    }
+
+    // Signals table
+    if (data.signals && data.signals.length > 0) {
+      html += `<div class="section-title">Signals (${data.signals.length})</div>`;
+      html += `<table><thead><tr>
+        <th>Time</th><th>Word</th><th>Ticker</th><th>Signal Price</th><th>Change Price</th><th>Delta</th><th>Status</th><th>Resolution</th>
+      </tr></thead><tbody>`;
+
+      for (const sig of data.signals) {
+        const cls = sig.status.toLowerCase();
+        const resCls = sig.resolution === "YES" ? "resolved-yes" : sig.resolution === "NO" ? "resolved-no" : "";
+        const priceChg = sig.signalPrice !== null
+          ? `${sig.signalPrice}c <span class="${sig.changeSide === 'yes' ? 'info-tag yes' : 'info-tag no'}">${sig.changeSide}</span> &rarr; ${sig.changePrice !== null ? sig.changePrice + 'c' : '—'}`
+          : '—';
+        html += `<tr>
+          <td style="font-size:10px">${esc(sig.signalTs)}</td>
+          <td class="word">${esc(sig.word)}</td>
+          <td><span class="sfx">${esc(sig.suffix)}</span></td>
+          <td>${priceChg}</td>
+          <td>${sig.changePrice !== null ? sig.changePrice + 'c' : '—'}</td>
+          <td class="delta"><span class="${cls}">${esc(sig.deltaHuman)}</span></td>
+          <td class="${cls}">${sig.status}</td>
+          <td class="${resCls}">${sig.resolution}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    } else if (data.tickers.length > 0) {
+      html += `<div class="section-title">Signals</div>`;
+      html += `<div class="empty-state" style="padding:20px">No signals detected for this market</div>`;
+    }
+
+    tab.innerHTML = html;
+
+    $("#line-count").textContent = `Tickers: ${sum.totalTickers} | Signals: ${sum.totalSignals} | Orders: ${sum.orderCount}`;
+    $("#status-text").textContent = "Ready";
+  } catch (e) {
+    tab.innerHTML = `<div class="empty-state">Failed to load: ${esc(e.message)}</div>`;
+    $("#status-text").textContent = `Error: ${e.message}`;
+  }
+}
+
+function drawTickerChart(suffix, noAskSeries, yesBidSeries, signals) {
+  const canvas = document.getElementById('chart-' + suffix);
+  if (!canvas) return;
+
+  const existing = Chart.getChart(canvas);
+  if (existing) existing.destroy();
+
+  const data = noAskSeries.length > 0 ? noAskSeries : yesBidSeries;
+  if (data.length === 0) {
+    canvas.parentElement.innerHTML = '<div style="color:#484f58;text-align:center;padding:40px">No orderbook data</div>';
+    return;
+  }
+
+  const times = data.map(d => d.x);
+  const xMin = Math.min(...times);
+  const xMax = Math.max(...times);
+
+  const datasets = [];
+  if (noAskSeries.length > 0) {
+    datasets.push({
+      label: 'NO Best Ask',
+      data: noAskSeries,
+      borderColor: '#f85149',
+      backgroundColor: '#f85149',
+      yAxisID: 'y',
+    });
+  }
+  if (yesBidSeries.length > 0) {
+    datasets.push({
+      label: 'YES Best Bid',
+      data: yesBidSeries,
+      borderColor: '#3fb950',
+      backgroundColor: '#3fb950',
+      yAxisID: 'y',
+    });
+  }
+
+  // Signal markers as vertical lines
+  const annotations = {};
+  const signalAnnotations = {};
+  for (const sig of signals) {
+    if (!sig.signalIso) continue;
+    const t = new Date(sig.signalIso).getTime();
+    if (isNaN(t)) continue;
+    signalAnnotations[`sig-${sig.signalIso}`] = {
+      type: 'line',
+      xMin: t,
+      xMax: t,
+      borderColor: '#d2a8ff',
+      borderWidth: 1,
+      borderDash: [4, 3],
+      label: { content: sig.word, display: true, position: 'start', font: { size: 9 }, color: '#d2a8ff', backgroundColor: 'rgba(0,0,0,0.6)' }
+    };
+  }
+
+  new Chart(canvas, {
+    type: 'candlestick',
+    data: { datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { labels: { color: '#8b949e', font: { size: 10 } } },
+        annotation: { annotations: signalAnnotations }
+      },
+      scales: {
+        x: { type: 'time', min: xMin, max: xMax,
+             time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+             grid: { color: '#21262d' }, ticks: { color: '#8b949e', font: { size: 9 } } },
+        y: { min: 1, max: 99, grid: { color: '#21262d' },
+             ticks: { color: '#8b949e', font: { size: 9 }, callback: (v) => v + 'c' } }
+      },
+      elements: { candlestick: { upColor: '#3fb950', upBorderColor: '#3fb950', downColor: '#f85149', downBorderColor: '#f85149', borderWidth: 0.5 } }
+    }
+  });
+}
+
+// ── Trades Tab ─────────────────────────────────────────────────────────────
+
+async function loadTradesTab(slug) {
+  const tab = $("#tab-trades");
+  tab.innerHTML = '<div class="empty-state"><span class="spinner"></span>Loading trade history...</div>';
+
+  try {
+    const res = await fetch(`/api/market/${encodeURIComponent(slug)}/trades`);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+
+    if (!data.available) {
+      tab.innerHTML = `<div class="empty-state">Trade history unavailable<br><small>${esc(data.message || 'Kalshi credentials not configured')}</small></div>`;
+      return;
+    }
+
+    const pnl = data.pnl;
+    const summ = pnl.summary;
+    const pnlClass = summ.netPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+
+    let html = `<div class="stats-bar">
+      <div class="stat-card"><div class="label">Total Fills</div><div class="value blue">${data.fills.length}</div></div>
+      <div class="stat-card"><div class="label">Total Settlements</div><div class="value">${data.settlements.length}</div></div>
+      <div class="stat-card"><div class="label">Total Fees</div><div class="value red">$${summ.totalFees.toFixed(2)}</div></div>
+      <div class="stat-card"><div class="label">Revenue</div><div class="value green">$${summ.totalRevenue.toFixed(2)}</div></div>
+      <div class="stat-card"><div class="label">Net P&amp;L</div><div class="value ${pnlClass}">$${summ.netPnL.toFixed(2)}</div></div>
+    </div>`;
+
+    // Per-ticker P&L
+    if (pnl.tickers.length > 0) {
+      html += `<div class="section-title">Per Ticker P&amp;L</div>`;
+      html += `<table><thead><tr><th>Ticker</th><th>Result</th><th>YES Bought</th><th>NO Bought</th><th>Fees</th><th>Revenue</th><th>Net P&amp;L</th></tr></thead><tbody>`;
+      for (const t of pnl.tickers) {
+        const tPnlClass = t.totals.netPnL >= 0 ? 'pnl-positive' : 'pnl-negative';
+        html += `<tr>
+          <td><span class="sfx">${esc(t.ticker.split('-').pop())}</span> <span style="font-size:10px;color:#484f58">${esc(t.ticker)}</span></td>
+          <td>${t.marketResult || '—'}</td>
+          <td>${t.totals.boughtYes.toFixed(0)}</td>
+          <td>${t.totals.boughtNo.toFixed(0)}</td>
+          <td>$${t.totals.fees.toFixed(2)}</td>
+          <td>$${t.totals.revenue.toFixed(2)}</td>
+          <td class="${tPnlClass}">$${t.totals.netPnL.toFixed(2)}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    // Fills table
+    if (data.fills.length > 0) {
+      html += `<div class="section-title">Fills (${data.fills.length})</div>`;
+      html += `<table><thead><tr><th>Time</th><th>Ticker</th><th>Side</th><th>Action</th><th>Count</th><th>Price</th><th>Fee</th></tr></thead><tbody>`;
+      const fillsSorted = [...data.fills].sort((a,b) => (b.created_time || 0) - (a.created_time || 0));
+      for (const f of fillsSorted.slice(0, 200)) {
+        const side = (f.side || '').toLowerCase();
+        const price = side === 'yes' ? parseFloat(f.yes_price_dollars || 0) : parseFloat(f.no_price_dollars || 0);
+        html += `<tr>
+          <td style="font-size:10px">${esc((f.created_time || '').toString().replace('T',' ').slice(0,19))}</td>
+          <td><span class="sfx">${esc((f.ticker||'').split('-').pop())}</span></td>
+          <td><span class="info-tag ${side}">${side.toUpperCase()}</span></td>
+          <td>${esc(f.action || '')}</td>
+          <td>${parseFloat(f.count || 0).toFixed(0)}</td>
+          <td>${price.toFixed(2)}</td>
+          <td>$${parseFloat(f.fee_cost || 0).toFixed(2)}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="empty-state" style="padding:20px">No fills found for this market's tickers</div>`;
+    }
+
+    // Settlements
+    if (data.settlements.length > 0) {
+      html += `<div class="section-title">Settlements (${data.settlements.length})</div>`;
+      html += `<table><thead><tr><th>Time</th><th>Ticker</th><th>Result</th><th>YES Count</th><th>NO Count</th><th>Revenue</th><th>Fee</th></tr></thead><tbody>`;
+      for (const s of [...data.settlements].sort((a,b) => (b.settled_time || 0) - (a.settled_time || 0))) {
+        html += `<tr>
+          <td style="font-size:10px">${esc((s.settled_time || '').toString().replace('T',' ').slice(0,19))}</td>
+          <td><span class="sfx">${esc((s.ticker||'').split('-').pop())}</span></td>
+          <td>${esc(s.market_result || '—')}</td>
+          <td>${parseFloat(s.yes_count || 0).toFixed(0)}</td>
+          <td>${parseFloat(s.no_count || 0).toFixed(0)}</td>
+          <td>$${parseFloat(s.revenue || 0).toFixed(2)}</td>
+          <td>$${parseFloat(s.fee_cost || 0).toFixed(2)}</td>
+        </tr>`;
+      }
+      html += `</tbody></table>`;
+    }
+
+    tab.innerHTML = html;
+    $("#line-count").textContent = `Fills: ${data.fills.length} | Settlements: ${data.settlements.length}`;
+    $("#status-text").textContent = "Ready";
+  } catch (e) {
+    tab.innerHTML = `<div class="empty-state">Failed to load trade history: ${esc(e.message)}</div>`;
+    $("#status-text").textContent = `Error: ${e.message}`;
+  }
+}
+
+// ── Logs Tab (reuses existing log viewer pattern) ──────────────────────────
+
+let logActiveType = "all";
+let logLines = [];
+
+async function loadLogsTab(slug) {
+  const tab = $("#tab-logs");
+  // Build the log viewer UI if not already there
+  if (!tab.querySelector("#log-toolbar")) {
+    tab.innerHTML = `
+      <div id="log-toolbar">
+        <div class="filter-tabs" id="log-filter-tabs">
+          <button class="filter-tab active" data-type="all">All</button>
+          <button class="filter-tab" data-type="runtime">Runtime</button>
+          <button class="filter-tab" data-type="signals">Signals</button>
+          <button class="filter-tab" data-type="orderbook">Orderbook</button>
+        </div>
+        <input id="log-search" type="text" placeholder="Search in logs...">
+        <button id="log-load-all">Load all</button>
+      </div>
+      <div id="log-viewer"></div>
+    `;
+
+    // Wire up log tab controls
+    $("#log-filter-tabs").addEventListener("click", (e) => {
+      if (!e.target.classList.contains("filter-tab")) return;
+      $("#log-filter-tabs").querySelectorAll(".filter-tab.active").forEach(t => t.classList.remove("active"));
+      e.target.classList.add("active");
+      logActiveType = e.target.dataset.type;
+      fetchLogs();
+    });
+    $("#log-search").addEventListener("input", () => fetchLogs());
+    $("#log-load-all").addEventListener("click", () => fetchLogs(true));
+  }
+
+  fetchLogs();
+}
+
+async function fetchLogs(loadAll) {
+  const slug = activeMarket.slug;
+  if (!slug) return;
+
+  const linesParam = loadAll ? "lines=100000" : "lines=5000";
+  const typeParam = logActiveType !== "all" ? `&type=${logActiveType}` : "";
+  const searchEl = $("#log-search");
+  const searchParam = searchEl && searchEl.value ? `&search=${encodeURIComponent(searchEl.value)}` : "";
+
+  try {
+    const res = await fetch(`/api/market-logs/${encodeURIComponent(slug)}?${linesParam}${typeParam}${searchParam}`);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const data = await res.json();
+    logLines = data.logs || [];
+    renderLogLines(logLines);
+    $("#line-count").textContent = `${logLines.length.toLocaleString()} of ${data.total.toLocaleString()} lines`;
+  } catch (e) {
+    const viewer = $("#log-viewer");
+    if (viewer) viewer.innerHTML = `<div class="empty-state">Failed to load: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderLogLines(lines) {
+  const viewer = $("#log-viewer");
+  if (!viewer) return;
+  viewer.innerHTML = "";
+
+  if (lines.length === 0) {
+    viewer.innerHTML = '<div class="empty-state">No log entries match the current filters</div>';
+    return;
+  }
+
+  const searchEl = $("#log-search");
+  const table = document.createElement("table");
+  let count = 0;
+  for (const entry of lines) {
+    count++;
+    const line = entry.text || "";
+    const type = entry.type || "";
+    const tr = document.createElement("tr");
+
+    const tdLn = document.createElement("td");
+    tdLn.className = "ln";
+    tdLn.textContent = count;
+
+    const tdType = document.createElement("td");
+    tdType.className = "type-badge";
+    if (type) {
+      const span = document.createElement("span");
+      span.className = type;
+      span.textContent = type.slice(0, 1).toUpperCase();
+      tdType.appendChild(span);
+    }
+
+    const tdContent = document.createElement("td");
+    tdContent.className = "content";
+    tdContent.textContent = formatLine(line);
+
+    if (searchEl && searchEl.value) {
+      const idx = tdContent.textContent.toLowerCase().indexOf(searchEl.value.toLowerCase());
+      if (idx >= 0) tr.classList.add("highlight");
+    }
+
+    tr.appendChild(tdLn);
+    tr.appendChild(tdType);
+    tr.appendChild(tdContent);
+    table.appendChild(tr);
+  }
+  viewer.appendChild(table);
+}
+
+function formatLine(line) {
+  try {
+    const obj = JSON.parse(line);
+    const time = obj.time ? obj.time.replace("T", " ").slice(0, 23) : "";
+    const msg = obj.msg || obj.message || "";
+    return time ? `${time}  ${msg}` : msg || line;
+  } catch {
+    return line;
+  }
+}
+
+// ── Keyboard shortcut ──────────────────────────────────────────────────────
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement === document.body) {
+    e.preventDefault();
+    const searchEl = $("#log-search");
+    if (searchEl) searchEl.focus();
+  }
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function esc(s) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+// Load scripts dynamically so they don't block initial render
+// ── Speakers ────────────────────────────────────────────────────────────────
+
+let activeView = "markets";
+let allSpeakers = [];
+let pendingVerifications = [];
+
+$("#nav-sidebar").addEventListener("click", (e) => {
+  const a = e.target.closest("a[data-view]");
+  if (!a) return;
+  e.preventDefault();
+  switchView(a.dataset.view);
+});
+
+function switchView(view) {
+  activeView = view;
+  $$("#nav-sidebar a[data-view]").forEach(a => a.classList.remove("active"));
+  const link = $(`#nav-sidebar a[data-view="${view}"]`);
+  if (link) link.classList.add("active");
+
+  if (view === "speakers") {
+    $("#sidebar").style.display = "none";
+    $("#speakers-sidebar").style.display = "flex";
+    $("#main").style.display = "none";
+    $("#speakers-main").style.display = "flex";
+    loadSpeakers();
+    loadVerifications();
+  } else {
+    $("#sidebar").style.display = "flex";
+    $("#speakers-sidebar").style.display = "none";
+    $("#main").style.display = "flex";
+    $("#speakers-main").style.display = "none";
+    loadTabContent();
+  }
+}
+
+async function loadSpeakers() {
+  try {
+    const res = await fetch("/api/voice/library");
+    const data = await res.json();
+    allSpeakers = data.speakers || [];
+    renderSpeakerList(allSpeakers);
+    $("#speaker-count").textContent = `(${allSpeakers.length})`;
+  } catch (e) {
+    $("#speakers-list").innerHTML = `<div style="padding:16px;color:#f85149">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function loadVerifications() {
+  try {
+    const res = await fetch("/api/voice/verifications");
+    const data = await res.json();
+    pendingVerifications = data || [];
+    renderVerifications();
+  } catch (e) {
+    $("#pending-verifications").innerHTML = `<div style="color:#f85149;font-size:12px;padding:12px">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+function renderSpeakerList(speakers) {
+  const query = ($("#speaker-search")?.value || "").toLowerCase();
+  let filtered = speakers;
+  if (query) {
+    filtered = speakers.filter(s => s.slug.toLowerCase().includes(query));
+  }
+
+  const el = $("#speakers-list");
+  el.innerHTML = "";
+  if (filtered.length === 0) {
+    el.innerHTML = `<div style="padding:24px 16px;color:#484f58;font-size:12px;text-align:center;">${query ? 'No speakers match filter' : 'No speakers in library'}</div>`;
+    return;
+  }
+
+  for (const sp of filtered) {
+    const div = document.createElement("div");
+    div.className = "speaker-entry";
+    const vStatus = pendingVerifications.find(v => v.slug === sp.slug);
+    div.innerHTML = `
+      <div class="info">
+        <div class="name">${esc(sp.slug.replace(/-/g, " ").replace(/\b\w/g, c => c.toUpperCase()))}</div>
+        <div class="meta">${sp.totalCount} sample${sp.totalCount !== 1 ? 's' : ''}${vStatus && !vStatus.resolved ? ' • ' + vStatus.pending + ' pending verification' : ''}</div>
+      </div>
+      <div class="actions">
+        <button class="btn-delete" data-slug="${esc(sp.slug)}">Remove</button>
+      </div>
+    `;
+    el.appendChild(div);
+  }
+
+  el.querySelectorAll(".btn-delete").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const slug = btn.dataset.slug;
+      if (!confirm(`Remove all voice samples for "${slug}"?`)) return;
+      try {
+        btn.disabled = true;
+        btn.textContent = "...";
+        const res = await fetch(`/api/voice/library/speaker/${encodeURIComponent(slug)}`, { method: "DELETE" });
+        const data = await res.json();
+        if (data.success) {
+          $("#status-text").textContent = `Deleted ${data.deleted} file(s) for ${slug}`;
+          loadSpeakers();
+        } else {
+          alert(`Failed: ${data.error || "Unknown error"}`);
+        }
+      } catch (e) {
+        alert(`Error: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Remove";
+      }
+    });
+  });
+}
+
+function renderVerifications() {
+  const el = $("#pending-verifications");
+  if (!pendingVerifications.length) {
+    el.innerHTML = `<div style="color:#484f58;font-size:12px;padding:12px">No pending verifications</div>`;
+    return;
+  }
+
+  el.innerHTML = pendingVerifications.map(v => {
+    const cls = v.resolved ? "speaker-verified" : "speaker-pending";
+    const status = v.resolved
+      ? `${v.approved} approved, ${v.rejected} rejected`
+      : `${v.pending} of ${v.segmentCount} pending`;
+    return `<div class="verification-row">
+      <span class="v-name">${esc(v.target)}</span>
+      <span class="v-stats ${cls}">${status}</span>
+      <a class="v-link" href="/voice" target="_blank">Review &rarr;</a>
+    </div>`;
+  }).join("");
+}
+
+(function() {
+  const searchEl = $("#speaker-search");
+  if (searchEl) {
+    searchEl.addEventListener("input", () => renderSpeakerList(allSpeakers));
+  }
+})();
+
+$("#btn-add-speaker")?.addEventListener("click", async () => {
+  const name = $("#add-speaker-name").value.trim();
+  const urlsRaw = $("#add-speaker-urls").value.trim();
+  const fb = $("#add-speaker-feedback");
+
+  if (!name) { fb.className = "feedback err"; fb.textContent = "Speaker name is required"; return; }
+
+  const urls = urlsRaw ? urlsRaw.split("\n").map(l => l.trim()).filter(Boolean) : [];
+  fb.className = "feedback";
+  fb.textContent = "Submitting...";
+
+  try {
+    const btn = $("#btn-add-speaker");
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+
+    const res = await fetch("/api/voice/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ target: name, urls: urls.length > 0 ? urls : undefined }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      fb.className = "feedback ok";
+      const urlInfo = data.urls ? ` with ${data.urls} URL(s)` : "";
+      fb.textContent = `Queued voice sample generation for "${name}"${urlInfo}. Queue depth: ${data.queueDepth}.`;
+      $("#add-speaker-name").value = "";
+      $("#add-speaker-urls").value = "";
+      $("#status-text").textContent = `Speaker "${name}" queued for sample generation`;
+      setTimeout(() => { loadSpeakers(); loadVerifications(); }, 2000);
+    } else {
+      fb.className = "feedback err";
+      fb.textContent = data.error || "Failed";
+    }
+    btn.disabled = false;
+    btn.textContent = "Generate Voice Samples";
+  } catch (e) {
+    fb.className = "feedback err";
+    fb.textContent = `Error: ${e.message}`;
+    const btn = $("#btn-add-speaker");
+    btn.disabled = false;
+    btn.textContent = "Generate Voice Samples";
+  }
+});
+
+setInterval(() => {
+  if (activeView === "speakers") loadVerifications();
+}, 15000);
+
+const CDN_SCRIPTS = [
+  "https://cdn.jsdelivr.net/npm/chart.js",
+  "https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js",
+  "https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.1.0/dist/chartjs-plugin-annotation.min.js",
+  "https://cdn.jsdelivr.net/npm/chartjs-chart-financial@0.2.1/dist/chartjs-chart-financial.min.js",
+];
+let chartsReady = false;
+(function loadCharts(i) {
+  if (i >= CDN_SCRIPTS.length) { chartsReady = true; return; }
+  const s = document.createElement("script");
+  s.src = CDN_SCRIPTS[i];
+  s.onload = () => loadCharts(i + 1);
+  s.onerror = () => loadCharts(i + 1);
+  document.head.appendChild(s);
+})(0);
+
+loadMarketList();
+</script>
+</body>
+</html>

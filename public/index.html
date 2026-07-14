@@ -109,7 +109,7 @@
             width: 100%;
             max-width: 1400px;
             display: grid;
-            grid-template-columns: 1fr 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
             gap: 1.5rem;
         }
 
@@ -174,6 +174,56 @@
             display: flex;
             gap: 0.5rem;
             margin-top: 0.5rem;
+        }
+
+        .status-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .status-dot.running {
+            background: #22c55e;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.pending {
+            background: #f59e0b;
+            box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.stopped {
+            background: #6b7280;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        button.stop-btn {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            padding: 0.25rem 0.6rem;
+            font-size: 0.75rem;
+            border-radius: 0.35rem;
+            font-weight: 500;
+        }
+
+        button.stop-btn:hover {
+            background: rgba(239, 68, 68, 0.4);
         }
 
         input {
@@ -266,7 +316,7 @@
 <body>
     <nav class="sidebar">
         <div class="logo">Kalshi Market Manager</div>
-        <a href="/logs" target="_blank">📋 Logs</a>
+        <a href="/logs" target="_blank">📋 Markets</a>
         <a href="/signals" target="_blank">📈 Signal Dashboard</a>
         <a href="/voice" target="_blank">🎙️ Voice &amp; Data</a>
         <a href="/admin/queues" target="_blank">📊 Queues</a>
@@ -285,6 +335,12 @@
         <section>
             <h2>Started Events 📡</h2>
             <div class="market-list" id="started-list"></div>
+        </section>
+
+        <!-- Previously Run -->
+        <section>
+            <h2>Previously Run &#8635;</h2>
+            <div class="market-list" id="previous-list"></div>
         </section>
 
         <!-- Unmatched Markets -->
@@ -338,6 +394,11 @@
                     <button class="secondary" onclick="clearModalTime()"
                         style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.35rem; background: rgba(239, 68, 68, 0.1); color: #fca5a5;">Clear</button>
                 </div>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <label style="font-size: 0.8rem; color: var(--text-muted); font-weight: 600;">Speaker Entities (comma-separated)</label>
+                <input type="text" id="modal-entities" placeholder="e.g. Donald Trump, JD Vance">
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 0.5rem;">
@@ -520,25 +581,44 @@
 
                 const allActive = (data.manual || []).concat((data.matched || []).filter(m => !(data.manual || []).find(man => man.market.slug === m.market.slug)));
 
+                const unmatchedFiltered = (data.unmatched || []).filter(m => !(data.manual || []).find(man => man.market.slug === m.market.slug));
+
+                // Fetch process statuses for all slugs in parallel
+                const allSlugs = [...new Set([...allActive, ...unmatchedFiltered].map(m => m.market.slug))];
+                const statuses = {};
+                await Promise.all(allSlugs.map(async (slug) => {
+                    try {
+                        const sres = await fetch(`/api/market/${encodeURIComponent(slug)}/status`);
+                        if (sres.ok) statuses[slug] = await sres.json();
+                    } catch (e) {
+                        statuses[slug] = { slug, running: false, pending: false, previouslyRun: false, local: null, queue: {} };
+                    }
+                }));
+
                 const now = new Date();
                 const upcoming = [];
                 const started = [];
+                const previous = [];
 
                 allActive.forEach(m => {
+                    const st = statuses[m.market.slug];
+                    const isPrevRun = st && st.previouslyRun;
+                    const isActive = st && (st.running || st.pending);
                     const d = getEventDate(m.startTime, m.market.eventStartTime);
-                    if (!d) {
-                        // Events without specified start times are treated as upcoming so they aren't lost
-                        upcoming.push(m);
-                    } else if (d > now) {
+
+                    if (isPrevRun && !isActive) {
+                        previous.push(m);
+                    } else if (!d || d > now) {
                         upcoming.push(m);
                     } else {
                         started.push(m);
                     }
                 });
 
-                renderList("upcoming-list", upcoming);
-                renderList("started-list", started);
-                renderUnmatched((data.unmatched || []).filter(m => !(data.manual || []).find(man => man.market.slug === m.market.slug)));
+                renderList("upcoming-list", upcoming, statuses);
+                renderList("started-list", started, statuses);
+                renderList("previous-list", previous, statuses);
+                renderUnmatched(unmatchedFiltered, statuses);
 
                 document.getElementById("status").textContent = `Sync: ${new Date().toLocaleTimeString()}`;
             } catch (err) {
@@ -547,7 +627,7 @@
             }
         }
 
-        function renderList(id, markets) {
+        function renderList(id, markets, statuses) {
             const container = document.getElementById(id);
             container.innerHTML = "";
             markets.sort((a, b) => {
@@ -576,6 +656,24 @@
                     ? m.market.speakerEntities.join(", ")
                     : null;
 
+                const st = statuses && statuses[m.market.slug];
+                const isRunning = st && st.running;
+                const isPending = st && st.pending;
+                let statusDot, statusText, stopBtn;
+                if (isRunning) {
+                    statusDot = '<span class="status-dot running" title="Process running"></span>';
+                    statusText = 'Running';
+                    stopBtn = `<button class="stop-btn" onclick="stopProcess('${m.market.slug}')">Stop</button>`;
+                } else if (isPending) {
+                    statusDot = '<span class="status-dot pending" title="Scheduled, not started"></span>';
+                    statusText = 'Scheduled';
+                    stopBtn = '';
+                } else {
+                    statusDot = '<span class="status-dot stopped" title="No process"></span>';
+                    statusText = 'Stopped';
+                    stopBtn = '';
+                }
+
                 card.innerHTML = `
                     <div class="market-title">${m.market.title}</div>
                     <div class="market-meta">
@@ -585,6 +683,7 @@
                     </div>
                     ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
                     <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
+                    <div class="status-row">${statusDot} ${statusText} ${stopBtn}</div>
                     <div class="market-actions">
                         <button class="secondary" onclick="openEditModal('${m.market.slug}', '${streamUrl}')">Edit</button>
                         ${m.manual ? `<button class="danger" onclick="removeManual('${m.market.slug}')">Revert</button>` : ''}
@@ -595,7 +694,7 @@
             });
         }
 
-        function renderUnmatched(markets) {
+        function renderUnmatched(markets, statuses) {
             const container = document.getElementById("unmatched-list");
             container.innerHTML = "";
 
@@ -633,6 +732,24 @@
                     } catch (e) { }
                 }
 
+                const st = statuses && statuses[m.market.slug];
+                const isRunning = st && st.running;
+                const isPending = st && st.pending;
+                let statusDot, statusText, stopBtn;
+                if (isRunning) {
+                    statusDot = '<span class="status-dot running" title="Process running"></span>';
+                    statusText = 'Running';
+                    stopBtn = `<button class="stop-btn" onclick="stopProcess('${m.market.slug}')">Stop</button>`;
+                } else if (isPending) {
+                    statusDot = '<span class="status-dot pending" title="Scheduled, not started"></span>';
+                    statusText = 'Scheduled';
+                    stopBtn = '';
+                } else {
+                    statusDot = '<span class="status-dot stopped" title="No process"></span>';
+                    statusText = 'Stopped';
+                    stopBtn = '';
+                }
+
                 card.innerHTML = `
                     <div class="market-title">${m.market.title}</div>
                     <div class="market-meta">
@@ -640,6 +757,7 @@
                     </div>
                     ${entities ? `<div class="market-meta">Entities: <strong>${entities}</strong></div>` : ''}
                     <div class="market-meta" style="word-break: break-all;" title="${streamUrl}">Source: <a href="${streamUrl}" target="_blank" style="color: var(--accent); text-decoration: none;"><strong>${channelName}</strong></a></div>
+                    <div class="status-row">${statusDot} ${statusText} ${stopBtn}</div>
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem;">
                         <input type="text" placeholder="Paste Stream URL" id="stream-${m.market.slug}">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
@@ -719,6 +837,22 @@
             fetchMarkets();
         }
 
+        async function stopProcess(slug) {
+            if (!confirm(`Stop the running process for "${slug}"?`)) return;
+            try {
+                const res = await fetch(`/api/market/${encodeURIComponent(slug)}/stop`, { method: "POST" });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.error || "Failed to stop process");
+                    return;
+                }
+                alert(`Process stopped:\n${data.results.join("\n")}`);
+                fetchMarkets();
+            } catch (e) {
+                alert(`Error stopping process: ${e.message}`);
+            }
+        }
+
         async function openEditModal(slug, currentUrl) {
             activeEditSlug = slug;
             const res = await fetch("/api/markets");
@@ -746,6 +880,11 @@
             const duration = item.market.duration;
             document.getElementById("modal-duration").value = duration ? duration : "";
 
+            const entities = (item.market.speakerEntities && Array.isArray(item.market.speakerEntities))
+                ? item.market.speakerEntities.join(", ")
+                : "";
+            document.getElementById("modal-entities").value = entities;
+
             const modal = document.getElementById("edit-modal");
             modal.style.display = "flex";
             modal.offsetHeight; // force reflow
@@ -771,6 +910,11 @@
             const newTime = document.getElementById("modal-time").value;
             const durationVal = document.getElementById("modal-duration").value;
             const duration = durationVal ? parseInt(durationVal, 10) : null;
+
+            const entitiesRaw = document.getElementById("modal-entities").value.trim();
+            const speakerEntities = entitiesRaw
+                ? entitiesRaw.split(",").map(s => s.trim()).filter(Boolean)
+                : null;
 
             const res = await fetch("/api/markets");
             const data = await res.json();
@@ -800,7 +944,8 @@
                     market: item.market,
                     mediaStreamURL: url,
                     startTime: startTime,
-                    duration: duration
+                    duration: duration,
+                    speakerEntities: speakerEntities
                 })
             });
 

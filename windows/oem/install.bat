@@ -37,10 +37,10 @@ REM This ensures system audio is routed to the virtual cable
 powershell -NoProfile -Command ^
   "Add-Type -AssemblyName System.Windows.Forms; $ws = New-Object System.Management.ManagementClass('Win32_SoundDevice'); $devices = $ws.GetInstances(); $cable = $devices | Where-Object { $_.Name -like '*CABLE*' }; if ($cable) { Write-Host 'VB-Cable found' } else { Write-Host 'WARNING: VB-Cable not found' }"
 
-REM ── Set up watchdog scheduled task (runs at startup) ─────────────
-REM Watches C:\Shared\url.txt and launches Chrome + audio capture
+REM ── Set up on-start scheduled task ──────────────────────────────
+REM Runs on_windows_start.ps1 on every Windows boot
 schtasks /Create /TN "KalshiWatchdog" /SC ONSTART /DELAY 0000:30 ^
-  /TR "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Shared\watchdog.ps1" ^
+  /TR "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\Users\Docker\Desktop\Shared\on_windows_start.ps1" ^
   /RU "Docker" /RP "admin" /F /RL HIGHEST
 
 REM ── Disable sleep / screen timeout ───────────────────────────────

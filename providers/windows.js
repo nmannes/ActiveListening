@@ -22,8 +22,9 @@ const WebSocket = require("ws");
 const DATA_DIR = process.env.KALSHI_DATA_DIR || path.join(__dirname, "..");
 const LOCK_DIR = path.join(DATA_DIR, "locks");
 const SHARED_DIR = path.join(__dirname, "..", "windows", "shared");
-const PCM_FILE = path.join(SHARED_DIR, "audio.pcm");
-const TEMP_FILE = path.join(SHARED_DIR, "audio.tmp.pcm");
+const TMP_DIR = path.join(SHARED_DIR, "tmp");
+const PCM_FILE = path.join(TMP_DIR, "audio.pcm");
+const TEMP_FILE = path.join(TMP_DIR, "audio.tmp.pcm");
 const VM_LOCK_FILE = path.join(LOCK_DIR, "windows-vm.lock");
 
 let ffmpegProc = null;
@@ -288,8 +289,22 @@ module.exports = {
     // Acquire exclusive VM lock before touching anything
     acquireVMLock(market.slug);
 
-    // Create shared directory (docker volume mount point) if missing
-    fs.mkdirSync(SHARED_DIR, { recursive: true });
+    // Create shared tmp directory for runtime files
+    fs.mkdirSync(TMP_DIR, { recursive: true });
+
+    // Write market info to shared folder so the Windows VM has access
+    const marketJsonPath = path.join(TMP_DIR, "market.json");
+    const streamJsonPath = path.join(TMP_DIR, "stream.json");
+    fs.writeFileSync(marketJsonPath, JSON.stringify(market, null, 2));
+    _logger.info(`[windows] Wrote market.json for ${market.slug}`);
+
+    const streamJob = {
+      url: streamUrl,
+      title: market.title,
+      slug: market.slug,
+    };
+    fs.writeFileSync(streamJsonPath, JSON.stringify(streamJob));
+    _logger.info(`[windows] Wrote stream.json (url: ${streamUrl})`);
 
     // Start the Windows VM container if it's not already running
     ensureVmRunning();
@@ -328,6 +343,21 @@ module.exports = {
       _dockerLogsProc.kill();
       _dockerLogsProc = null;
     }
+
+    // Archive non-PCM session files
+    try {
+      const now = new Date().toISOString().replace(/[:.]/g, "-");
+      const archiveDir = path.join(require("os").homedir(), "vm-archive", now);
+      fs.mkdirSync(archiveDir, { recursive: true });
+      for (const name of ["market.json", "stream.json", "status.txt", "stop.txt", "audio.tmp.pcm", "audio.pcm"]) {
+        const src = path.join(TMP_DIR, name);
+        if (fs.existsSync(src)) {
+          fs.renameSync(src, path.join(archiveDir, name));
+        }
+      }
+      _logger?.info(`[windows] Archived session to ${archiveDir}`);
+    } catch (_) { /* best effort */ }
+
     releaseVMLock();
     _logger?.info("[windows] Provider stopped.");
   },
