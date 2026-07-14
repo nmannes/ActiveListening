@@ -26,6 +26,12 @@ from pylib.prompt_templates import (
 logger = logging.getLogger("remote_server")
 from pylib.telegram import send_telegram, send_telegram_audio
 
+# If no reference meets the primary similarity threshold (0.65), we still
+# accept a match when the *best*-scoring reference belongs to the target
+# entity and its score is at least this floor.  Guards against noisy audio
+# while preventing nonsense matches from tiny or irrelevant libraries.
+FALLBACK_THRESHOLD = 0.40
+
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
 
@@ -472,6 +478,25 @@ class SpeakerRecognitionSession:
                 logger.debug(f"[{self.session_id}] Matches: {matches}. Market slugs: {list(entity_slugs.keys())}")
             else:
                 logger.debug(f"[{self.session_id}] No match above threshold for speaker {speaker_id}")
+                # Fallback: if no reference meets the primary threshold, check
+                # whether the *best*-scoring reference belongs to a target
+                # entity and clears a lower floor.  Degraded audio can weaken
+                # the embedding similarity without destroying the signal.
+                if scores:
+                    best_name = max(scores, key=scores.get)
+                    best_score = scores[best_name]
+                    for slug, entity in entity_slugs.items():
+                        if (best_name == slug or best_name.startswith(slug + '-')
+                                or best_name.startswith(slug + '_')):
+                            if best_score >= FALLBACK_THRESHOLD:
+                                logger.info(
+                                    f"[{self.session_id}] Fallback match: "
+                                    f"speaker {speaker_id} best={best_name} "
+                                    f"score={best_score:.3f} (below primary "
+                                    f"threshold but >= floor {FALLBACK_THRESHOLD})"
+                                )
+                                matches = [best_name]
+                            break
 
             # Only accept if a match is one of our market entities
             # (prefix match: "donald-trump-debate" matches entity slug "donald-trump")
