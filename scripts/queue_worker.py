@@ -16,7 +16,7 @@ import shutil
 import signal
 import subprocess
 import sys
-import tempfile
+
 import time
 from pathlib import Path
 
@@ -47,6 +47,7 @@ from scripts.generate_samples import (
     search_and_download,
     download_from_urls,
     AUDIO_LIBRARY,
+    PENDING_DIR,
     CALLBACK_PREFIX,
 )
 
@@ -163,7 +164,8 @@ async def _process_sample_generation(job, job_token, progress=None):
 
     progress.update({"stage": "downloading"})
 
-    work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{slug}_"))
+    work_dir = PENDING_DIR / f"{slug}_{os.urandom(4).hex()}"
+    work_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"[{job_id}] Working directory: {work_dir}")
 
     try:

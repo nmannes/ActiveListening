@@ -1483,13 +1483,34 @@ app.post("/api/voice/reject-all/:slug", async (req, res) => {
 
 app.post("/api/voice/clear-all", async (req, res) => {
     try {
+        // 1. Clear Redis verification state
         const keys = await connection.keys("verify:*");
         let deletedCount = 0;
         for (const key of keys) {
             const result = await connection.del(key);
             deletedCount += result;
         }
-        res.json({ success: true, deletedKeys: deletedCount, totalKeys: keys.length });
+
+        // 2. Nuke pending-identifications work directories
+        const pendingDir = path.join(require("os").homedir(), "pending-identifications");
+        let pendingRemoved = 0;
+        if (fs.existsSync(pendingDir)) {
+            const entries = fs.readdirSync(pendingDir);
+            for (const entry of entries) {
+                const entryPath = path.join(pendingDir, entry);
+                if (!entry.includes("..")) {
+                    fs.rmSync(entryPath, { recursive: true, force: true });
+                    pendingRemoved++;
+                }
+            }
+        }
+
+        res.json({
+            success: true,
+            deletedKeys: deletedCount,
+            totalKeys: keys.length,
+            pendingRemoved,
+        });
     } catch (e) {
         console.error(`Error in clear-all: ${e.message}`);
         res.status(500).json({ error: e.message });

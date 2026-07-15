@@ -32,7 +32,7 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
+
 import time
 from pathlib import Path
 
@@ -74,6 +74,7 @@ logger = logging.getLogger("generate_samples")
 
 AUDIO_LIBRARY = Path("~/audio-library").expanduser()
 NEGATIVE_AUDIO_LIBRARY = Path("~/negative-audio-library").expanduser()
+PENDING_DIR = Path("~/pending-identifications").expanduser()
 TRUST_FILE = AUDIO_LIBRARY / "trust.json"
 CALLBACK_PREFIX = "gs"  # short prefix to save callback_data bytes
 LOCK_FILE = Path("/tmp/generate_samples.lock")
@@ -1150,7 +1151,8 @@ async def main():
     )
 
     # Work in a temp directory
-    work_dir = Path(tempfile.mkdtemp(prefix=f"samples_{generator.slug}_"))
+    work_dir = PENDING_DIR / f"{generator.slug}_{os.urandom(4).hex()}"
+    work_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Working directory: {work_dir}")
 
     # Check if we already have enough samples for this person
