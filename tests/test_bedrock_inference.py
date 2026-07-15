@@ -98,26 +98,27 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         mock_wav_path.name = "speaker_0.wav"
         mock_wav_path.stem = "speaker_0"
         mock_wav_path.absolute.return_value = mock_wav_path
-        
+        mock_wav_path.stat.return_value.st_size = 16000  # bytes
+
         mock_audio_dir.glob.return_value = [mock_wav_path]
         mock_audio_processor._audio_dir = mock_audio_dir
         session.audio_processor = mock_audio_processor
-        
+
         # Mock SpeakerIdentifier
         mock_identifier = MagicMock()
         mock_identifier._ready = True
         mock_identifier.references = {"wes-moore": None}  # matches entity slug so audio path is taken
         mock_identifier.identify_file = AsyncMock(return_value=(["wes-moore"], {"wes-moore": 0.85}))
         session.server.speaker_identifier = mock_identifier
-        
+
         # Mock websocket
         mock_websocket = AsyncMock()
         session.websocket = mock_websocket
-        
+
         # Mock trade_processor
         mock_trade_processor = MagicMock()
         session.trade_processor = mock_trade_processor
-        
+
         rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
         
         # We patch send_telegram in pylib.speaker_recognition so it doesn't try to call actual telegram API
@@ -213,6 +214,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         mock_wav_path.name = "speaker_0.wav"
         mock_wav_path.stem = "speaker_0"
         mock_wav_path.absolute.return_value = mock_wav_path
+        mock_wav_path.stat.return_value.st_size = 16000  # bytes
 
         mock_audio_dir.glob.return_value = [mock_wav_path]
         mock_audio_processor._audio_dir = mock_audio_dir
@@ -234,6 +236,86 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         session.trade_processor = mock_trade_processor
 
         return session
+
+    # ── is_audio_mode ────────────────────────────────────────────────
+
+    def test_is_audio_mode_true_when_voice_sample_exists(self):
+        """is_audio_mode returns True when a market entity has a voice sample."""
+        session = self._make_audio_session()
+        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
+        self.assertTrue(rec_session.is_audio_mode)
+
+    def test_is_audio_mode_false_when_no_voice_sample(self):
+        """is_audio_mode returns False when no market entity has a voice sample."""
+        session = MockSession()
+        # MockIdentifier has empty references dict
+        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
+        self.assertFalse(rec_session.is_audio_mode)
+
+    def test_is_audio_mode_false_when_identifier_is_none(self):
+        """is_audio_mode returns False when speaker_identifier is None."""
+        session = MockSession()
+        session.server.speaker_identifier = None
+        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
+        self.assertFalse(rec_session.is_audio_mode)
+
+    # ── WAV growth re-identification ─────────────────────────────────
+
+    async def test_reidentify_when_wav_grows_by_50_percent(self):
+        """Speaker should be re-identified when their WAV grows >= 50%."""
+        session = self._make_audio_session()
+
+        with patch("pylib.speaker_recognition.send_telegram"), \
+             patch("pylib.speaker_recognition.send_telegram_audio"):
+            rec_session = SpeakerRecognitionSession(
+                session, ["Wes Moore"],
+                speaker_identifier=session.server.speaker_identifier,
+            )
+
+            # Round 1: identify speaker 0 (file size: 16000 bytes)
+            await rec_session.run_identity_inference()
+            self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
+
+            # Simulate WAV growth: 16000 -> 32000 bytes (100% growth)
+            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 32000
+
+            # Round 2: WAV grew by >= 50%, speaker should be re-identified
+            # Change the match to verify re-identification actually ran
+            session.server.speaker_identifier.identify_file.return_value = (
+                ["wes-moore"], {"wes-moore": 0.92}
+            )
+            await rec_session.run_identity_inference()
+            # Still labeled, and identify_file was called again (2nd call)
+            self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
+            self.assertEqual(
+                session.server.speaker_identifier.identify_file.call_count, 2
+            )
+
+    async def test_skip_when_wav_has_not_grown_enough(self):
+        """Speaker should NOT be re-identified when WAV growth < 50%."""
+        session = self._make_audio_session()
+
+        with patch("pylib.speaker_recognition.send_telegram"), \
+             patch("pylib.speaker_recognition.send_telegram_audio"):
+            rec_session = SpeakerRecognitionSession(
+                session, ["Wes Moore"],
+                speaker_identifier=session.server.speaker_identifier,
+            )
+
+            # Round 1: identify speaker 0 (file size: 16000 bytes)
+            await rec_session.run_identity_inference()
+            self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
+
+            # Simulate small WAV growth: 16000 -> 20000 bytes (25% growth)
+            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 20000
+
+            # Round 2: WAV grew by only 25%, speaker should be skipped
+            await rec_session.run_identity_inference()
+            # identify_file should still have been called only once
+            self.assertEqual(
+                session.server.speaker_identifier.identify_file.call_count, 1
+            )
+
 
 class TestInferencePolicy(unittest.TestCase):
     def test_defaults(self):

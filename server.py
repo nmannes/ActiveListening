@@ -303,7 +303,10 @@ class ClientSession:
                 await asyncio.sleep(policy.interval_secs)
 
                 elapsed = time.time() - loop_start
-                if policy.is_duration_exceeded(elapsed):
+                # Duration cap only gates transcript-based (Bedrock) inference.
+                # Audio identification is cheap and must run for the full event
+                # — the target speaker may not appear until well into the broadcast.
+                if not self.speaker_recognition_session.is_audio_mode and policy.is_duration_exceeded(elapsed):
                     if not inference_stopped:
                         inference_stopped = True
                         logger.info(f"[{self.session_id}] Speaker inference stopped after {elapsed:.0f}s — sticking with current identifications")

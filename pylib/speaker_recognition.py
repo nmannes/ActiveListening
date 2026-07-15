@@ -233,6 +233,9 @@ class SpeakerRecognitionSession:
 
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
+        # Track WAV file size at last identification so we can re-identify
+        # when Deepgram appends a different speaker's audio to the same ID.
+        self._speaker_file_sizes: Dict[str, int] = {}
 
         from pylib.speaker_policy import InferencePolicy
         self.policy = InferencePolicy.for_entities(market_entities, speaker_identifier)
@@ -284,6 +287,23 @@ class SpeakerRecognitionSession:
             return int(delta) + 60  # pad for overrun
         except ValueError:
             return 5400
+
+    @property
+    def is_audio_mode(self) -> bool:
+        """True when we have voice samples for at least one market entity.
+
+        Audio identification is cheap (embedding comparison) and should run
+        for the full event duration — speakers may not appear until later.
+        """
+        identifier = self.listening_session.server.speaker_identifier
+        if not identifier:
+            return False
+        entity_slugs = {e.replace(" ", "-").lower(): e for e in self.market_entities}
+        return any(
+            key == slug or key.startswith(slug + "-") or key.startswith(slug + "_")
+            for slug in entity_slugs
+            for key in identifier.references
+        )
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
@@ -470,10 +490,28 @@ class SpeakerRecognitionSession:
             # Extract speaker ID from filename: "speaker_0.wav" -> "0"
             speaker_id = wav_path.stem.replace("speaker_", "")
 
-            # Skip speakers already labeled
+            # Re-identify already-labeled speakers when their WAV has grown
+            # substantially.  Deepgram can merge a late-arriving speaker into
+            # an existing diarization ID, so a label from early audio may be
+            # stale once the file contains a different voice.
+            current_size = wav_path.stat().st_size
+            prev_size = self._speaker_file_sizes.get(speaker_id, 0)
+            self._speaker_file_sizes[speaker_id] = current_size
+
             if speaker_id in self.profile_labels:
-                logger.debug(f"[{self.session_id}] Speaker {speaker_id} already labeled as '{self.profile_labels[speaker_id]}', skipping")
-                continue
+                if prev_size > 0 and current_size >= prev_size * 1.5:
+                    logger.info(
+                        f"[{self.session_id}] Speaker {speaker_id} WAV grew "
+                        f"{prev_size} -> {current_size} bytes — re-identifying"
+                    )
+                    del self.profile_labels[speaker_id]
+                    # Fall through to identification below.
+                else:
+                    logger.debug(
+                        f"[{self.session_id}] Speaker {speaker_id} already "
+                        f"labeled as '{self.profile_labels[speaker_id]}', skipping"
+                    )
+                    continue
 
             logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
             matches, scores = await identifier.identify_file(wav_path)
