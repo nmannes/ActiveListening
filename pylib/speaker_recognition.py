@@ -243,6 +243,11 @@ class SpeakerRecognitionSession:
             duration = self._event_duration_secs(listening_session)
             self.policy = InferencePolicy.live_event_mode(max_duration_secs=duration)
 
+        # Earnings calls: scan frequently (every 100 words) for 20 minutes
+        if "earnings" in title:
+            self.policy.word_step = 100
+            self.policy.max_duration_secs = 1200
+
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
         )
@@ -325,7 +330,9 @@ class SpeakerRecognitionSession:
                 self.policy.record_result(mapping, self.market_entities)
             return
 
-        # Earnings calls: auto-allowlist any speaker with >=100 words
+        # Earnings calls: auto-allowlist any speaker with >=100 words.
+        # Don't stabilize early — keep scanning for the full policy duration
+        # (10 min) so late-joining speakers are picked up.
         market = getattr(self.listening_session, "market", {}) or {}
         title = market.get("title", "").lower()
         if "earnings" in title:
@@ -336,7 +343,6 @@ class SpeakerRecognitionSession:
                             if hasattr(self.listening_session, "trade_processor"):
                                 self.listening_session.trade_processor.add_trading_speaker(sid)
                                 logger.info(f"[{self.session_id}] Earnings call: auto-allowlisted speaker {sid} ({len(tokens)} words)")
-                self.policy._stable = True
             return
 
         # Access transcript from session
