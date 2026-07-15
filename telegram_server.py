@@ -355,49 +355,17 @@ async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _terminate_ec2_instance(slug):
     """Find and destroy the EC2 instance + CloudFormation stack for slug."""
 
-    def _run_aws():
+    def _run_script():
         result = subprocess.run(
-            [
-                "aws", "ec2", "describe-instances",
-                "--region", "us-east-1",
-                "--filters",
-                f"Name=tag:Event,Values={slug}",
-                "Name=instance-state-name,Values=running,pending",
-                "--query",
-                "Reservations[*].Instances[*].[InstanceId,Tags[?Key=='Name'].Value|[0]]",
-                "--output", "json",
-            ],
-            capture_output=True, text=True, timeout=15,
+            ["./scripts/terminate_ec2.sh", slug],
+            capture_output=True, text=True, timeout=120,
         )
         if result.returncode != 0:
-            return False, f"aws ec2 error: {result.stderr[:200]}"
-
-        data = json.loads(result.stdout)
-        if not data:
-            return False, f"No running EC2 instance found for `{slug}`"
-
-        instance_id, stack_name = data[0]
-        if not stack_name:
-            return False, f"Instance {instance_id} missing Name tag"
-
-        result2 = subprocess.run(
-            [
-                "aws", "cloudformation", "delete-stack",
-                "--region", "us-east-1",
-                "--stack-name", stack_name,
-            ],
-            capture_output=True, text=True, timeout=15,
-        )
-        if result2.returncode != 0:
-            err = result2.stderr[:300]
-            if "does not exist" in err or "DELETE_IN_PROGRESS" in err:
-                return True, f"Stack `{stack_name}` already being deleted"
-            return False, f"Failed to delete stack `{stack_name}`: {err}"
-
-        return True, f"Terminated EC2 instance `{instance_id}` (stack `{stack_name}`)"
+            return False, f"terminate_ec2.sh error: {result.stderr[:200]}"
+        return True, result.stdout.strip() or "Terminated"
 
     try:
-        return await asyncio.to_thread(_run_aws)
+        return await asyncio.to_thread(_run_script)
     except Exception as e:
         return False, f"EC2 termination error: {e}"
 
