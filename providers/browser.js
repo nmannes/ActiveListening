@@ -103,7 +103,7 @@ function setupAudioTranscoder(inputUrl = "pipe:0", retryCount = 0) {
 }
 
 // ── Browser Capture Logic ────────────────────────────────────────────
-async function runBrowserCapture() {
+async function runBrowserCapture(market) {
   _logger.info(`[browser] Launching Puppeteer...`);
 
   const executablePaths = [
@@ -375,7 +375,7 @@ module.exports = {
       return;
     }
 
-    const result = await runBrowserCapture();
+    const result = await runBrowserCapture(market);
     if (typeof result === "string") {
       _logger.info(
         `[browser] Starting transcoder with extracted m3u8 stream...`,
