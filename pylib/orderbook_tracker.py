@@ -63,6 +63,11 @@ class OrderbookTracker:
             return None
         return max(book.yes.keys()) / 100.0
 
+    def appears_resolved_no(self, ticker: str) -> bool:
+        """True if the YES bid is missing or <= 1 cent — market looks settled to NO."""
+        bid = self.get_best_yes_bid(ticker)
+        return bid is None or bid <= 0.01
+
     def has_book(self, ticker: str) -> bool:
         return ticker in self._books
 
