@@ -171,6 +171,27 @@ class KalshiClient:
             # buy NO -> sell YES (ask) at 1 - price
             return ("ask", f"{(100 - price_cents) / 100:.2f}")
 
+    def get_ws_auth_headers(self) -> dict:
+        """Create auth headers for the Kalshi WebSocket connection."""
+        path = "/trade-api/ws/v2"
+        current_time_milliseconds = int(time.time() * 1000)
+        timestamp_str = str(current_time_milliseconds)
+        msg_string = timestamp_str + "GET" + path
+        message = msg_string.encode("utf-8")
+        signature = self.private_key.sign(
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH
+            ),
+            hashes.SHA256(),
+        )
+        signature_b64 = base64.b64encode(signature).decode("utf-8")
+        return {
+            "KALSHI-ACCESS-KEY": self.key_id,
+            "KALSHI-ACCESS-SIGNATURE": signature_b64,
+            "KALSHI-ACCESS-TIMESTAMP": timestamp_str,
+        }
+
     def _post_order(self, params: dict) -> requests.Response:
         path = "/portfolio/events/orders"
         url = self.base_url + path

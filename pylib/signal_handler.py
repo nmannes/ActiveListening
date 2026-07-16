@@ -82,6 +82,16 @@ class SignalHandler:
             )
             return
 
+        tracker = getattr(self.session, "orderbook_tracker", None)
+        if tracker is not None:
+            best_ask = tracker.get_best_yes_ask(match["value"])
+            min_price = self.session.server.config.min_yes_ask_price
+            if best_ask is not None and best_ask <= min_price:
+                logger.info(
+                    f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" ({match['value']}) — best YES ask ${best_ask:.2f} <= ${min_price:.2f} (market likely resolved)"
+                )
+                return
+
         self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"))
 
     def _send_signal_telegram(self, match: dict, speaker_id: str):

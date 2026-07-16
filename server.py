@@ -39,6 +39,7 @@ from pylib.speaker_recognition import SpeakerRecognitionSession
 from pylib.speaker_identifier import SpeakerIdentifier
 
 from pylib.word_prediction import WordPredictor
+from pylib.orderbook_tracker import OrderbookTracker
 
 from pylib.log_config import setup_logging, run_uuid_var, set_run_uuid
 from pylib.telegram import send_telegram
@@ -108,7 +109,9 @@ class Config:
                 break
 
         self.trade_for_real = os.environ.get("TRADE_FOR_REAL", None) is not None
+        self.kalshi_environment = self.env
         self.min_confidence = float(os.environ.get("MIN_CONFIDENCE", "0.80"))
+        self.min_yes_ask_price = float(os.environ.get("MIN_YES_ASK_PRICE", "0.02"))
         logger.info(f"Environment: {self.env}")
         logger.info(f"Trading enabled: {self.trade_for_real}")
         logger.info(f"Min confidence: {self.min_confidence}")
@@ -144,6 +147,9 @@ class ClientSession:
 
         self.audio_task = None
         # self.frame_task = None  # CLIP disabled
+
+        self.orderbook_tracker = None
+        self.orderbook_task = None
 
         self.predictor: Optional[WordPredictor] = None
 
@@ -258,6 +264,19 @@ class ClientSession:
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
 
+        tickers = list(self.market.get("keywords", {}).values())
+        if tickers:
+            self.orderbook_tracker = OrderbookTracker(
+                tickers=tickers,
+                kalshi=self.server.kalshi,
+                environment=self.server.config.kalshi_environment,
+            )
+            self.orderbook_task = asyncio.create_task(self.orderbook_tracker.run())
+            logger.info(f"[{self.session_id}] Orderbook tracker started for {len(tickers)} tickers")
+        else:
+            self.orderbook_tracker = None
+            self.orderbook_task = None
+
         logger.info(
             f"[{self.session_id}] Session ready — receiving audio over WebSocket"
         )
@@ -340,6 +359,10 @@ class ClientSession:
             self.speaker_task.cancel()
         if self.predictor:
             asyncio.create_task(self.predictor.stop())
+        if self.orderbook_tracker:
+            self.orderbook_tracker.stop()
+        if self.orderbook_task:
+            self.orderbook_task.cancel()
 
 
 class TradingServer:
