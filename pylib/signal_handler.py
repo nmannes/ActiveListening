@@ -69,6 +69,10 @@ class SignalHandler:
             logger.info(
                 f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {match['key']}, because dollarAmount is {dollar_amount}"
             )
+            msg = f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" — dollarAmount is {dollar_amount}"
+            asyncio.get_running_loop().run_in_executor(
+                None, send_telegram, msg, "debug"
+            )
             return
 
         word_confidence = match.get("min_confidence", token.get("confidence", 0))
@@ -89,6 +93,21 @@ class SignalHandler:
             if best_ask is not None and best_ask <= min_price:
                 logger.info(
                     f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" ({match['value']}) — best YES ask ${best_ask:.2f} <= ${min_price:.2f} (market likely resolved)"
+                )
+                msg = f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" ({match['value']}) — best YES ask ${best_ask:.2f} <= ${min_price:.2f} (market likely resolved)"
+                asyncio.get_running_loop().run_in_executor(
+                    None, send_telegram, msg, "debug"
+                )
+                return
+            if tracker.appears_resolved_no(match["value"]):
+                best_bid = tracker.get_best_yes_bid(match["value"])
+                bid_str = f"${best_bid:.2f}" if best_bid is not None else "None"
+                logger.info(
+                    f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" ({match['value']}) — market appears resolved NO (best YES bid: {bid_str})"
+                )
+                msg = f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" ({match['value']}) — market appears resolved NO (best YES bid: {bid_str})"
+                asyncio.get_running_loop().run_in_executor(
+                    None, send_telegram, msg, "debug"
                 )
                 return
 
@@ -127,6 +146,10 @@ class SignalHandler:
     def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None):
         logger.info(
             f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount})"
+        )
+        msg = f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount})"
+        asyncio.get_running_loop().run_in_executor(
+            None, send_telegram, msg, "debug"
         )
         order_result = self._place_order(match, dollar_amount)
         if order_result is None:
