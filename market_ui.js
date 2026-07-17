@@ -122,12 +122,20 @@ app.get("/api/markets", (req, res) => {
         const unmatched = readJsonFile(UNMATCHED_PATH);
         const manual = readJsonFile(MANUAL_MATCHES_PATH);
 
-        const scheduledSlugs = new Set(
-            fs.readdirSync(path.join(DATA_DIR, "scheduled"))
-                .filter(f => f.endsWith(".json"))
-                .map(f => f.replace(".json", ""))
-        );
-
+        const scheduledDir = path.join(DATA_DIR, "scheduled");
+        const scheduledData = new Map();
+        if (fs.existsSync(scheduledDir)) {
+            for (const f of fs.readdirSync(scheduledDir)) {
+                if (!f.endsWith(".json")) continue;
+                const slug = f.replace(".json", "");
+                try {
+                    const sched = readJsonFile(path.join(scheduledDir, f));
+                    scheduledData.set(slug, sched);
+                } catch (e) {
+                    scheduledData.set(slug, {});
+                }
+            }
+        }
         function getStreamInfo(m) {
             // Priority 1: Market defined URL (often from manual override or market metadata)
             if (m.market.mediaStreamURL) {
@@ -173,13 +181,17 @@ app.get("/api/markets", (req, res) => {
         const enrich = (m) => {
             const streamInfo = getStreamInfo(m);
             const duration = m.duration != null ? m.duration : getDuration(m.market, m);
+            const sched = scheduledData.get(m.market.slug);
+            const scheduledStartTime = sched?.eventStartTime || null;
             return {
                 ...m,
+                startTime: m.startTime || scheduledStartTime,
                 market: {
                     ...m.market,
+                    eventStartTime: m.market.eventStartTime || scheduledStartTime,
                     mediaStreamURL: m.market.mediaStreamURL || streamInfo.url,
                     channelName: streamInfo.name,
-                    isScheduled: scheduledSlugs.has(m.market.slug),
+                    isScheduled: scheduledData.has(m.market.slug),
                     duration,
                     kalshiUrl: `${KALSHI_BASE_URL}/markets/${m.market.slug}`,
                 }
