@@ -42,6 +42,8 @@ if (!fs.existsSync(DATA_ENTRIES_PATH)) fs.writeFileSync(DATA_ENTRIES_PATH, JSON.
 if (!fs.existsSync(SAMPLES_DIR)) fs.mkdirSync(SAMPLES_DIR, { recursive: true });
 
 // ── KalshiClient singleton ──────────────────────────────────────────────────
+const KALSHI_BASE_URL = (process.env.KALSHI_ENV === "prod") ? "https://kalshi.com" : "https://demo.kalshi.co";
+
 let kalshiClient = null;
 try {
   kalshiClient = new KalshiClient(
@@ -62,6 +64,23 @@ function readJsonFile(filePath, defaultValue = []) {
         console.error(`Error reading ${filePath}: ${e.message}`);
         return defaultValue;
     }
+}
+
+// ── Market speaker lookup ───────────────────────────────────────────────────
+function getAllMarketSpeakers() {
+    const speakers = new Set();
+    for (const cachePath of [MATCHED_PATH, UNMATCHED_PATH, MANUAL_MATCHES_PATH]) {
+        const entries = readJsonFile(cachePath, []);
+        for (const entry of entries) {
+            const entities = entry.market?.speakerEntities;
+            if (Array.isArray(entities)) {
+                for (const name of entities) {
+                    speakers.add(name.toLowerCase().trim());
+                }
+            }
+        }
+    }
+    return speakers;
 }
 
 // ── Redis verification state helpers ──────────────────────────────────────
@@ -162,6 +181,7 @@ app.get("/api/markets", (req, res) => {
                     channelName: streamInfo.name,
                     isScheduled: scheduledSlugs.has(m.market.slug),
                     duration,
+                    kalshiUrl: `${KALSHI_BASE_URL}/markets/${m.market.slug}`,
                 }
             };
         };
@@ -910,7 +930,7 @@ app.get("/api/runtime-logs-view/:filename", (req, res) => {
 app.get("/api/market-logs", (req, res) => {
     try {
         const markets = listMarkets();
-        res.json({ markets });
+        res.json({ markets, kalshiBaseUrl: KALSHI_BASE_URL });
     } catch (e) {
         console.error(`Error in /api/market-logs: ${e.message}`);
         res.status(500).json({ error: e.message });
@@ -1294,6 +1314,7 @@ app.post("/api/voice/generate", async (req, res) => {
 app.get("/api/voice/verifications", async (req, res) => {
     try {
         const slugs = await pendingVerifications();
+        const marketSpeakers = getAllMarketSpeakers();
         const results = [];
 
         for (const slug of slugs) {
@@ -1312,6 +1333,7 @@ app.get("/api/voice/verifications", async (req, res) => {
             results.push({
                 slug, target, segmentCount, approved, rejected, pending,
                 resolved: pending === 0,
+                hasMarket: marketSpeakers.has(target.toLowerCase().trim()),
             });
         }
 
@@ -1350,7 +1372,12 @@ app.get("/api/voice/verification/:slug", async (req, res) => {
                 audioUrl: `/api/voice/audio/${slug}/${idx}`,
             });
         }
-        segments.sort((a, b) => a.index - b.index);
+        segments.sort((a, b) => {
+            // Push rejected segments to the end
+            if (a.approved === false && b.approved !== false) return 1;
+            if (a.approved !== false && b.approved === false) return -1;
+            return a.index - b.index;
+        });
 
         const target = segments[0]?.target || slug;
         const resolved = segments.every(s => s.approved !== null);
@@ -1477,6 +1504,71 @@ app.post("/api/voice/reject-all/:slug", async (req, res) => {
         res.json({ success: true, slug, rejectedCount });
     } catch (e) {
         console.error(`Error in reject-all: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/voice/reject-source/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+        const { sourceUrl } = req.body;
+        if (!sourceUrl) {
+            return res.status(400).json({ error: "Missing sourceUrl" });
+        }
+
+        // Extract video ID to match against stored source field
+        const vidId = sourceUrl.includes("v=") ? sourceUrl.split("v=").pop() : sourceUrl;
+
+        const allStates = await getAllVerificationStates(slug);
+        if (Object.keys(allStates).length === 0) {
+            return res.status(404).json({ error: "No verification state found" });
+        }
+
+        let rejectedCount = 0;
+        for (const [idx, data] of Object.entries(allStates)) {
+            if (data.approved === null && (data.source || "").includes(vidId)) {
+                await updateVerificationState(slug, parseInt(idx, 10), { approved: false });
+                rejectedCount++;
+            }
+        }
+
+        res.json({ success: true, slug, rejectedCount, sourceUrl });
+    } catch (e) {
+        console.error(`Error in reject-source: ${e.message}`);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/voice/clear/:slug", async (req, res) => {
+    try {
+        const { slug } = req.params;
+        if (!/^[\w-]+$/.test(slug)) {
+            return res.status(400).json({ error: "Invalid slug" });
+        }
+
+        // Delete Redis verification state for this slug
+        const key = `verify:${slug}`;
+        const deleted = await connection.del(key);
+
+        // Remove pending-identification work directories for this slug
+        const pendingDir = path.join(require("os").homedir(), "pending-identifications");
+        let dirsRemoved = 0;
+        if (fs.existsSync(pendingDir)) {
+            const prefix = slug + "_";
+            for (const entry of fs.readdirSync(pendingDir)) {
+                if (entry.startsWith(prefix) && !entry.includes("..")) {
+                    fs.rmSync(path.join(pendingDir, entry), { recursive: true, force: true });
+                    dirsRemoved++;
+                }
+            }
+        }
+
+        res.json({ success: true, slug, deleted, dirsRemoved });
+    } catch (e) {
+        console.error(`Error in clear slug: ${e.message}`);
         res.status(500).json({ error: e.message });
     }
 });

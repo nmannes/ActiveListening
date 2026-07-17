@@ -223,6 +223,12 @@
         .badge.rejected { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
         .badge.pending { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
 
+	        .speaker-needs-id { color: #60a5fa; font-weight: 600; }
+	        .speaker-needs-id::before { content: "\25CF  "; color: #f59e0b; font-size: 0.6rem; vertical-align: middle; }
+	        .speaker-identified { color: #60a5fa; font-weight: 600; }
+	        .speaker-identified::before { content: "\25CF  "; color: #34d399; font-size: 0.6rem; vertical-align: middle; }
+	        .speaker-no-market { color: var(--text-muted); font-weight: 400; }
+
         .library-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -582,11 +588,12 @@
                     html += `
                         <div class="slug-group" data-slug="${v.slug}">
                             <div class="slug-header ${collapsedGroups[v.slug] !== false ? 'collapsed' : ''}" data-slug="${v.slug}" onclick="toggleSlug(this)" id="slug-header-${v.slug}">
-                                <span>${v.target} <small style="opacity:0.6;font-weight:400;">(${v.segmentCount} segments)</small></span>
+                                <span class="${v.hasMarket ? (v.approved > 0 ? 'speaker-identified' : 'speaker-needs-id') : 'speaker-no-market'}">${v.target} <small style="opacity:0.6;font-weight:400;">(${v.segmentCount} segments)</small></span>
                                 <span style="display:flex;align-items:center;gap:0.75rem;">
                                     ${statusBadge}
                                     ${v.pending > 0 ? `<button class="btn-auto" style="padding:0.35rem 0.7rem;font-size:0.75rem;" onclick="event.stopPropagation();autoApprove('${v.slug}')">Approve All</button>
                                     <button class="btn-reject-all" style="padding:0.35rem 0.7rem;font-size:0.75rem;" onclick="event.stopPropagation();rejectAll('${v.slug}')">Reject All</button>` : ''}
+                                    <button class="btn-clear-all" style="padding:0.35rem 0.7rem;font-size:0.75rem;" onclick="event.stopPropagation();clearSlug('${v.slug}')">Clear</button>
                                     <span class="toggle-icon">▼</span>
                                 </span>
                             </div>
@@ -655,6 +662,7 @@
                         actions = `
                             <button class="btn-approve" onclick="approve('${slug}',${seg.index})">Approve</button>
                             <button class="btn-reject" onclick="reject('${slug}',${seg.index})">Reject</button>
+                            ${seg.sourceUrl ? `<button class="btn-reject-all" onclick="rejectSource('${slug}','${encodeURIComponent(seg.sourceUrl)}')">Reject Source</button>` : ''}
                         `;
                     }
 
@@ -756,6 +764,26 @@
             }
         }
 
+        async function rejectSource(slug, encodedUrl) {
+            const sourceUrl = decodeURIComponent(encodedUrl);
+            const confirmed = confirm(`Reject ALL pending segments from this source?\n\n${sourceUrl}`);
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/voice/reject-source/${slug}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sourceUrl })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Rejected ${data.rejectedCount} segments from source`);
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
         async function clearAll() {
             const confirmed = confirm('Delete ALL pending verification samples for ALL speakers? This cannot be undone.');
             if (!confirmed) return;
@@ -765,6 +793,21 @@
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error);
                 showToast(`Cleared ${data.deletedKeys} verification(s)`);
+                loadVerifications();
+            } catch (e) {
+                showToast(`Error: ${e.message}`, true);
+            }
+        }
+
+        async function clearSlug(slug) {
+            const confirmed = confirm(`Delete ALL pending verification samples for ${slug}? This cannot be undone.`);
+            if (!confirmed) return;
+
+            try {
+                const res = await fetch(`/api/voice/clear/${slug}`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+                showToast(`Cleared verification for ${slug}`);
                 loadVerifications();
             } catch (e) {
                 showToast(`Error: ${e.message}`, true);
