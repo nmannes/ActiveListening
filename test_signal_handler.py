@@ -5,7 +5,7 @@ import asyncio
 import sys
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -290,6 +290,8 @@ class TestHandleSignalIntegration:
     ):
         """When all gates pass, handle_signal should call _execute_trade."""
         handler.trading_speakers.add("speaker-1")
+        handler._send_signal_telegram = MagicMock()
+        handler._notify_client = AsyncMock()
         called_with = {}
 
         def capture(*args, **kwargs):
@@ -297,7 +299,6 @@ class TestHandleSignalIntegration:
 
         handler._execute_trade = MagicMock(side_effect=capture)
 
-        # Need to run async
         import asyncio
         with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
             asyncio.get_event_loop().run_until_complete(
@@ -310,6 +311,8 @@ class TestHandleSignalIntegration:
         self, handler, mock_session, sample_match, sample_token
     ):
         """Non-whitelisted speaker should skip before reaching cap check."""
+        handler._send_signal_telegram = MagicMock()
+        handler._notify_client = AsyncMock()
         handler._execute_trade = MagicMock()
 
         import asyncio

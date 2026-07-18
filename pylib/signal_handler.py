@@ -87,6 +87,7 @@ class SignalHandler:
             )
             return
 
+        best_ask = None
         tracker = getattr(self.session, "orderbook_tracker", None)
         if tracker is not None:
             best_ask = tracker.get_best_yes_ask(match["value"])
@@ -112,7 +113,7 @@ class SignalHandler:
                 )
                 return
 
-        self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"))
+        self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"), best_ask)
 
     def _send_signal_telegram(self, match: dict, speaker_id: str):
         market_title = self.session.market.get("title", match["key"])
@@ -144,11 +145,12 @@ class SignalHandler:
                 f"[{self.session.session_id}] Error notifying client of signal: {e}"
             )
 
-    def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None):
+    def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None, best_ask: float | None = None):
+        limit_price = (min(0.99, best_ask + 0.05) if best_ask is not None and best_ask > 0 else 0.99)
         logger.info(
-            f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount})"
+            f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount}, limit {limit_price:.2f})"
         )
-        msg = f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount})"
+        msg = f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount}, limit {limit_price:.2f})"
         asyncio.get_running_loop().run_in_executor(
             None, send_telegram, msg, "debug"
         )
@@ -168,7 +170,7 @@ class SignalHandler:
             )
             return
 
-        order_result = self._place_order(match, dollar_amount)
+        order_result = self._place_order(match, dollar_amount, best_ask)
         if order_result is None:
             logger.error(
                 f"[{self.session.session_id}][TRADE] Order failed, no result returned for {match['key']}"
@@ -222,7 +224,7 @@ class SignalHandler:
             None, _send_audio_clip, audio_bytes, word, clip_start, clip_end
         )
 
-    def _place_order(self, match: dict, dollar_amount: float):
+    def _place_order(self, match: dict, dollar_amount: float, best_ask: float | None = None):
         try:
             keyword_configs = self.session.market.get("keywordConfigs", {})
             word_config = keyword_configs.get(match["key"], {})
@@ -236,6 +238,7 @@ class SignalHandler:
             order_result = self.session.server.kalshi.place_market_order(
                 ticker=match["value"],
                 dollar_amount=dollar_amount,
+                best_ask_dollars=best_ask,
             )
             t1 = time.time()
             logger.info(

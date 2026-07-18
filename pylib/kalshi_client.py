@@ -133,15 +133,22 @@ class KalshiClient:
         ticker: str,
         dollar_amount: float,
         side: str = "yes",
+        best_ask_dollars: float | None = None,
     ):
         """Place an aggressive limit order spending up to dollar_amount dollars.
 
-        Uses an aggressive price (0.99 for bids, 0.01 for asks) to fill
-        at the best available price, simulating a market order in v2.
+        Uses best_ask_dollars + 5¢ as the limit price when the orderbook
+        tracker provides a current best ask. Falls back to 99¢ otherwise
+        (simulating a market order). The 5¢ buffer preserves fill probability
+        while capping how far the order can walk up a thin book.
         """
-        price_cents = 99  # aggressive: pay up to 0.99 to get filled
+        ASK_BUFFER = 0.05
+        if best_ask_dollars is not None and best_ask_dollars > 0:
+            price_cents = min(99, round((best_ask_dollars + ASK_BUFFER) * 100))
+        else:
+            price_cents = 99
         v2_side, v2_price = self._to_v2_params(side, price_cents)
-        count = max(1, int(dollar_amount / 0.99))
+        count = max(1, int(dollar_amount / (price_cents / 100)))
         params = {
             "ticker": ticker,
             "side": v2_side,
