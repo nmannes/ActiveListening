@@ -178,6 +178,19 @@ class KalshiClient:
             # buy NO -> sell YES (ask) at 1 - price
             return ("ask", f"{(100 - price_cents) / 100:.2f}")
 
+    def get_market(self, ticker: str) -> dict | None:
+        """Fetch a single market by ticker. Returns the full market JSON or None on failure."""
+        path = f"/markets/{ticker}"
+        url = self.base_url + path
+        headers = self._get_auth_headers("GET", url)
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch market {ticker}: {e}")
+            return None
+
     def get_ws_auth_headers(self) -> dict:
         """Create auth headers for the Kalshi WebSocket connection."""
         path = "/trade-api/ws/v2"
