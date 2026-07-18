@@ -19,6 +19,14 @@ from pylib.trade_processor import TradeProcessor
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
+def _make_order_result(ticker="TICKER", cost=5.0, status="filled"):
+    """Build a mock Kalshi order result with the fields _execute_trade reads."""
+    result = MagicMock()
+    result.ticker = ticker
+    result.taker_fill_cost_dollars = float(cost)
+    result.status = status
+    return result
+
 def _make_dg_response(words, speaker=0, is_final=True):
     """Build a Deepgram Results dict from word strings."""
     return {
@@ -68,6 +76,7 @@ def market():
 def session(market):
     s = ReplaySession(session_id="test", market=market)
     s.server.kalshi = MagicMock()
+    s.server.kalshi.place_market_order.return_value = _make_order_result(ticker="CHERRY-YES", cost=5.0)
     s.trade_processor = TradeProcessor(s)
     return s
 
@@ -92,7 +101,7 @@ class TestKeywordTriggersOrder:
             )
 
             session.server.kalshi.place_market_order.assert_called_once_with(
-                ticker="CHERRY-YES", dollar_amount=10
+                ticker="CHERRY-YES", dollar_amount=10, best_ask_dollars=None
             )
         finally:
             stack.close()
@@ -166,7 +175,7 @@ class TestKeywordTriggersOrder:
             )
 
             session.server.kalshi.place_market_order.assert_called_once_with(
-                ticker="CHERRY-YES", dollar_amount=10
+                ticker="CHERRY-YES", dollar_amount=10, best_ask_dollars=None
             )
         finally:
             stack.close()
@@ -222,7 +231,7 @@ class TestKeywordTriggersOrder:
             )
 
             session.server.kalshi.place_market_order.assert_called_once_with(
-                ticker="BLOOM-YES", dollar_amount=15
+                ticker="BLOOM-YES", dollar_amount=15, best_ask_dollars=None
             )
         finally:
             stack.close()
@@ -246,7 +255,7 @@ class TestKeywordTriggersOrder:
             )
 
             session.server.kalshi.place_market_order.assert_called_once_with(
-                ticker="TEST", dollar_amount=1
+                ticker="TEST", dollar_amount=1, best_ask_dollars=None
             )
         finally:
             stack.close()
@@ -372,6 +381,7 @@ class TestReplayDgProcessing:
 
         s = ReplaySession(session_id="replay-test", market=market)
         s.server.kalshi = MagicMock()
+        s.server.kalshi.place_market_order.return_value = _make_order_result(ticker="CHERRY-YES", cost=5.0)
         s.server.config.trade_for_real = True
         tp = TradeProcessor(s)
         s.trade_processor = tp
@@ -407,7 +417,7 @@ class TestReplayDgProcessing:
             stack.close()
 
         s.server.kalshi.place_market_order.assert_called_once_with(
-            ticker="CHERRY-YES", dollar_amount=10
+            ticker="CHERRY-YES", dollar_amount=10, best_ask_dollars=None
         )
         assert [t["text"] for t in s.transcript["0"]] == ["cherry", "blossom"]
 
