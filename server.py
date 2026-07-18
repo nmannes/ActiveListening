@@ -112,6 +112,7 @@ class Config:
         self.kalshi_environment = self.env
         self.min_confidence = float(os.environ.get("MIN_CONFIDENCE", "0.80"))
         self.min_yes_ask_price = float(os.environ.get("MIN_YES_ASK_PRICE", "0.02"))
+        self.max_session_loss = float(os.environ.get("MAX_SESSION_LOSS", _config["trading"]["maxSessionLoss"]))
         logger.info(f"Environment: {self.env}")
         logger.info(f"Trading enabled: {self.trade_for_real}")
         logger.info(f"Min confidence: {self.min_confidence}")

@@ -38,6 +38,7 @@ class SignalHandler:
     def __init__(self, session):
         self.session = session
         self.trading_speakers: set[str] = set()
+        self.session_cost_total: float = 0.0
 
     def set_trading_speakers(self, speaker_ids: list[str]):
         self.trading_speakers = set(str(s) for s in speaker_ids)
@@ -151,6 +152,22 @@ class SignalHandler:
         asyncio.get_running_loop().run_in_executor(
             None, send_telegram, msg, "debug"
         )
+        max_session_loss = self.session.server.config.max_session_loss
+        if self.session_cost_total + dollar_amount > max_session_loss:
+            logger.info(
+                f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" — "
+                f"session cost ${self.session_cost_total:.2f} + ${dollar_amount:.2f} "
+                f"would exceed max_session_loss ${max_session_loss:.2f}"
+            )
+            msg = (
+                f"[{self.session.session_id}][TRADE] Skipping \"{match['key']}\" — "
+                f"session cap reached (${self.session_cost_total:.2f} spent of ${max_session_loss:.2f})"
+            )
+            asyncio.get_running_loop().run_in_executor(
+                None, send_telegram, msg, "debug"
+            )
+            return
+
         order_result = self._place_order(match, dollar_amount)
         if order_result is None:
             logger.error(
@@ -158,6 +175,7 @@ class SignalHandler:
             )
             return
 
+        self.session_cost_total += order_result.taker_fill_cost_dollars
         remove_market_from_index(self.session.keyword_index, match["value"])
         logger.info(
             f"[{self.session.session_id}][TRADE] Order result: {order_result}"
@@ -171,6 +189,7 @@ class SignalHandler:
             f"Source: {self.session.market.get('mediaStreamURL', '')}",
             f"Status: {order_result.status}",
             f"Taker fill cost: ${order_result.taker_fill_cost_dollars}",
+            f"Session total: ${self.session_cost_total:.2f} / ${self.session.server.config.max_session_loss:.0f}",
         ])
         level = "info" if order_result.status == "filled" else "debug"
         asyncio.get_running_loop().run_in_executor(
