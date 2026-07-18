@@ -46,6 +46,7 @@ class MockConfig:
         self.buy_max_cost = 5
         self.last_words_count = 7
         self.min_confidence = 0.8
+        self.max_session_loss = 100.0
 
 
 class MockServer:

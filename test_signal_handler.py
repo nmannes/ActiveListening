@@ -285,7 +285,8 @@ class TestCapSkipNotification:
 class TestHandleSignalIntegration:
     """Tests that handle_signal delegates to _execute_trade with cap tracking."""
 
-    def test_handle_signal_passes_through_to_execute_trade(
+    @pytest.mark.asyncio
+    async def test_handle_signal_passes_through_to_execute_trade(
         self, handler, mock_session, sample_match, sample_token
     ):
         """When all gates pass, handle_signal should call _execute_trade."""
@@ -299,15 +300,13 @@ class TestHandleSignalIntegration:
 
         handler._execute_trade = MagicMock(side_effect=capture)
 
-        import asyncio
         with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
-            asyncio.get_event_loop().run_until_complete(
-                handler.handle_signal(sample_match, "speaker-1", sample_token)
-            )
+            await handler.handle_signal(sample_match, "speaker-1", sample_token)
 
         handler._execute_trade.assert_called_once()
 
-    def test_handle_signal_skips_non_trading_speaker(
+    @pytest.mark.asyncio
+    async def test_handle_signal_skips_non_trading_speaker(
         self, handler, mock_session, sample_match, sample_token
     ):
         """Non-whitelisted speaker should skip before reaching cap check."""
@@ -315,10 +314,7 @@ class TestHandleSignalIntegration:
         handler._notify_client = AsyncMock()
         handler._execute_trade = MagicMock()
 
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(
-            handler.handle_signal(sample_match, "unknown-speaker", sample_token)
-        )
+        await handler.handle_signal(sample_match, "unknown-speaker", sample_token)
 
         handler._execute_trade.assert_not_called()
 
