@@ -26,7 +26,7 @@ All commands go through `./bin/kalshi <command>`. It dispatches to the right lan
 |---------|-------------|
 | `./kalshi generate "Name"` | Generate voice samples for a target (yt-dlp + TitaNet clustering) |
 | `./kalshi generate "Name" --dry-run` | Dry-run: full pipeline without Telegram or saving, prints summary |
-| `./kalshi build-library` | Build voice sample library from speaker_labels.json + S3 recordings |
+| `./kalshi build-library` | Build voice sample library from data/speaker_labels.json + S3 recordings |
 
 ## Infrastructure
 
@@ -52,9 +52,9 @@ For one-off debugging or scripts without a `kalshi` subcommand yet:
 |-------------|-------------|
 | `node main_loop.js` | Main orchestration loop (discovery + scheduling every hour) |
 | `node client.js` | WebSocket client — connects to server, streams PCM audio + video frames |
-| `python3 label_speaker.py` | Manually label speakers in a recording session |
-| `python3 verify_identities_testing.py` | Offline replay test for speaker ID accuracy |
+| `python3 scripts/label_speaker.py` | Manually label speakers in a recording session |
+| `python3 tests/verify_identities_testing.py` | Offline replay test for speaker ID accuracy |
 | `python3 scripts/infer_speakers.py` | Bedrock transcript-based inference on saved transcript |
-| `node verify_logging.js` | Verify logging/metrics pipeline |
+| `node scripts/verify_logging.js` | Verify logging/metrics pipeline |
 | `node compare_hits.js` | Compare hit detection between sessions |
-| `node query_db.js` | Query the local results database |
+| `node scripts/query_db.js` | Query the local results database |

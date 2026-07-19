@@ -34,7 +34,7 @@ logger = logging.getLogger("benchmark_voice_id")
 
 S3_BUCKET = os.environ.get("S3_BUCKET", "recordings-846345203908-us-east-1-an")
 AUDIO_LIBRARY = Path("~/audio-library").expanduser()
-LABELS_FILE = Path(__file__).resolve().parent.parent / "speaker_labels.json"
+LABELS_FILE = Path(__file__).resolve().parent.parent / "data" / "speaker_labels.json"
 S3_DIR = Path(__file__).resolve().parent.parent / "s3"
 
 

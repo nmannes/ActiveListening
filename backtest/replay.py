@@ -248,7 +248,7 @@ def main():
 
     # Load speaker labels if available
     speaker_labels: dict[str, str] | None = None
-    labels_path = REPO_ROOT / "speaker_labels.json"
+    labels_path = REPO_ROOT / "data" / "speaker_labels.json"
     if labels_path.exists():
         all_labels = json.loads(labels_path.read_text())
         for key, labels in all_labels.items():

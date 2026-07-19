@@ -32,7 +32,7 @@ def slugify(name: str) -> str:
 def main():
     root_dir = Path(__file__).parent.parent
     s3_dir = root_dir / "s3"
-    labels_file = root_dir / "speaker_labels.json"
+    labels_file = root_dir / "data" / "speaker_labels.json"
     output_dir = Path("~/audio-library").expanduser()
     cache_dir = root_dir / "cache"
 

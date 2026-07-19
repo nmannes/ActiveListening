@@ -163,7 +163,7 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   fs.writeFileSync(unmatchedPath, JSON.stringify(unmatchedMarkets, null, 2));
 
   // Write speakers markdown table
-  const speakersPath = path.join(DATA_DIR, "speakers.md");
+  const speakersPath = path.join(DATA_DIR, "docs", "speakers.md");
   const sortedResults = [...allResults].sort((a, b) => {
     const aTime = a.startTime || a.market?.eventStartTime || "";
     const bTime = b.startTime || b.market?.eventStartTime || "";

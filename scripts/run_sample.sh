@@ -27,7 +27,7 @@ echo "[run_sample] Slug=$SLUG Speaker=$SPEAKER SpeakerName=$SPEAKER_NAME"
 SESSION_DIR=$(ls -d "s3/${SLUG}_"* 2>/dev/null | head -1)
 if [ -n "$SESSION_DIR" ]; then
     echo "[run_sample] Labeling speaker in session: $SESSION_DIR"
-    python label_speaker.py "$(basename "$SESSION_DIR")" "$SPEAKER" "$SPEAKER_NAME"
+    python scripts/label_speaker.py "$(basename "$SESSION_DIR")" "$SPEAKER" "$SPEAKER_NAME"
     echo "[run_sample] Speaker labeling done"
 else
     echo "[run_sample] No session dir found for slug: $SLUG"

@@ -76,7 +76,7 @@ Whitelisted speakers trigger trades when their keywords are detected. All other 
 |---------|-------------|
 | `./bin/kalshi generate "Name"` | Download YouTube videos, extract target speaker voice via VAD + TitaNet clustering, send candidates for Telegram verification |
 | `./bin/kalshi generate "Name" --dry-run` | Full pipeline without saving — prints per-video breakdown |
-| `./bin/kalshi build-library` | Build voice sample library from `speaker_labels.json` + S3 recordings |
+| `./bin/kalshi build-library` | Build voice sample library from `data/speaker_labels.json` + S3 recordings |
 
 The sample generation pipeline:
 1. Searches YouTube with diverse queries (speech, interview, press conference, speaking event, hearing)
@@ -147,7 +147,7 @@ Key environment variables (from `.env.prod`):
 ├── telegram_server.py      # Persistent Telegram bot
 ├── worker.js               # Node.js BullMQ worker
 ├── sample-scheduling/      # Per-speaker sample scheduling JSONs
-├── speaker_labels.json     # Session speaker identity labels
+├── data/speaker_labels.json  # Session speaker identity labels
 ├── .env.prod               # Production environment variables
 ├── Dockerfile              # Container definition
 └── ~/audio-library/        # Voice sample library (WAV + embeddings)
