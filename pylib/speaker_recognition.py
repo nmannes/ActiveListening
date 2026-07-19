@@ -417,34 +417,38 @@ class SpeakerRecognitionSession:
 
                 # If the label matches a market entity, add to trading whitelist
                 if label in self.market_entities:
+                    is_new = False
                     if hasattr(self.listening_session, "trade_processor"):
-                        self.listening_session.trade_processor.add_trading_speaker(sid)
-                        logger.info(f"Added speaker {sid} ({label}) to trading whitelist.")
+                        is_new = self.listening_session.trade_processor.add_trading_speaker(sid)
 
-                    try:
-                        market = getattr(self.listening_session, "market", {}) or {}
-                        market_title = market.get("title", "Unknown Market")
-                        channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
+                    if is_new:
+                        logger.info(f"[{self.session_id}] Bedrock ID: speaker {sid} -> {label} (added to trading whitelist)")
+                        try:
+                            market = getattr(self.listening_session, "market", {}) or {}
+                            market_title = market.get("title", "Unknown Market")
+                            channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
 
-                        whitelist_msg = f"✅ Speaker added to trading whitelist: {label} (ID: {sid}) — {market_title}"
-                        asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, whitelist_msg, "info"
-                        )
+                            whitelist_msg = f"✅ Speaker added to trading whitelist: {label} (ID: {sid}) — {market_title}"
+                            asyncio.get_running_loop().run_in_executor(
+                                None, send_telegram, whitelist_msg, "info"
+                            )
 
-                        # Detailed identification -> info
-                        debug_msg = "\n".join([
-                            f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}",
-                            f"Speaker ID: {sid}",
-                            f"Entity: {label}",
-                            f"Channel: {channel_name}",
-                            f"Source: {market.get('mediaStreamURL', '')}",
-                            f"Session ID: {self.session_id}",
-                        ])
-                        asyncio.get_running_loop().run_in_executor(
-                            None, send_telegram, debug_msg, "info"
-                        )
-                    except Exception as e:
-                        logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
+                            # Detailed identification -> info
+                            debug_msg = "\n".join([
+                                f"🤖 [BEDROCK SPEAKER IDENTIFIED] {market_title}",
+                                f"Speaker ID: {sid}",
+                                f"Entity: {label}",
+                                f"Channel: {channel_name}",
+                                f"Source: {market.get('mediaStreamURL', '')}",
+                                f"Session ID: {self.session_id}",
+                            ])
+                            asyncio.get_running_loop().run_in_executor(
+                                None, send_telegram, debug_msg, "info"
+                            )
+                        except Exception as e:
+                            logger.error(f"[{self.session_id}] Failed to send Bedrock identification Telegram: {e}")
+                    else:
+                        logger.info(f"[{self.session_id}] Speaker {sid} ({label}) already whitelisted, skipping Telegram notification")
 
         else:
             logger.warning("Identity inference returned no mapping.")
@@ -575,40 +579,45 @@ class SpeakerRecognitionSession:
 
             if matches and matched_entity:
                 self.set_profile_label(speaker_id, matched_entity)
+
+                is_new = False
                 if hasattr(self.listening_session, "trade_processor"):
-                    self.listening_session.trade_processor.add_trading_speaker(speaker_id)
-                    logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
+                    is_new = self.listening_session.trade_processor.add_trading_speaker(speaker_id)
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
 
-                # Send Telegram notifications
-                try:
-                    market = getattr(self.listening_session, "market", {}) or {}
-                    market_title = market.get("title", "Unknown Market")
-                    channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
-                    top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
-                    scores_str = "\n".join(f"  {name}: {score:.4f}" for name, score in top_scores)
+                # Only send Telegram notifications the first time we identify this speaker
+                if is_new:
+                    logger.info(f"[{self.session_id}] Audio ID: speaker {speaker_id} -> {matched_entity} (added to trading whitelist)")
+                    try:
+                        market = getattr(self.listening_session, "market", {}) or {}
+                        market_title = market.get("title", "Unknown Market")
+                        channel_name = market.get("mediaSourceCommonName", "Unknown Channel")
+                        top_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:5]
+                        scores_str = "\n".join(f"  {name}: {score:.4f}" for name, score in top_scores)
 
-                    loop = asyncio.get_running_loop()
+                        loop = asyncio.get_running_loop()
 
-                    whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
-                    loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
+                        whitelist_msg = f"✅ Speaker added to trading whitelist: {matched_entity} (ID: {speaker_id}) — {market_title}"
+                        loop.run_in_executor(None, send_telegram, whitelist_msg, "info")
 
-                    # Detailed identification + audio -> info
-                    caption = "\n".join([
-                        f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}",
-                        f"Speaker ID: {speaker_id}",
-                        f"Entity: {matched_entity}",
-                        f"Channel: {channel_name}",
-                        f"Source: {market.get('mediaStreamURL', '')}",
-                        f"Session ID: {self.session_id}",
-                        f"Top scores:",
-                        scores_str,
-                    ])
-                    loop.run_in_executor(None, send_telegram, caption, "info")
-                    loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")
-                except Exception as e:
-                    logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
+                        # Detailed identification + audio -> info
+                        caption = "\n".join([
+                            f"🎙️ [AUDIO SPEAKER IDENTIFIED] {market_title}",
+                            f"Speaker ID: {speaker_id}",
+                            f"Entity: {matched_entity}",
+                            f"Channel: {channel_name}",
+                            f"Source: {market.get('mediaStreamURL', '')}",
+                            f"Session ID: {self.session_id}",
+                            f"Top scores:",
+                            scores_str,
+                        ])
+                        loop.run_in_executor(None, send_telegram, caption, "info")
+                        loop.run_in_executor(None, send_telegram_audio, str(wav_path), f"🔊 {matched_entity} — speaker {speaker_id}", "info")
+                    except Exception as e:
+                        logger.error(f"[{self.session_id}] Failed to send Telegram notification: {e}")
+                else:
+                    logger.info(f"[{self.session_id}] Speaker {speaker_id} ({matched_entity}) already whitelisted, skipping Telegram notification")
 
                 matched_any = True
 

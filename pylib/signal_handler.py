@@ -46,11 +46,12 @@ class SignalHandler:
             f"[{self.session.session_id}][TRADE] Whitelist updated: {self.trading_speakers}"
         )
 
-    def add_trading_speaker(self, speaker_id: str):
-        self.trading_speakers.add(str(speaker_id))
-        logger.info(
-            f"[{self.session.session_id}][TRADE] Added to whitelist: {speaker_id}"
-        )
+    def add_trading_speaker(self, speaker_id: str) -> bool:
+        """Add a speaker to the trading whitelist. Returns True if newly added, False if already present."""
+        sid = str(speaker_id)
+        is_new = sid not in self.trading_speakers
+        self.trading_speakers.add(sid)
+        return is_new
 
     async def handle_signal(self, match: dict, speaker_id: str, token: dict):
         self._send_signal_telegram(match, speaker_id)

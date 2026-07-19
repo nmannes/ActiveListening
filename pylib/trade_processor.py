@@ -18,8 +18,9 @@ class TradeProcessor:
     def set_trading_speakers(self, speaker_ids: list[str]):
         self.handler.set_trading_speakers(speaker_ids)
 
-    def add_trading_speaker(self, speaker_id: str):
-        self.handler.add_trading_speaker(speaker_id)
+    def add_trading_speaker(self, speaker_id: str) -> bool:
+        """Add a speaker to the trading whitelist. Returns True if newly added, False if already present."""
+        return self.handler.add_trading_speaker(speaker_id)
 
     async def process_tokens(self, tokens: list[dict], speaker_id: str = None):
         if not tokens:
