@@ -30,6 +30,11 @@ class OrderbookTracker:
 
     Maintains in-memory orderbooks from orderbook_delta snapshots and updates.
     Provides get_best_yes_ask() for pre-trade price checks.
+
+    Kalshi multi-venue event (MVE) tickers don't carry their own orderbooks;
+    the liquidity lives on their leg markets (listed in custom_strike.Associated
+    Markets). Pass ``mve_to_legs`` to map MVE tickers → their leg tickers so
+    that ``appears_resolved_no`` checks the leg orderbooks instead.
     """
 
     def __init__(
@@ -37,11 +42,13 @@ class OrderbookTracker:
         tickers: list[str],
         kalshi: KalshiClient,
         environment: str = "prod",
+        mve_to_legs: dict[str, list[str]] | None = None,
     ):
         self._tickers = list(tickers)
         self._kalshi = kalshi
         self._ws_url = WS_PROD_URL if environment == "prod" else WS_DEMO_URL
         self._books: dict[str, Orderbook] = {}
+        self._mve_to_legs: dict[str, list[str]] = mve_to_legs or {}
         self._ws = None
         self._stopped = False
         self._cmd_id = 1
@@ -64,9 +71,26 @@ class OrderbookTracker:
         return max(book.yes.keys()) / 100.0
 
     def appears_resolved_no(self, ticker: str) -> bool:
-        """True if the YES bid is missing or <= 1 cent — market looks settled to NO."""
-        bid = self.get_best_yes_bid(ticker)
-        return bid is None or bid <= 0.01
+        """True if the best YES bid is <= 1 cent — market looks settled to NO.
+
+        Requires positive evidence (an actual bid at near-zero). An empty
+        orderbook or missing YES side is NOT treated as resolved — many
+        Kalshi markets have no resting liquidity.
+
+        For MVE tickers, checks the leg markets' orderbooks since MVEs
+        don't carry their own liquidity.
+        """
+        targets = self._mve_to_legs.get(ticker, [ticker])
+        for t in targets:
+            if not self.has_book(t):
+                return False
+            bid = self.get_best_yes_bid(t)
+            if bid is None:
+                return False  # no YES bids — can't judge
+            if bid > 0.01:
+                return False  # at least one leg still has healthy bids
+        # All legs (or the single market) show YES bids <= 1 cent
+        return len(targets) > 0
 
     def has_book(self, ticker: str) -> bool:
         return ticker in self._books

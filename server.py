@@ -265,15 +265,39 @@ class ClientSession:
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
 
-        tickers = list(self.market.get("keywords", {}).values())
+        tickers = list(dict.fromkeys(self.market.get("keywords", {}).values()))  # dedupe
         if tickers:
+            # MVE collection tickers (KXMVE*) don't carry their own orderbooks —
+            # the liquidity lives on leg markets listed in custom_strike.
+            # Build mapping and expand subscription to include leg tickers.
+            mve_to_legs: dict[str, list[str]] = {}
+            for ticker in tickers:
+                if "KXMVE" in ticker:
+                    market_info = self.server.kalshi.get_market(ticker)
+                    if market_info:
+                        cs = market_info.get("custom_strike", {})
+                        associated = cs.get("Associated Markets", "")
+                        if associated:
+                            legs = [t.strip() for t in associated.split(",") if t.strip()]
+                            mve_to_legs[ticker] = legs
+                            logger.info(
+                                f"[{self.session_id}] MVE {ticker} → {len(legs)} leg markets"
+                            )
+            all_tickers = list(
+                dict.fromkeys(tickers + [leg for legs in mve_to_legs.values() for leg in legs])
+            )
+            logger.info(
+                f"[{self.session_id}] Orderbook tracker: {len(tickers)} markets + "
+                f"{len(all_tickers) - len(tickers)} leg tickers = {len(all_tickers)} total"
+            )
             self.orderbook_tracker = OrderbookTracker(
-                tickers=tickers,
+                tickers=all_tickers,
                 kalshi=self.server.kalshi,
                 environment=self.server.config.kalshi_environment,
+                mve_to_legs=mve_to_legs,
             )
             self.orderbook_task = asyncio.create_task(self.orderbook_tracker.run())
-            logger.info(f"[{self.session_id}] Orderbook tracker started for {len(tickers)} tickers")
+            await self.orderbook_tracker.wait_ready(timeout=15.0)
         else:
             self.orderbook_tracker = None
             self.orderbook_task = None

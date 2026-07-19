@@ -285,12 +285,14 @@ class TestHandleDelta:
 # ── appears_resolved_no ──────────────────────────────────────────────────────
 
 class TestAppearsResolvedNo:
-    def test_true_when_no_book(self, tracker):
-        assert tracker.appears_resolved_no("NONEXISTENT")
+    def test_false_when_no_book(self, tracker):
+        """No data — don't block trades we can't judge."""
+        assert not tracker.appears_resolved_no("NONEXISTENT")
 
-    def test_true_when_book_has_no_yes_bids(self, tracker):
+    def test_false_when_book_has_no_yes_bids(self, tracker):
+        """Empty YES side is no liquidity, not resolved-NO evidence."""
         tracker._handle_snapshot(_snapshot_msg("T", yes_levels=[]))
-        assert tracker.appears_resolved_no("T")
+        assert not tracker.appears_resolved_no("T")
 
     def test_true_when_best_bid_is_zero(self, tracker):
         tracker._handle_snapshot(_snapshot_msg("T", yes_levels=[("0.00", "100")]))
@@ -325,11 +327,55 @@ class TestAppearsResolvedNo:
         assert tracker.appears_resolved_no("T")
 
     def test_stale_bid_removed_via_delta(self, tracker):
-        """After delta removes the last meaningful bid, market looks resolved."""
+        """After delta removes bids, empty YES side is not resolved-NO evidence."""
         tracker._handle_snapshot(_snapshot_msg("T", yes_levels=[("0.05", "10")]))
         assert not tracker.appears_resolved_no("T")
         tracker._handle_delta(_delta_msg("T", side="yes", price=5, delta=-10))
-        assert tracker.appears_resolved_no("T")
+        assert not tracker.appears_resolved_no("T")
+
+
+# ── appears_resolved_no with MVE → leg mapping ───────────────────────────────
+
+@pytest.fixture
+def mve_tracker(mock_kalshi):
+    """Tracker with MVE→legs mapping: MVE ticker delegates to leg tickers."""
+    return OrderbookTracker(
+        tickers=["MVE-X", "LEG-A", "LEG-B"],
+        kalshi=mock_kalshi,
+        environment="demo",
+        mve_to_legs={"MVE-X": ["LEG-A", "LEG-B"]},
+    )
+
+
+class TestMveAppearsResolvedNo:
+    def test_mve_resolved_when_all_legs_have_low_bids(self, mve_tracker):
+        """MVE is resolved NO when every leg has YES bid <= 0.01."""
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-A", yes_levels=[("0.01", "10")]))
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-B", yes_levels=[("0.00", "5")]))
+        assert mve_tracker.appears_resolved_no("MVE-X")
+
+    def test_mve_not_resolved_when_any_leg_has_healthy_bid(self, mve_tracker):
+        """MVE is NOT resolved if at least one leg has YES bid > 0.01."""
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-A", yes_levels=[("0.01", "10")]))
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-B", yes_levels=[("0.55", "100")]))
+        assert not mve_tracker.appears_resolved_no("MVE-X")
+
+    def test_mve_not_resolved_when_leg_has_no_book(self, mve_tracker):
+        """MVE is NOT resolved if any leg's book hasn't arrived yet."""
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-A", yes_levels=[("0.01", "10")]))
+        # LEG-B has no book → can't judge → not resolved
+        assert not mve_tracker.appears_resolved_no("MVE-X")
+
+    def test_mve_not_resolved_when_leg_has_empty_yes_side(self, mve_tracker):
+        """MVE is NOT resolved if any leg has no YES bids."""
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-A", yes_levels=[("0.01", "10")]))
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-B", yes_levels=[]))
+        assert not mve_tracker.appears_resolved_no("MVE-X")
+
+    def test_non_mve_ticker_unaffected(self, mve_tracker):
+        """A ticker without legs in the mapping works as before."""
+        mve_tracker._handle_snapshot(_snapshot_msg("LEG-A", yes_levels=[("0.01", "10")]))
+        assert mve_tracker.appears_resolved_no("LEG-A")
 
 
 # ── stop ────────────────────────────────────────────────────────────────────

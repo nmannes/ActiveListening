@@ -195,7 +195,8 @@ class KalshiClient:
         """Fetch market details including settlement status.
 
         GET /markets/{ticker}
-        Returns dict with keys: ticker, title, status, result, close_time, etc.
+        Returns dict with keys: ticker, title, status, result, close_time,
+        custom_strike (when available), etc.
         Returns None on failure.
         """
         path = f"/markets/{ticker}"
@@ -218,6 +219,7 @@ class KalshiClient:
                 "status": market.get("status", "unknown"),
                 "result": result,
                 "close_time": market.get("close_time", ""),
+                "custom_strike": market.get("custom_strike", {}),
             }
         except Exception as e:
             logger.error(f"Kalshi API error fetching market {ticker}: {e}")
