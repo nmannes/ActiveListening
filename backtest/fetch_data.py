@@ -38,48 +38,81 @@ def find_session_dir(slug: str) -> Path | None:
     return matches[0]
 
 
+def _copy_deepgram(session_dir: Path, out_dir: Path) -> bool:
+    dg_src = session_dir / "deepgram_responses"
+    if not dg_src.is_dir():
+        print(f"  ERROR: No deepgram_responses/ in {session_dir}")
+        return False
+    dg_dst = out_dir / "deepgram_responses"
+    if dg_dst.exists():
+        shutil.rmtree(dg_dst)
+    shutil.copytree(dg_src, dg_dst)
+    print(f"  Copied {len(list(dg_dst.glob('dg_*.json')))} Deepgram responses")
+    return True
+
+
+def _copy_market(slug: str, session_dir: Path, out_dir: Path) -> dict:
+    dst = out_dir / "market.json"
+    src = session_dir / f"{slug}.json"
+    if not src.exists():
+        src = SCHEDULED_DIR / f"{slug}.json"
+    if src.exists():
+        shutil.copy2(src, dst)
+        market = json.loads(dst.read_text())
+        print(f"  Copied market JSON ({len(market.get('keywords', {}))} keywords)")
+        return market
+    print(f"  WARNING: No market JSON found for '{slug}'")
+    return {}
+
+
+def _copy_orderbook(slug: str, out_dir: Path):
+    for ext in ("", ".db-wal", ".db-shm"):
+        src = MARKET_TRACKING_DIR / f"{slug}{ext}"
+        if src.exists():
+            dst_name = f"{slug}{ext}" if ext else f"{slug}.db"
+            shutil.copy2(src, out_dir / dst_name)
+    if (MARKET_TRACKING_DIR / f"{slug}.db").exists():
+        print(f"  Copied orderbook database")
+    else:
+        print(f"  No orderbook DB (expected: {slug}.db)")
+
+
+def _copy_audio_if_voiced(market: dict, session_dir: Path, out_dir: Path):
+    """Copy audio/full.wav if any speaker entity has a voice sample in ~/audio-library/."""
+    entities = market.get("speakerEntities", [])
+    if not entities:
+        return
+    audio_lib = Path.home() / "audio-library"
+    if not audio_lib.is_dir():
+        return
+    lib_samples = {f.stem.lower() for f in audio_lib.glob("*.wav")}
+    matched = [e for e in entities if e.lower() in lib_samples]
+    if not matched:
+        return
+    wav_src = session_dir / "audio" / "full.wav"
+    if not wav_src.exists():
+        print(f"  WARNING: Voice match for {matched} but no audio/full.wav found")
+        return
+    wav_dst = out_dir / "audio" / "full.wav"
+    wav_dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(wav_src, wav_dst)
+    size_mb = wav_src.stat().st_size / (1024 * 1024)
+    print(f"  Copied audio ({size_mb:.1f} MB) — voice match for {matched}")
+
+
 def fetch_session(slug: str, session_dir: Path, include_orderbook: bool = True) -> bool:
     """Fetch all data for a session into backtest_data/<slug>/."""
     out_dir = OUTPUT_DIR / slug
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy deepgram_responses
-    dg_src = session_dir / "deepgram_responses"
-    if not dg_src.is_dir():
-        print(f"  ERROR: No deepgram_responses/ in {session_dir}")
+    if not _copy_deepgram(session_dir, out_dir):
         return False
 
-    dg_dst = out_dir / "deepgram_responses"
-    if dg_dst.exists():
-        shutil.rmtree(dg_dst)
-    shutil.copytree(dg_src, dg_dst)
-    dg_count = len(list(dg_dst.glob("dg_*.json")))
-    print(f"  Copied {dg_count} Deepgram responses")
+    market = _copy_market(slug, session_dir, out_dir)
+    _copy_audio_if_voiced(market, session_dir, out_dir)
 
-    # Copy market JSON — check session dir first, then scheduled/
-    market_dst = out_dir / "market.json"
-    market_src = session_dir / f"{slug}.json"
-    if not market_src.exists():
-        market_src = SCHEDULED_DIR / f"{slug}.json"
-    if market_src.exists():
-        shutil.copy2(market_src, market_dst)
-        market = json.loads(market_dst.read_text())
-        kw_count = len(market.get("keywords", {}))
-        print(f"  Copied market JSON with {kw_count} keywords")
-    else:
-        print(f"  WARNING: No market JSON found for '{slug}'")
-
-    # Copy orderbook DB
     if include_orderbook:
-        db_path = MARKET_TRACKING_DIR / f"{slug}.db"
-        if db_path.exists():
-            for ext in [".db", ".db-wal", ".db-shm"]:
-                src = MARKET_TRACKING_DIR / f"{slug}{ext}"
-                if src.exists():
-                    shutil.copy2(src, out_dir / f"{slug}{ext}")
-            print(f"  Copied orderbook database")
-        else:
-            print(f"  No orderbook DB (expected: {slug}.db)")
+        _copy_orderbook(slug, out_dir)
 
     return True
 

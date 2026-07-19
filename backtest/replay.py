@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """
-replay.py — Replay Deepgram transcripts through keyword matching and capture signals.
+replay.py — Replay Deepgram responses through keyword matching and capture signals.
 
-Reads dg_*.json files from a session directory, feeds words through the real
-SignalDetector and find_keyword_match(), and writes every keyword hit to
-signals.jsonl. No trading gate evaluation — just raw keyword detections.
+For each historical session:
+  1. Reads dg_*.json files from deepgram_responses/ in lexicographic order
+  2. Builds keyword index from the market JSON
+  3. Deduplicates tokens per speaker, feeds through SignalDetector.feed_token()
+  4. Captures every keyword match with metadata (keyword, ticker, timestamp, confidence, speaker)
+  5. Applies speaker whitelist based on event type:
+     - Sports (NBA/MLB/NHL/NCAA): top 3 speakers by word count are trading speakers
+     - Earnings calls: any speaker with ≥100 words is auto-allowlisted
+     - Other: top 2 speakers, or speakers from speaker_labels.json if available
+  6. Writes signals.jsonl with one JSON line per signal
 
 Usage:
     PYTHONPATH=. python backtest/replay.py s3/kxnbamention-26apr28phibos_2026-04-29_02-27-14
@@ -14,6 +21,7 @@ Usage:
 import argparse
 import json
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -26,8 +34,78 @@ SCHEDULED_DIR = REPO_ROOT / "scheduled"
 OUTPUT_DIR = REPO_ROOT / "backtest_data"
 
 
+# ── Event type detection ──────────────────────────────────────────────────
+
+def detect_event_type(slug: str) -> str:
+    """Determine event category from the market slug."""
+    s = slug.lower()
+    if any(k in s for k in ("nba", "mlb", "nhl", "ncaa", "nfl", "soccer", "wcment")):
+        return "sports"
+    if "earnings" in s:
+        return "earnings"
+    if any(k in s for k in ("hearing", "hegseth", "secpress", "steyer",
+                              "bernie", "trump", "rfk", "vance")):
+        return "political"
+    if "latenight" in s:
+        return "tv"
+    return "other"
+
+
+# ── Speaker whitelist ─────────────────────────────────────────────────────
+
+def build_speaker_whitelist(
+    event_type: str,
+    speaker_word_counts: dict[str, int],
+    speaker_labels: dict[str, str] | None = None,
+) -> set[str]:
+    """Return the set of speaker IDs allowed to trigger trades."""
+    if event_type == "sports":
+        # Announcers have the most speaking time across the full event duration
+        top = sorted(speaker_word_counts.items(), key=lambda x: x[1], reverse=True)
+        whitelist = {sid for sid, _ in top[:3]}
+
+    elif event_type == "earnings":
+        # Any speaker with substantial speaking time is likely a company exec
+        whitelist = {sid for sid, c in speaker_word_counts.items() if c >= 100}
+
+    elif event_type in ("political", "tv", "other"):
+        if speaker_labels:
+            whitelist = set(speaker_labels.keys())
+        else:
+            top = sorted(speaker_word_counts.items(), key=lambda x: x[1], reverse=True)
+            whitelist = {sid for sid, _ in top[:2]}
+
+    print(f"  Event type: {event_type}")
+    print(f"  Speaker word counts: {dict(speaker_word_counts)}")
+    print(f"  Whitelisted speakers: {whitelist}")
+    return whitelist
+
+
+# ── Token deduplication ───────────────────────────────────────────────────
+
+class TokenDeduper:
+    """Per-speaker dedup, mirroring TradeProcessor._update_transcript logic."""
+
+    def __init__(self):
+        self._seen: dict[str, set[str]] = defaultdict(set)
+
+    def dedupe(self, speaker_id: str, tokens: list[dict]) -> list[dict]:
+        """Return tokens not yet seen for this speaker, sorted by start time."""
+        seen = self._seen[speaker_id]
+        new: list[dict] = []
+        for t in sorted(tokens, key=lambda x: x.get("start", 0)):
+            text = t["text"].strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            new.append(t)
+        return new
+
+
+# ── Market JSON loading ───────────────────────────────────────────────────
+
 def load_market(session_dir: Path, market_arg: str | None = None) -> dict | None:
-    """Load market JSON. Checks --market arg, then session dir, then scheduled/."""
+    """Load market JSON from --market, session dir, or scheduled/."""
     if market_arg:
         market_path = Path(market_arg)
         if not market_path.is_absolute():
@@ -38,27 +116,29 @@ def load_market(session_dir: Path, market_arg: str | None = None) -> dict | None
         return None
 
     slug = session_dir.name
-    # Truncate the datetime suffix: "kxnbamention-26apr28phibos_2026-04-29_02-27-14" → "kxnbamention-26apr28phibos"
-    # The slug before the first underscore-prefixed datetime portion
     parts = slug.split("_")
-    clean_slug = parts[0]  # The session slug is always the first part
+    clean_slug = parts[0]
 
-    # Check session dir
-    market_path = session_dir / f"{clean_slug}.json"
-    if market_path.exists():
-        return json.loads(market_path.read_text())
-
-    # Check scheduled/
-    market_path = SCHEDULED_DIR / f"{clean_slug}.json"
-    if market_path.exists():
-        return json.loads(market_path.read_text())
+    for candidate in [
+        session_dir / f"{clean_slug}.json",
+        SCHEDULED_DIR / f"{clean_slug}.json",
+    ]:
+        if candidate.exists():
+            return json.loads(candidate.read_text())
 
     print(f"ERROR: No market JSON found for slug '{clean_slug}'")
     return None
 
 
-def replay_session(session_dir: Path, market: dict) -> list[dict]:
-    """Replay all Deepgram responses and capture keyword matches. Returns list of signal dicts."""
+# ── Main replay ───────────────────────────────────────────────────────────
+
+def replay_session(session_dir: Path, market: dict, speaker_labels: dict[str, str] | None = None) -> list[dict]:
+    """Replay all Deepgram responses and capture keyword matches.
+
+    Returns list of signal dicts with keys:
+      keyword, ticker, timestamp, end, confidence, avg_confidence,
+      confidences, speaker_id, whitelisted, event_type
+    """
     dg_dir = session_dir / "deepgram_responses"
     if not dg_dir.is_dir():
         print(f"ERROR: No deepgram_responses/ in {session_dir}")
@@ -69,6 +149,8 @@ def replay_session(session_dir: Path, market: dict) -> list[dict]:
 
     keyword_index = build_keyword_index(market.get("keywords", {}))
     detector = SignalDetector()
+    deduper = TokenDeduper()
+    speaker_word_counts: dict[str, int] = defaultdict(int)
     signals: list[dict] = []
     processed = 0
 
@@ -92,25 +174,27 @@ def replay_session(session_dir: Path, market: dict) -> list[dict]:
 
         speaker_id = str(words[0].get("speaker", "0"))
 
-        for w in words:
-            text = w["word"].lower().strip()
-            if not text:
-                continue
-
-            token = {
-                "text": text,
+        formatted_tokens = [
+            {
+                "text": w["word"].lower(),
                 "start": w["start"],
                 "end": w["end"],
                 "confidence": round(w.get("confidence", 0), 3),
             }
+            for w in words
+        ]
 
+        new_tokens = deduper.dedupe(speaker_id, formatted_tokens)
+        speaker_word_counts[speaker_id] += len(new_tokens)
+
+        for token in new_tokens:
             match = detector.feed_token(speaker_id, token, keyword_index)
             if match:
                 signals.append({
                     "keyword": match["key"],
                     "ticker": match["value"],
-                    "timestamp": w["start"],  # trigger word start (seconds from stream start)
-                    "end": w["end"],
+                    "timestamp": token["start"],
+                    "end": token["end"],
                     "confidence": match["min_confidence"],
                     "avg_confidence": match["avg_confidence"],
                     "confidences": match["confidences"],
@@ -119,7 +203,20 @@ def replay_session(session_dir: Path, market: dict) -> list[dict]:
 
         processed += 1
 
-    print(f"Processed {processed} responses, captured {len(signals)} signals")
+    print(f"Processed {processed} responses, {sum(speaker_word_counts.values())} unique words, captured {len(signals)} signals")
+
+    # Apply speaker whitelist
+    slug = market.get("slug", session_dir.name.split("_")[0])
+    event_type = detect_event_type(slug)
+    whitelist = build_speaker_whitelist(event_type, speaker_word_counts, speaker_labels)
+
+    for sig in signals:
+        sig["whitelisted"] = sig["speaker_id"] in whitelist
+        sig["event_type"] = event_type
+
+    whitelisted_signals = sum(1 for s in signals if s["whitelisted"])
+    print(f"  {whitelisted_signals}/{len(signals)} signals from whitelisted speakers")
+
     return signals
 
 
@@ -149,7 +246,18 @@ def main():
     print(f"Market: {title}")
     print(f"Keywords: {kw_count}")
 
-    signals = replay_session(session_dir, market)
+    # Load speaker labels if available
+    speaker_labels: dict[str, str] | None = None
+    labels_path = REPO_ROOT / "speaker_labels.json"
+    if labels_path.exists():
+        all_labels = json.loads(labels_path.read_text())
+        for key, labels in all_labels.items():
+            if key.startswith(market.get("slug", "")):
+                speaker_labels = labels
+                print(f"Found speaker labels for {key}")
+                break
+
+    signals = replay_session(session_dir, market, speaker_labels)
 
     # Determine output path
     if args.output:

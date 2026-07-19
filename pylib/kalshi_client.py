@@ -191,6 +191,38 @@ class KalshiClient:
             logger.error(f"Failed to fetch market {ticker}: {e}")
             return None
 
+    def get_market(self, ticker: str) -> dict | None:
+        """Fetch market details including settlement status.
+
+        GET /markets/{ticker}
+        Returns dict with keys: ticker, title, status, result, close_time, etc.
+        Returns None on failure.
+        """
+        path = f"/markets/{ticker}"
+        url = self.base_url + path
+        headers = self._get_auth_headers("GET", url)
+        try:
+            response = self.session.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            market = data.get("market", data)
+            # Normalize settlement fields
+            result = None
+            if market.get("status") == "settled":
+                result = market.get("yes_result")
+                if result is not None:
+                    result = "yes" if result else "no"
+            return {
+                "ticker": market.get("ticker", ticker),
+                "title": market.get("title", ""),
+                "status": market.get("status", "unknown"),
+                "result": result,
+                "close_time": market.get("close_time", ""),
+            }
+        except Exception as e:
+            logger.error(f"Kalshi API error fetching market {ticker}: {e}")
+            return None
+
     def get_ws_auth_headers(self) -> dict:
         """Create auth headers for the Kalshi WebSocket connection."""
         path = "/trade-api/ws/v2"

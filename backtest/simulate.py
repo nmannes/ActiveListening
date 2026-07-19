@@ -115,6 +115,10 @@ def evaluate_gates(signal: dict, market: dict, book: dict | None,
     keyword = signal["keyword"]
     ticker = signal["ticker"]
 
+    # Gate 0: Speaker whitelist
+    if not signal.get("whitelisted", True):
+        return False, f"non-whitelisted speaker {signal.get('speaker_id', '?')}", None
+
     # Gate 1: Blocked keyword
     if is_keyword_blocked(keyword):
         return False, f"blocked keyword: {keyword}", None
