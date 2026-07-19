@@ -1371,7 +1371,7 @@ app.get("/api/voice/verification/:slug", async (req, res) => {
         const segments = [];
         for (const [idx, data] of Object.entries(states)) {
             const source = (data.source || "").replace(/\.wav$/, "");
-            const vidId = source.includes("_") ? source.split("_").pop() : source;
+            const vidId = source.includes("_") ? source.split(/_(.+)/)[1] : source;
             segments.push({
                 index: parseInt(idx, 10),
                 target: data.target || "",

@@ -916,7 +916,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
 
         pre_label = " (pre-approved)" if is_pre_approved else ""
         source = seg.get("source", "").replace(".wav", "")
-        vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
+        vid_id = source.split("_", 1)[1] if "_" in source else source
         source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
 
         # Find the review-set display number for this segment

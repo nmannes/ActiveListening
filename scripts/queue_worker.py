@@ -370,7 +370,7 @@ async def _process_sample_generation(job, job_token, progress=None):
                 continue
 
             source = seg.get("source", "").replace(".wav", "")
-            vid_id = source.rsplit("_", 1)[-1] if "_" in source else source
+            vid_id = source.split("_", 1)[1] if "_" in source else source
             source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
             caption = (
                 f"\U0001f399️ {target} — sample {i + 1}/{len(segments)}\n"
