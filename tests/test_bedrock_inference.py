@@ -5,13 +5,15 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Mock nemo before importing pylib.speaker_recognition
+# Mock nemo and boto3 before importing pylib.speaker_recognition
 mock_nemo = MagicMock()
 sys.modules["nemo"] = mock_nemo
 sys.modules["nemo.collections"] = mock_nemo
 sys.modules["nemo.collections.asr"] = mock_nemo
 sys.modules["nemo.collections.asr.models"] = mock_nemo
 sys.modules["omegaconf"] = MagicMock()
+mock_boto3 = MagicMock()
+sys.modules["boto3"] = mock_boto3
 
 from pylib.speaker_recognition import TranscriptSpeakerRecognizer, SpeakerRecognitionSession
 from pylib.speaker_policy import InferencePolicy, SpeakerRecognitionLoop
