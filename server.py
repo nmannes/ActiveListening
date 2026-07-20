@@ -120,6 +120,11 @@ class Config:
         logger.info(f"Word prediction: {self.word_prediction_enabled}")
         self.audio_library_path = Path("~/audio-library").expanduser()
 
+        # Speaker recognition scheduling (from config.yaml)
+        ws_config = _config["server"]
+        self.speaker_recognition_interval_secs = ws_config.get("speakerRecognitionIntervalSecs", 10)
+        self.speaker_recognition_max_duration_secs = ws_config.get("speakerRecognitionMaxDurationSecs", 5400)
+
 
 class ClientSession:
     def __init__(self, websocket, server):
@@ -259,9 +264,19 @@ class ClientSession:
         if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
             entities = self.market.get("speakerEntities")
-            self.speaker_recognition_session = SpeakerRecognitionSession(self, entities, speaker_identifier=self.server.speaker_identifier)
-            logger.info(f"[{self.session_id}] Inference policy: {'voice' if self.speaker_recognition_session.policy.stability_rounds == 1 else 'inference'} mode")
-            self.speaker_task = asyncio.create_task(self.speaker_recognition_loop())
+            self.speaker_recognition_session = SpeakerRecognitionSession(
+                self, entities,
+                speaker_identifier=self.server.speaker_identifier,
+                interval_secs=self.server.config.speaker_recognition_interval_secs,
+                max_duration_secs=self.server.config.speaker_recognition_max_duration_secs,
+            )
+            logger.info(f"[{self.session_id}] Speaker recognition session created (interval={self.speaker_recognition_session.policy.interval_secs}s, max_duration={self.speaker_recognition_session.policy.max_duration_secs}s)")
+            from pylib.speaker_policy import SpeakerRecognitionLoop
+            loop = SpeakerRecognitionLoop(
+                self.speaker_recognition_session.policy,
+                self.speaker_recognition_session.run_identity_inference,
+            )
+            self.speaker_task = asyncio.create_task(loop.run())
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
 
@@ -337,43 +352,6 @@ class ClientSession:
                     f"[{self.session_id}] Dropped {dropped_bytes} bytes from WebSocket inbox (30s cap)"
                 )
 
-    async def speaker_recognition_loop(self):
-        policy = self.speaker_recognition_session.policy
-        logger.info(f"[{self.session_id}] Speaker recognition loop started (interval: {policy.interval_secs}s, max duration: {policy.max_duration_secs}s)")
-        loop_start = time.time()
-        inference_stopped = False
-        try:
-            while True:
-                await asyncio.sleep(policy.interval_secs)
-
-                elapsed = time.time() - loop_start
-                # Duration cap only gates transcript-based (Bedrock) inference.
-                # Audio identification is cheap and must run for the full event
-                # — the target speaker may not appear until well into the broadcast.
-                if not self.speaker_recognition_session.is_audio_mode and policy.is_duration_exceeded(elapsed):
-                    if not inference_stopped:
-                        inference_stopped = True
-                        logger.info(f"[{self.session_id}] Speaker inference stopped after {elapsed:.0f}s — sticking with current identifications")
-                    continue
-
-                total_words = 0
-                async with self.transcript_lock:
-                    for tokens in self.transcript.values():
-                        total_words += len(tokens)
-
-                if policy.should_run(total_words):
-                    logger.info(f"[{self.session_id}] Running scheduled identity inference (total words: {total_words})...")
-                    await self.speaker_recognition_session.run_identity_inference()
-                    policy.mark_ran(total_words)
-                elif policy.is_word_limit_reached(total_words):
-                    logger.debug(f"[{self.session_id}] Speaker recognition max words reached ({total_words})")
-                else:
-                    logger.debug(f"[{self.session_id}] Not enough new words for inference ({total_words} total, need {policy._last_word_count + policy.word_step})")
-        except asyncio.CancelledError:
-            logger.info(f"[{self.session_id}] Speaker recognition loop cancelled")
-            pass
-        except Exception as e:
-            logger.error(f"[{self.session_id}] Error in speaker recognition loop: {e}")
 
     def cleanup(self):
         if self.audio_task:

@@ -226,7 +226,9 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
 class SpeakerRecognitionSession:
     """Manages speaker recognition and entity mapping for a specific broadcast session."""
 
-    def __init__(self, listening_session, market_entities: List[str], speaker_identifier=None):
+    def __init__(self, listening_session, market_entities: List[str],
+                 speaker_identifier=None, interval_secs: int = 10,
+                 max_duration_secs: int = 5400):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -238,44 +240,40 @@ class SpeakerRecognitionSession:
         self._speaker_file_sizes: Dict[str, int] = {}
 
         from pylib.speaker_policy import InferencePolicy
-        self.policy = InferencePolicy.for_entities(market_entities, speaker_identifier)
 
-        # Live reality events need continuous inference for the full runtime
-        title = getattr(listening_session, "market", {}).get("title", "").lower()
-        if "big brother" in title:
-            duration = self._event_duration_secs(listening_session)
-            self.policy = InferencePolicy.live_event_mode(max_duration_secs=duration)
+        # Parse event duration from market metadata for ALL events
+        duration = self._event_duration_secs(listening_session, fallback_secs=max_duration_secs)
 
-        # Earnings calls: scan frequently (every 100 words) for 20 minutes
-        if "earnings" in title:
-            self.policy.word_step = 100
-            self.policy.max_duration_secs = 1200
+        self.policy = InferencePolicy(
+            interval_secs=interval_secs,
+            max_duration_secs=duration,
+        )
 
         self.transcript_recognizer = TranscriptSpeakerRecognizer(
             listening_session=self.listening_session
         )
 
     @staticmethod
-    def _event_duration_secs(listening_session) -> int:
+    def _event_duration_secs(listening_session, fallback_secs: int = 5400) -> int:
         """Parse the event duration in seconds from market media source metadata.
 
         Looks for a time range like \"8:00 PM - 9:30 PM\" in the first media source
-        and computes the delta. Falls back to 5400 (90 min) if unparseable.
+        and computes the delta. Falls back to *fallback_secs* if unparseable.
         """
         market = getattr(listening_session, "market", {}) or {}
         sources = market.get("mediaSources", [])
         if not sources:
-            return 5400
+            return fallback_secs
 
         time_str = sources[0].get("metadata", {}).get("time", "")
         if not time_str:
-            return 5400
+            return fallback_secs
 
         import re
         from datetime import datetime
         match = re.match(r"(.+?)\s*-\s*(.+)", time_str)
         if not match:
-            return 5400
+            return fallback_secs
 
         try:
             fmt = "%I:%M %p"
@@ -286,24 +284,7 @@ class SpeakerRecognitionSession:
                 delta += 24 * 3600  # crosses midnight
             return int(delta) + 60  # pad for overrun
         except ValueError:
-            return 5400
-
-    @property
-    def is_audio_mode(self) -> bool:
-        """True when we have voice samples for at least one market entity.
-
-        Audio identification is cheap (embedding comparison) and should run
-        for the full event duration — speakers may not appear until later.
-        """
-        identifier = self.listening_session.server.speaker_identifier
-        if not identifier:
-            return False
-        entity_slugs = {e.replace(" ", "-").lower(): e for e in self.market_entities}
-        return any(
-            key == slug or key.startswith(slug + "-") or key.startswith(slug + "_")
-            for slug in entity_slugs
-            for key in identifier.references
-        )
+            return fallback_secs
 
     def set_profile_label(self, voice_profile_id: str, label: str):
         self.profile_labels[voice_profile_id] = label
@@ -327,10 +308,6 @@ class SpeakerRecognitionSession:
         """
         Aggregates session transcripts and runs LLM-based identity inference.
         """
-        if self.policy.is_stable:
-            logger.info("Speaker identities have stabilized. Skipping further inference.")
-            return
-
         logger.info(f"Running identity inference for session {self.session_id}")
 
         # If any market entity has a voice sample, use audio-based identification
@@ -338,16 +315,14 @@ class SpeakerRecognitionSession:
         # announcers and targets we don't have voice samples for.
         identifier = self.listening_session.server.speaker_identifier
         entity_slugs = {e.replace(' ', '-').lower(): e for e in self.market_entities}
-        target_has_voice_sample = any(
+        target_has_voice_sample = identifier is not None and any(
             key == slug or key.startswith(slug + '-') or key.startswith(slug + '_')
             for slug in entity_slugs
             for key in identifier.references
         )
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
-            mapping = await self._run_audio_identification(entity_slugs)
-            if mapping:
-                self.policy.record_result(mapping, self.market_entities)
+            await self._run_audio_identification(entity_slugs)
             return
 
         # Earnings calls: auto-allowlist any speaker with >=100 words.
@@ -410,7 +385,6 @@ class SpeakerRecognitionSession:
         )
 
         if mapping:
-            self.policy.record_result(mapping, self.market_entities)
             logger.info(f"Identity mapping inferred: {mapping}")
             for sid, label in mapping.items():
                 self.set_profile_label(sid, label)

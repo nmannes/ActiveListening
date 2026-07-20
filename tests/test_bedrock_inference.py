@@ -2,6 +2,7 @@ import asyncio
 import json
 import unittest
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # Mock nemo before importing pylib.speaker_recognition
@@ -13,7 +14,8 @@ sys.modules["nemo.collections.asr.models"] = mock_nemo
 sys.modules["omegaconf"] = MagicMock()
 
 from pylib.speaker_recognition import TranscriptSpeakerRecognizer, SpeakerRecognitionSession
-from pylib.speaker_policy import InferencePolicy
+from pylib.speaker_policy import InferencePolicy, SpeakerRecognitionLoop
+from pylib.replay_runner import ReplayRunner, ReplaySession, TradeSignal
 
 class MockIdentifier:
     def __init__(self):
@@ -132,57 +134,6 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
             mock_websocket.send.assert_called_once()
             self.assertGreaterEqual(mock_send_telegram.call_count, 1)
 
-    async def test_audio_identification_reaches_stability(self):
-        """Voice ID should become stable after 3 consistent rounds."""
-        session = self._make_audio_session()
-
-        with patch("pylib.speaker_recognition.send_telegram"), \
-             patch("pylib.speaker_recognition.send_telegram_audio"):
-            rec_session = SpeakerRecognitionSession(
-                session, ["Wes Moore"],
-                speaker_identifier=session.server.speaker_identifier,
-            )
-            self.assertEqual(rec_session.policy.word_step, 300)  # voice_mode
-
-            # Round 1: identify speaker 0
-            await rec_session.run_identity_inference()
-            self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
-            self.assertFalse(rec_session.policy.is_stable)
-            self.assertEqual(len(rec_session.policy.history), 1)
-
-            # Round 2: speaker 0 already labeled, skipped — same mapping returned
-            await rec_session.run_identity_inference()
-            self.assertFalse(rec_session.policy.is_stable)
-            self.assertEqual(len(rec_session.policy.history), 2)
-
-            # Round 3: same mapping → stability triggered
-            await rec_session.run_identity_inference()
-            self.assertTrue(rec_session.policy.is_stable)
-            self.assertEqual(len(rec_session.policy.history), 3)
-
-    async def test_audio_identification_gated_after_stability(self):
-        """Once stable, run_identity_inference should return early without adding history."""
-        session = self._make_audio_session()
-
-        with patch("pylib.speaker_recognition.send_telegram"), \
-             patch("pylib.speaker_recognition.send_telegram_audio"):
-            rec_session = SpeakerRecognitionSession(
-                session, ["Wes Moore"],
-                speaker_identifier=session.server.speaker_identifier,
-            )
-            self.assertEqual(rec_session.policy.word_step, 300)  # voice_mode
-
-            # Reach stability
-            for _ in range(3):
-                await rec_session.run_identity_inference()
-
-            self.assertTrue(rec_session.policy.is_stable)
-            history_len = len(rec_session.policy.history)
-
-            # 4th call should be gated by is_stable
-            await rec_session.run_identity_inference()
-            self.assertEqual(len(rec_session.policy.history), history_len)
-
     async def test_audio_identification_no_wav_files_returns_empty_mapping(self):
         """When no WAV files exist, _run_audio_identification returns a dict (not bool)."""
         session = self._make_audio_session()
@@ -195,7 +146,6 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
                 session, ["Wes Moore"],
                 speaker_identifier=session.server.speaker_identifier,
             )
-            self.assertEqual(rec_session.policy.word_step, 300)  # voice_mode
             mapping = await rec_session._run_audio_identification(
                 {"wes-moore": "Wes Moore"}
             )
@@ -236,28 +186,6 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         session.trade_processor = mock_trade_processor
 
         return session
-
-    # ── is_audio_mode ────────────────────────────────────────────────
-
-    def test_is_audio_mode_true_when_voice_sample_exists(self):
-        """is_audio_mode returns True when a market entity has a voice sample."""
-        session = self._make_audio_session()
-        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
-        self.assertTrue(rec_session.is_audio_mode)
-
-    def test_is_audio_mode_false_when_no_voice_sample(self):
-        """is_audio_mode returns False when no market entity has a voice sample."""
-        session = MockSession()
-        # MockIdentifier has empty references dict
-        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
-        self.assertFalse(rec_session.is_audio_mode)
-
-    def test_is_audio_mode_false_when_identifier_is_none(self):
-        """is_audio_mode returns False when speaker_identifier is None."""
-        session = MockSession()
-        session.server.speaker_identifier = None
-        rec_session = SpeakerRecognitionSession(session, ["Wes Moore"])
-        self.assertFalse(rec_session.is_audio_mode)
 
     # ── WAV growth re-identification ─────────────────────────────────
 
@@ -321,127 +249,332 @@ class TestInferencePolicy(unittest.TestCase):
     def test_defaults(self):
         p = InferencePolicy()
         self.assertEqual(p.interval_secs, 10)
-        self.assertEqual(p.word_step, 500)
-        self.assertEqual(p.max_words, 10000)
-        self.assertEqual(p.max_duration_secs, 600)
-        self.assertEqual(p.stability_rounds, 3)
-        self.assertFalse(p.is_stable)
-        self.assertEqual(p.history, [])
-        self.assertEqual(p._last_word_count, 0)
-
-    def test_should_run_word_gating(self):
-        p = InferencePolicy(word_step=500, max_words=2000)
-        self.assertFalse(p.should_run(0))
-        self.assertFalse(p.should_run(499))
-        self.assertTrue(p.should_run(500))
-        self.assertTrue(p.should_run(1000))
-        p.mark_ran(1000)
-        self.assertFalse(p.should_run(1001))
-        self.assertTrue(p.should_run(1500))
-
-    def test_should_run_respects_max_words(self):
-        p = InferencePolicy(word_step=500, max_words=2000)
-        self.assertFalse(p.should_run(2000))
-        self.assertFalse(p.should_run(3000))
+        self.assertEqual(p.max_duration_secs, 5400)
 
     def test_duration_gating(self):
         p = InferencePolicy(max_duration_secs=60)
         self.assertFalse(p.is_duration_exceeded(0))
         self.assertFalse(p.is_duration_exceeded(59))
-        self.assertTrue(p.is_duration_exceeded(60))
+        self.assertFalse(p.is_duration_exceeded(60))  # boundary: still within duration
+        self.assertTrue(p.is_duration_exceeded(61))
         self.assertTrue(p.is_duration_exceeded(120))
 
-    def test_word_limit(self):
-        p = InferencePolicy(max_words=5000)
-        self.assertFalse(p.is_word_limit_reached(4999))
-        self.assertTrue(p.is_word_limit_reached(5000))
+    def test_custom_values(self):
+        p = InferencePolicy(interval_secs=5, max_duration_secs=3600)
+        self.assertEqual(p.interval_secs, 5)
+        self.assertEqual(p.max_duration_secs, 3600)
 
-    def test_mark_ran_updates_word_count(self):
-        p = InferencePolicy(word_step=500)
-        self.assertEqual(p._last_word_count, 0)
-        p.mark_ran(750)
-        self.assertEqual(p._last_word_count, 750)
 
-    def test_stability_not_reached_with_fewer_than_n_rounds(self):
-        p = InferencePolicy(stability_rounds=3)
-        mapping = {"0": "Alice", "1": "advertisement"}
-        result = p.record_result(mapping, ["Alice"])
-        self.assertFalse(result)
-        self.assertFalse(p.is_stable)
-        result = p.record_result(mapping, ["Alice"])
-        self.assertFalse(result)
-        self.assertFalse(p.is_stable)
+class TestSpeakerRecognitionLoop(unittest.IsolatedAsyncioTestCase):
+    """Test loop timing behavior with injectable clock and no-op sleep."""
 
-    def test_stability_reached_on_third_consistent_round(self):
-        p = InferencePolicy(stability_rounds=3)
-        mapping = {"0": "Alice", "1": "advertisement"}
-        p.record_result(mapping, ["Alice"])
-        p.record_result(mapping, ["Alice"])
-        result = p.record_result(mapping, ["Alice"])
-        self.assertTrue(result)
-        self.assertTrue(p.is_stable)
+    @staticmethod
+    def _fake_clock(start=0, step=10):
+        """Return a clock that advances by *step* seconds each call."""
+        t = [start]
+        def tick():
+            now = t[0]
+            t[0] += step
+            return now
+        return tick
 
-    def test_stability_resets_on_inconsistent_result(self):
-        p = InferencePolicy(stability_rounds=3)
-        p.record_result({"0": "Alice"}, ["Alice"])
-        p.record_result({"0": "Alice"}, ["Alice"])
-        p.record_result({"0": "Bob"}, ["Bob"])
-        self.assertFalse(p.is_stable)
+    async def test_fires_n_times_for_interval_and_duration(self):
+        """With interval=10, duration=55: fires at 10,20,30,40,50 → 5 times."""
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=55)
+        calls = []
+        async def run_fn():
+            calls.append(1)
 
-    def test_stability_requires_market_entity_match(self):
-        p = InferencePolicy(stability_rounds=3)
-        mapping = {"0": "advertisement", "1": "advertisement"}
-        p.record_result(mapping, ["Alice"])
-        p.record_result(mapping, ["Alice"])
-        result = p.record_result(mapping, ["Alice"])
-        self.assertFalse(result)
-        self.assertFalse(p.is_stable)
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 5)
 
-    def test_stability_with_custom_rounds(self):
-        p = InferencePolicy(stability_rounds=2)
-        mapping = {"0": "Alice"}
-        p.record_result(mapping, ["Alice"])
-        result = p.record_result(mapping, ["Alice"])
-        self.assertTrue(result)
-        self.assertTrue(p.is_stable)
+    async def test_fires_zero_times_when_duration_less_than_interval(self):
+        """Duration 5 < interval 10 → loop exits before first fire."""
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=5)
+        calls = []
+        async def run_fn():
+            calls.append(1)
 
-    def test_voice_mode_values(self):
-        p = InferencePolicy.voice_mode()
-        self.assertEqual(p.interval_secs, 10)
-        self.assertEqual(p.word_step, 300)
-        self.assertEqual(p.max_words, 3000)
-        self.assertEqual(p.max_duration_secs, 600)
-        self.assertEqual(p.stability_rounds, 3)
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 0)
 
-    def test_inference_mode_values(self):
-        p = InferencePolicy.inference_mode()
-        self.assertEqual(p.interval_secs, 10)
-        self.assertEqual(p.word_step, 500)
-        self.assertEqual(p.max_words, 10000)
-        self.assertEqual(p.max_duration_secs, 600)
-        self.assertEqual(p.stability_rounds, 3)
+    async def test_fires_once_when_duration_equals_interval(self):
+        """Duration 10 == interval 10 → fires exactly once."""
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=10)
+        calls = []
+        async def run_fn():
+            calls.append(1)
 
-    def test_for_entities_returns_voice_mode_when_sample_exists(self):
-        identifier = MagicMock()
-        identifier.has_sample_for.return_value = True
-        p = InferencePolicy.for_entities(["Donald Trump"], identifier)
-        self.assertEqual(p.word_step, 300)  # voice mode hallmark
-        self.assertEqual(p.max_duration_secs, 600)
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 1)
 
-    def test_for_entities_returns_inference_mode_when_no_sample(self):
-        identifier = MagicMock()
-        identifier.has_sample_for.return_value = False
-        p = InferencePolicy.for_entities(["Donald Trump"], identifier)
-        self.assertEqual(p.word_step, 500)  # inference mode hallmark
+    async def test_fires_n_times_with_remainder(self):
+        """Duration 65 with interval 10: fires at 10,20,30,40,50,60 → 6 times."""
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=65)
+        calls = []
+        async def run_fn():
+            calls.append(1)
 
-    def test_for_entities_returns_inference_mode_when_identifier_is_none(self):
-        p = InferencePolicy.for_entities(["Donald Trump"], None)
-        self.assertEqual(p.word_step, 500)  # inference mode hallmark
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 6)
 
-    def test_for_entities_empty_entities_falls_back_to_inference(self):
-        identifier = MagicMock()
-        p = InferencePolicy.for_entities([], identifier)
-        self.assertEqual(p.word_step, 500)  # any([]) = False
+    async def test_does_not_fire_at_time_zero(self):
+        """run_fn should NOT be called at t=0 — first fire is after one interval.
+
+        With interval=10 and duration=30 we get 3 firings (at 10, 20, 30).
+        If run_fn fired at t=0 we'd see 4 firings.
+        """
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=30)
+        calls = []
+        async def run_fn():
+            calls.append(1)
+
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 3)
+
+
+class TestReplayRunner(unittest.IsolatedAsyncioTestCase):
+    """Test ReplayRunner with synthetic Deepgram responses."""
+
+    @staticmethod
+    def _make_dg_response(speaker_id, words_data, is_final=True):
+        """Build a minimal Deepgram response dict."""
+        words = []
+        for word, start, end in words_data:
+            words.append({
+                "word": word, "start": start, "end": end,
+                "confidence": 0.9, "speaker": speaker_id,
+            })
+        return {
+            "type": "Results",
+            "is_final": is_final,
+            "channel": {
+                "alternatives": [{
+                    "transcript": " ".join(w["word"] for w in words),
+                    "words": words,
+                }]
+            }
+        }
+
+    @staticmethod
+    def _make_dg_dir(tmpdir, responses):
+        """Create a deepgram_responses/ directory with numbered dg_*.json files."""
+        dg_dir = tmpdir / "deepgram_responses"
+        dg_dir.mkdir()
+        for i, resp in enumerate(responses):
+            (dg_dir / f"dg_{i:04d}.json").write_text(json.dumps(resp))
+        return dg_dir
+
+    async def test_replay_produces_firings_at_correct_times(self):
+        """With interval=10, duration=60, tokens spanning 0-25s → 2 firings at t=10,20."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            # Tokens from two speakers spanning 0-25 seconds
+            responses = [
+                self._make_dg_response(0, [("hello", 0.0, 0.5), ("world", 0.5, 1.0)]),
+                self._make_dg_response(0, [("i", 5.0, 5.3), ("am", 5.3, 5.6), ("alice", 5.6, 6.0)]),
+                self._make_dg_response(1, [("hi", 12.0, 12.3), ("im", 12.3, 12.6), ("bob", 12.6, 13.0)]),
+                self._make_dg_response(0, [("welcome", 20.0, 20.5)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {"speakerEntities": ["Alice"], "title": "Test Event"}
+            runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=60)
+            result = await runner.run()
+
+            # Firing schedule: t=10, 20, 30, 40, 50, 60
+            # Tokens end at ~25s, so only t=10 and t=20 fire during token feeding
+            # The remaining (30, 40, 50, 60) fire after
+            self.assertEqual(len(result.firings), 6)
+            self.assertAlmostEqual(result.firings[0].elapsed_secs, 10)
+            self.assertAlmostEqual(result.firings[1].elapsed_secs, 20)
+            self.assertGreater(result.firings[1].total_words,
+                               result.firings[0].total_words)
+
+    async def test_replay_zero_firings_when_duration_less_than_interval(self):
+        """Duration 5 < interval 10 → no firings."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            responses = [
+                self._make_dg_response(0, [("hello", 0.0, 0.5)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {"speakerEntities": ["Alice"]}
+            runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=5)
+            result = await runner.run()
+
+            self.assertEqual(len(result.firings), 0)
+
+    async def test_replay_accumulates_transcript_over_time(self):
+        """Each firing should see more words as tokens accumulate."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            # Tokens spread across time, each batch adds more words
+            responses = [
+                self._make_dg_response(0, [("word1", 0.0, 0.5)]),
+                self._make_dg_response(0, [("word2", 8.0, 8.5)]),
+                self._make_dg_response(0, [("word3", 18.0, 18.5)]),
+                self._make_dg_response(0, [("word4", 28.0, 28.5)]),
+                self._make_dg_response(0, [("word5", 38.0, 38.5)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {"speakerEntities": ["Alice"]}
+            runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=40)
+            result = await runner.run()
+
+            # Firings at 10, 20, 30, 40
+            self.assertEqual(len(result.firings), 4)
+            # Word count should be non-decreasing
+            for i in range(1, len(result.firings)):
+                self.assertGreaterEqual(
+                    result.firings[i].total_words,
+                    result.firings[i - 1].total_words,
+                )
+
+    async def test_replay_captures_signals_on_keyword_match(self):
+        """Tokens matching market keywords produce TradeSignal entries."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            # "blossom" is the last word of the keyword phrase
+            responses = [
+                self._make_dg_response(0, [("cherry", 5.0, 5.3), ("blossom", 5.3, 5.6)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {
+                "speakerEntities": ["Alice"],
+                "keywords": {"cherry blossom": "CHERRY-YES"},
+            }
+            runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=30)
+            result = await runner.run()
+
+            self.assertEqual(len(result.signals), 1)
+            s = result.signals[0]
+            self.assertEqual(s.keyword, "cherry blossom")
+            self.assertEqual(s.ticker, "CHERRY-YES")
+            self.assertEqual(s.speaker_id, "0")
+            self.assertFalse(s.speaker_whitelisted)
+            self.assertFalse(s.would_trade)
+            self.assertEqual(s.blocked_by, "speaker_not_whitelisted")
+
+    async def test_replay_signal_blocked_by_whitelist_then_passes(self):
+        """Signal blocked before speaker identified, passes after."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            # Keyword spoken at t=5s and t=25s
+            responses = [
+                self._make_dg_response(0, [("cherry", 5.0, 5.3), ("blossom", 5.3, 5.6)]),
+                self._make_dg_response(0, [("cherry", 25.0, 25.3), ("blossom", 25.3, 25.6)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {
+                "speakerEntities": ["Alice"],
+                "keywords": {"cherry blossom": "CHERRY-YES"},
+            }
+            runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=30)
+            result = await runner.run()
+
+            # Two signals: first at ~5s (blocked), second at ~25s (after firings)
+            self.assertGreaterEqual(len(result.signals), 1)
+            # First signal: speaker not whitelisted yet
+            self.assertFalse(result.signals[0].speaker_whitelisted)
+            self.assertEqual(result.signals[0].blocked_by, "speaker_not_whitelisted")
+
+    async def test_e2e_identification_unblocks_signals(self):
+        """Full pipeline: speaker identified mid-broadcast, later signals unblocked.
+
+        Timeline (interval=10, duration=40):
+          t=0-5s    speaker 0 says keyword → BLOCKED (not yet identified)
+          t=10s     firing #1: Bedrock returns "0"→"Alice" → speaker whitelisted
+          t=15s     speaker 0 says keyword → WOULD TRADE
+          t=20,30,40s  firings #2-4
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            responses = [
+                # Before any firing: should be blocked
+                self._make_dg_response(0, [("cherry", 3.0, 3.3), ("blossom", 3.3, 3.6)]),
+                # After t=10 firing: should pass
+                self._make_dg_response(0, [("cherry", 15.0, 15.3), ("blossom", 15.3, 15.6)]),
+                # More words so the speaker is identifiable
+                self._make_dg_response(0, [
+                    ("hello", 7.0, 7.2), ("i", 7.2, 7.3), ("am", 7.3, 7.4),
+                    ("alice", 7.4, 7.6), ("and", 7.6, 7.7), ("i", 7.7, 7.8),
+                    ("approve", 7.8, 8.0), ("this", 8.0, 8.1), ("message", 8.1, 8.3),
+                ]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market = {
+                "speakerEntities": ["Alice"],
+                "keywords": {"cherry blossom": "CHERRY-YES"},
+            }
+
+            # Mock Bedrock to identify speaker 0 as Alice
+            mock_mapping = {"0": "Alice"}
+            with patch.object(
+                TranscriptSpeakerRecognizer,
+                "infer_identity_with_bedrock",
+                return_value=mock_mapping,
+            ):
+                runner = ReplayRunner(tmp, market, interval_secs=10, max_duration_secs=40)
+                result = await runner.run()
+
+            # 4 firings at t=10, 20, 30, 40
+            self.assertEqual(len(result.firings), 4)
+            # Speaker identified as Alice by the end
+            self.assertIn("0", result.profile_labels)
+            self.assertEqual(result.profile_labels["0"], "Alice")
+            self.assertIn("0", result.trading_speakers)
+
+            # Two signals
+            self.assertEqual(len(result.signals), 2)
+            # First signal at ~3s: speaker 0 not yet whitelisted
+            self.assertFalse(result.signals[0].speaker_whitelisted)
+            self.assertEqual(result.signals[0].blocked_by, "speaker_not_whitelisted")
+            # Second signal at ~15s: speaker 0 whitelisted at t=10 firing
+            self.assertTrue(result.signals[1].speaker_whitelisted)
+            self.assertTrue(result.signals[1].would_trade)
+            self.assertEqual(result.signals[1].blocked_by, "trade_for_real_disabled")
 
 
 if __name__ == "__main__":
