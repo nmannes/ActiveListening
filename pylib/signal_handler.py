@@ -24,7 +24,18 @@ def _send_audio_clip(audio_bytes: bytes, word: str, start: float, end: float):
             wf.writeframes(audio_bytes)
             wf.close()
         caption = f"{word} ({start:.1f}s-{end:.1f}s)"
-        send_telegram_audio(path, caption=caption, channel="info")
+        result = send_telegram_audio(path, caption=caption, channel="info")
+        if not result.get("ok"):
+            logger.error(
+                f"[TRADE] Telegram sendAudio failed: {result.get('description', 'unknown')} "
+                f"— word={word}, size={len(audio_bytes)} bytes, path={path}"
+            )
+        else:
+            logger.info(
+                f"[TRADE] Sent audio clip: {word} ({len(audio_bytes)} bytes, {start:.1f}s-{end:.1f}s)"
+            )
+    except Exception:
+        logger.exception(f"[TRADE] Failed to send audio clip for '{word}'")
     finally:
         try:
             os.unlink(path)
@@ -201,6 +212,11 @@ class SignalHandler:
 
         if start is not None and end is not None:
             self._extract_and_send_audio(start, end, match["key"])
+        else:
+            logger.warning(
+                f"[{self.session.session_id}][TRADE] Missing timestamps for audio clip: "
+                f"start={start}, end={end}, word='{match['key']}'"
+            )
 
     def _extract_and_send_audio(self, start: float, end: float, word: str):
         """Slice PAD_SECS around the detected word from the PCM buffer and send via Telegram."""
@@ -208,6 +224,9 @@ class SignalHandler:
         bytes_per_sec = 16000 * 2
         audio_processor = getattr(self.session, "audio_processor", None)
         if audio_processor is None:
+            logger.warning(
+                f"[{self.session.session_id}][TRADE] No audio_processor on session — cannot extract audio clip for '{word}'"
+            )
             return
         pcm_buffer = audio_processor._pcm_buffer
         buf_len = len(pcm_buffer)
@@ -218,9 +237,18 @@ class SignalHandler:
         end_byte = (int(clip_end * bytes_per_sec) // 2) * 2
 
         if end_byte <= start_byte:
+            logger.warning(
+                f"[{self.session.session_id}][TRADE] Audio clip bounds invalid: "
+                f"start={start:.1f}s end={end:.1f}s buf_len={buf_len} "
+                f"start_byte={start_byte} end_byte={end_byte} — skipping"
+            )
             return
 
         audio_bytes = bytes(pcm_buffer[start_byte:end_byte])
+        logger.info(
+            f"[{self.session.session_id}][TRADE] Extracting audio clip for '{word}': "
+            f"{clip_start:.1f}s-{clip_end:.1f}s ({len(audio_bytes)} bytes)"
+        )
         asyncio.get_running_loop().run_in_executor(
             None, _send_audio_clip, audio_bytes, word, clip_start, clip_end
         )

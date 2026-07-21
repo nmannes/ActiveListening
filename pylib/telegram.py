@@ -161,6 +161,10 @@ def build_inline_keyboard(buttons):
 def send_telegram_audio(audio_path, caption=None, reply_markup=None, channel="info"):
     """Send an audio file via Telegram sendAudio endpoint."""
     token, chat_id = get_bot(channel)
+    if not token or not chat_id:
+        logger.error(f"[telegram] Missing token or chat_id for '{channel}' channel — audio not sent: {audio_path}")
+        return {"ok": False, "description": "Missing token or chat_id"}
+
     url = f"https://api.telegram.org/bot{token}/sendAudio"
 
     data = {"chat_id": chat_id}
@@ -169,11 +173,20 @@ def send_telegram_audio(audio_path, caption=None, reply_markup=None, channel="in
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
 
-    with open(audio_path, "rb") as f:
-        files = {"audio": f}
-        response = requests.post(url, data=data, files=files)
-
-    return response.json()
+    try:
+        with open(audio_path, "rb") as f:
+            files = {"audio": f}
+            response = requests.post(url, data=data, files=files, timeout=30)
+        result = response.json()
+        if not result.get("ok"):
+            logger.error(f"[telegram] sendAudio API error ({channel}): {result.get('description', 'unknown')} — path: {audio_path}")
+        return result
+    except requests.RequestException as e:
+        logger.error(f"[telegram] sendAudio request failed ({channel}): {e} — path: {audio_path}")
+        return {"ok": False, "description": str(e)}
+    except Exception:
+        logger.exception(f"[telegram] sendAudio unexpected error — path: {audio_path}")
+        return {"ok": False, "description": "unexpected error"}
 
 
 def send_telegram_voice(voice_path, caption=None, reply_markup=None, channel="info"):
