@@ -153,7 +153,7 @@ class SignalHandler:
         )
         msg = f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount}, limit {limit_price:.2f})"
         asyncio.get_running_loop().run_in_executor(
-            None, send_telegram, msg, "debug"
+            None, send_telegram, msg, "info"
         )
         max_session_loss = self.session.server.config.max_session_loss
         if self.session_cost_total + dollar_amount > max_session_loss:
@@ -167,7 +167,7 @@ class SignalHandler:
                 f"session cap reached (${self.session_cost_total:.2f} spent of ${max_session_loss:.2f})"
             )
             asyncio.get_running_loop().run_in_executor(
-                None, send_telegram, msg, "debug"
+                None, send_telegram, msg, "info"
             )
             return
 

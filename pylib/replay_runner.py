@@ -206,7 +206,7 @@ class ReplayRunner:
         audio_library_path: Path | None = None,
         device: str = "cpu",
         interval_secs: int = 10,
-        max_duration_secs: int = 5400,
+        max_duration_secs: int = 1200,
         bedrock_region: str = "us-east-1",
         bedrock_model_id: str = "us.amazon.nova-lite-v1:0",
     ):

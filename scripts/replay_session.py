@@ -240,7 +240,7 @@ async def run_loop_mode(recording_dir: Path, args):
 
 
 def _parse_duration_from_market(market: dict) -> int:
-    """Try to parse event duration from market metadata, fall back to 5400."""
+    """Try to parse event duration from market metadata, fall back to 1200."""
     sources = market.get("mediaSources", [])
     if sources:
         time_str = sources[0].get("metadata", {}).get("time", "")
@@ -259,7 +259,7 @@ def _parse_duration_from_market(market: dict) -> int:
                     return int(delta) + 60
                 except ValueError:
                     pass
-    return 5400
+    return 1200
 
 
 # ── Main ────────────────────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ server:
   audioUdpPort: 8092
   tvHeadendPort: 9981
   speakerRecognitionIntervalSecs: 10
-  speakerRecognitionMaxDurationSecs: 5400
+  speakerRecognitionMaxDurationSecs: 1200
   audioInboxCapSecs: 60
 
 # ── Redis ────────────────────────────────────────────────────────────────

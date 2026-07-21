@@ -251,7 +251,7 @@ class TestInferencePolicy(unittest.TestCase):
     def test_defaults(self):
         p = InferencePolicy()
         self.assertEqual(p.interval_secs, 10)
-        self.assertEqual(p.max_duration_secs, 5400)
+        self.assertEqual(p.max_duration_secs, 1200)
 
     def test_duration_gating(self):
         p = InferencePolicy(max_duration_secs=60)

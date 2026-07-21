@@ -15,7 +15,7 @@ class InferencePolicy:
     """Owns the scheduling parameters for speaker inference:
     how often to run and how long to keep running."""
 
-    def __init__(self, *, interval_secs: int = 10, max_duration_secs: int = 5400):
+    def __init__(self, *, interval_secs: int = 10, max_duration_secs: int = 1200):
         self.interval_secs = interval_secs
         self.max_duration_secs = max_duration_secs
 

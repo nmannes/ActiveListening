@@ -228,7 +228,7 @@ class SpeakerRecognitionSession:
 
     def __init__(self, listening_session, market_entities: List[str],
                  speaker_identifier=None, interval_secs: int = 10,
-                 max_duration_secs: int = 5400):
+                 max_duration_secs: int = 1200):
         self.listening_session = listening_session
         self.session_id = getattr(listening_session, "session_id", "unknown_session")
         self.market_entities = market_entities
@@ -254,7 +254,7 @@ class SpeakerRecognitionSession:
         )
 
     @staticmethod
-    def _event_duration_secs(listening_session, fallback_secs: int = 5400) -> int:
+    def _event_duration_secs(listening_session, fallback_secs: int = 1200) -> int:
         """Parse the event duration in seconds from market media source metadata.
 
         Looks for a time range like \"8:00 PM - 9:30 PM\" in the first media source

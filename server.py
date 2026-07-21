@@ -123,7 +123,7 @@ class Config:
         # Speaker recognition scheduling (from config.yaml)
         ws_config = _config["server"]
         self.speaker_recognition_interval_secs = ws_config.get("speakerRecognitionIntervalSecs", 10)
-        self.speaker_recognition_max_duration_secs = ws_config.get("speakerRecognitionMaxDurationSecs", 5400)
+        self.speaker_recognition_max_duration_secs = ws_config.get("speakerRecognitionMaxDurationSecs", 1200)
 
 
 class ClientSession:
