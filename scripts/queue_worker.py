@@ -173,7 +173,7 @@ async def _process_sample_generation(job, job_token, progress=None):
         urls = job.data.get("urls")
         if urls:
             logger.info(f"[{job_id}] Using {len(urls)} provided URL(s) (search disabled)")
-            wav_paths = await download_from_urls(urls, work_dir)
+            wav_paths = await download_from_urls(urls, work_dir, target=target)
         else:
             wav_paths = await search_and_download(target, 7, work_dir)
         if not wav_paths:

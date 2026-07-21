@@ -246,10 +246,58 @@ async def _run_ytdlp(cmd: list, timeout: int) -> None:
         )
 
 
+async def _run_ytdlp_json(cmd: list, timeout: int) -> list[dict]:
+    """Run yt-dlp --dump-json and return parsed JSON objects (one per line).
+
+    Raises subprocess.CalledProcessError or subprocess.TimeoutExpired on
+    failure (same interface as _run_ytdlp).
+    """
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        process.kill()
+        await process.wait()
+        raise subprocess.TimeoutExpired(cmd, timeout)
+
+    if process.returncode != 0:
+        raise subprocess.CalledProcessError(
+            process.returncode, cmd,
+            stdout.decode() if stdout else "",
+            stderr.decode() if stderr else "",
+        )
+
+    results = []
+    for line in stdout.decode().strip().split("\n"):
+        line = line.strip()
+        if line:
+            try:
+                results.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+    return results
+
+
+def _target_in_metadata(target: str, info: dict) -> bool:
+    """Check whether every word of the target name appears in the video
+    title or description (case-insensitive)."""
+    title = (info.get("title") or "").lower()
+    description = (info.get("description") or "").lower()
+    combined = f"{title} {description}"
+    target_words = target.lower().split()
+    return all(word in combined for word in target_words)
+
+
 async def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
     """
-    Search YouTube with diverse queries to get varied audio quality/situations.
-    Downloads top results (sorted by relevance/popularity) per query.
+    Search YouTube with diverse queries, filter candidates by checking that
+    the target name appears in each video's title or description, then
+    download matching videos.
+
     Returns list of downloaded WAV paths (deduplicated across queries).
     """
     pool = [
@@ -264,88 +312,135 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
         f"{target} appearance",
     ]
 
-    # Shuffle and pick a random subset so each run uses different search terms.
-    # Use at most num_videos queries (one video per query minimum) but always
-    # use at least a few queries, capped by the pool size.
+    # Use one distinct search query per desired video so every downloaded
+    # clip comes from a different context (speech, interview, hearing, …).
+    # This trades volume for variety — we want a few diverse samples, not
+    # many clips from the same acoustic situation.
     num_queries = min(num_videos, len(pool))
     random.shuffle(pool)
     queries = pool[:num_queries]
 
-    # Download 3x per query to account for overlap — the same top video
-    # often ranks highly across different search queries for the same speaker.
-    videos_per_query = max(3, (num_videos * 3) // len(queries))
-    remainder = (num_videos * 3) % len(queries)
-
     seen_ids = set()
+    collected_ids = set()
     all_wavs = []
-    total_requested = 0
+    total_candidates = 0
+    total_filtered = 0
+    total_downloaded = 0
 
     # Exclude videos uploaded in the last 7 days so results have had
     # time to stabilize — avoids just-uploaded/streamed content.
     cutoff_date = time.strftime("%Y%m%d", time.gmtime(time.time() - 7 * 86400))
 
     for i, q in enumerate(queries):
-        count = videos_per_query + (1 if i < remainder else 0)
-        # Cap per-query downloads so we don't waste time on endless scrolling
-        count = min(count, 5)
-        if count <= 0:
-            continue
-        total_requested += count
-        # Search for 3x results and pick a random subset via --playlist-random
-        # so different runs download different videos for the same speaker.
-        query = f"ytsearch{count * 3}:{q}"
-        output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
+        # Fetch 8 candidates so metadata filtering has enough to choose
+        # from even for less-famous targets; only download 1 per query.
+        search_count = 8
 
-        # Pick a random 8-minute window from the first ~12 minutes so each
-        # run samples a different portion of the same video.
-        section_start = random.randint(0, 240)
-        section_end = section_start + 480
-        section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
+        # --- Step 1: fetch metadata for candidates without downloading ---
+        search_query = f"ytsearch{search_count}:{q}"
+        logger.info(f"Fetching metadata [{i + 1}/{len(queries)}]: {q} ({search_count} candidates)")
 
-        cmd = [
+        search_cmd = [
             YT_DLP,
             YT_DLP_JS_RUNTIME,
-            "-f", "bestaudio/best",
-            "--extract-audio",
-            "--audio-format", "wav",
-            "--audio-quality", "0",
-            "--output", str(output_template),
+            "--dump-json",
             "--no-playlist",
-            "--no-continue",
             "--socket-timeout", "30",
             "--retries", "2",
-            "--playlist-random",
-            "--playlist-end", str(count),
-            "--download-sections", section,
             "--datebefore", cutoff_date,
-            query,
+            search_query,
         ]
 
-        logger.info(f"Searching [{i + 1}/{len(queries)}]: {q} ({count} videos, section {section})")
+        candidates = []
         try:
-            await _run_ytdlp(cmd, timeout=120 * count)
+            candidates = await _run_ytdlp_json(search_cmd, timeout=60)
         except subprocess.CalledProcessError as e:
-            logger.error(f"yt-dlp failed for '{q}': {e.stderr[:200]}")
+            logger.error(f"yt-dlp search failed for '{q}': {e.stderr[:200] if isinstance(e.stderr, str) else str(e)[:200]}")
         except subprocess.TimeoutExpired as e:
-            stderr = (e.stderr or b"") if isinstance(e.stderr, bytes) else (e.stderr or "")
-            stderr = stderr[:200] if stderr else "(no output)"
-            logger.error(f"yt-dlp timed out for '{q}': {stderr}")
+            logger.error(f"yt-dlp search timed out for '{q}'")
 
+        total_candidates += len(candidates)
+
+        # --- Step 2: filter by target name in title/description ---
+        matching = [c for c in candidates if _target_in_metadata(target, c)]
+        filtered = len(candidates) - len(matching)
+        total_filtered += filtered
+        if filtered > 0:
+            logger.info(f"  Filtered {filtered}/{len(candidates)} — '{target}' not in title/description")
+
+        if not matching:
+            logger.warning(f"  No candidates mention '{target}' in metadata for '{q}'")
+            continue
+
+        # --- Step 3: pick two matching videos per query for variety ---
+        random.shuffle(matching)
+        selected = matching[:2]
+
+        for j, info in enumerate(selected):
+            vid_id = info.get("id")
+            if not vid_id:
+                continue
+            if vid_id in seen_ids:
+                continue
+            seen_ids.add(vid_id)
+
+            video_url = f"https://youtube.com/watch?v={vid_id}"
+            output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
+
+            # Pick a random 8-minute window from the first ~12 minutes.
+            section_start = random.randint(0, 240)
+            section_end = section_start + 480
+            section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
+
+            title = info.get("title", "?")
+            logger.info(f"  Downloading [{j + 1}/{len(selected)}]: {title[:80]} (section {section})")
+
+            download_cmd = [
+                YT_DLP,
+                YT_DLP_JS_RUNTIME,
+                "-f", "bestaudio/best",
+                "--extract-audio",
+                "--audio-format", "wav",
+                "--audio-quality", "0",
+                "--output", str(output_template),
+                "--no-playlist",
+                "--no-continue",
+                "--socket-timeout", "30",
+                "--retries", "2",
+                "--download-sections", section,
+                video_url,
+            ]
+
+            try:
+                await _run_ytdlp(download_cmd, timeout=120)
+            except subprocess.CalledProcessError as e:
+                stderr = e.stderr[:200] if isinstance(e.stderr, str) else str(e)[:200]
+                logger.error(f"yt-dlp failed for '{title[:60]}': {stderr}")
+            except subprocess.TimeoutExpired as e:
+                logger.error(f"yt-dlp timed out for '{title[:60]}'")
+
+        # Collect any newly downloaded WAVs for this query.
         for wav in sorted(work_dir.glob(f"q{i}_*.wav")):
             vid_id = wav.stem.split("_", 1)[1] if "_" in wav.stem else wav.stem
-            if vid_id not in seen_ids:
-                seen_ids.add(vid_id)
+            if vid_id not in collected_ids:
+                collected_ids.add(vid_id)
                 all_wavs.append(wav)
+                total_downloaded += 1
 
-    dupe_count = total_requested - len(all_wavs)
-    logger.info(f"Downloaded {len(all_wavs)} unique videos ({dupe_count} duplicates filtered) across {len(queries)} queries")
+    logger.info(
+        f"Downloaded {total_downloaded} unique videos across {len(queries)} queries "
+        f"({total_filtered}/{total_candidates} candidates filtered — '{target}' not in metadata)"
+    )
     return all_wavs
 
 
-async def download_from_urls(urls: list, work_dir: Path) -> list:
+async def download_from_urls(urls: list, work_dir: Path, target: str | None = None) -> list:
     """
     Download specific YouTube videos by URL or video ID (not search).
     Each URL gets a random 8-minute section for diversity.
+    When ``target`` is provided the video metadata is checked first and a
+    warning is logged if the name doesn't appear — user-supplied URLs are
+    never skipped, but the warning helps catch misattributed links.
     Returns list of downloaded WAV paths (deduplicated by video ID).
     """
     seen_ids = set()
@@ -357,6 +452,27 @@ async def download_from_urls(urls: list, work_dir: Path) -> list:
             logger.info(f"Skipping duplicate video: {vid_id}")
             continue
         seen_ids.add(vid_id)
+
+        # Check metadata for user-provided URLs (warning only — never skip).
+        if target:
+            try:
+                meta_cmd = [
+                    YT_DLP,
+                    YT_DLP_JS_RUNTIME,
+                    "--dump-json",
+                    "--no-playlist",
+                    "--socket-timeout", "15",
+                    url,
+                ]
+                meta = await _run_ytdlp_json(meta_cmd, timeout=30)
+                if meta and not _target_in_metadata(target, meta[0]):
+                    title = meta[0].get("title", "?")
+                    logger.warning(
+                        f"  Target '{target}' not found in title/description of "
+                        f"user-provided URL: {title[:80]} — downloading anyway"
+                    )
+            except Exception as e:
+                logger.warning(f"  Could not fetch metadata for {url}: {e}")
 
         output_template = work_dir / f"v{i}_%(id)s.%(ext)s"
 
@@ -673,6 +789,40 @@ class SampleGenerator:
                 f"target clusters (size >= {min_cluster_size}): {sorted(target_labels)} "
                 f"({total_target} segments)"
             )
+
+        # --- Cross-video constraint ---
+        # A voice that appears across multiple source videos is far more
+        # likely to be the target than a voice found in only one. Require
+        # target clusters to span at least 2 different videos when enough
+        # sources exist; otherwise a single-video rando can dominate a cluster.
+        total_sources = len({s.get("source") for s in segments})
+        if total_sources >= 3:
+            cluster_sources = {}
+            for i, s in enumerate(segments):
+                src = s.get("source", "")
+                cluster_sources.setdefault(labels[i], set()).add(src)
+
+            multi_source_labels = {
+                label for label in target_labels
+                if len(cluster_sources.get(label, set())) >= 2
+            }
+
+            if multi_source_labels:
+                dropped = target_labels - multi_source_labels
+                if dropped:
+                    dropped_srcs = {label: sorted(cluster_sources.get(label, set()))
+                                    for label in dropped}
+                    logger.info(
+                        f"Cross-video filter: dropped cluster(s) {dropped_srcs} "
+                        f"(span < 2 source videos)"
+                    )
+                target_labels = multi_source_labels
+            else:
+                logger.warning(
+                    f"No cluster spans 2+ source videos; "
+                    f"keeping original target clusters {sorted(target_labels)}"
+                )
+                # Keep original target_labels — don't return nothing.
 
         # Score each segment
         neg_filtered = 0
@@ -1171,7 +1321,7 @@ async def main():
         # 1. Download
         if urls:
             logger.info(f"Using {len(urls)} provided URL(s) (search disabled)")
-            wav_paths = await download_from_urls(urls, work_dir)
+            wav_paths = await download_from_urls(urls, work_dir, target=args.target)
         else:
             wav_paths = await generator.download(work_dir)
         if not wav_paths:
