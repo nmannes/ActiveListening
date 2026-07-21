@@ -19,16 +19,16 @@ Gate defaults (override with env vars):
 import argparse
 import json
 import os
-import sqlite3
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from pylib.ordering_config import get_dollar_amount, is_keyword_blocked, BLOCKED_KEYWORDS
+from backtest.orderbook import compute_pnl, compute_stream_start, signal_to_iso
+from backtest.sqlite_orderbook import book_at, best_yes_ask, best_yes_bid, appears_resolved_no
 
 CACHE_DIR = REPO_ROOT / "cache"
 RESOLUTIONS_FILE = CACHE_DIR / "resolutions.json"
@@ -39,69 +39,6 @@ _gate_cfg: dict[str, float] = {
     "min_yes_ask_price": float(os.environ.get("MIN_YES_ASK_PRICE", "0.02")),
     "max_session_loss": float(os.environ.get("MAX_SESSION_LOSS", "100.0")),
 }
-
-
-# ── Orderbook reconstruction ────────────────────────────────────────────
-
-def book_at(db_path: str, ticker: str, ts: str) -> dict | None:
-    """Reconstruct the orderbook at an ISO timestamp for a specific ticker.
-
-    Returns {yes: {price_cents: qty}, no: {price_cents: qty}} or None.
-    Port of lib/orderbook_analysis.js bookAt().
-    """
-    db = sqlite3.connect(db_path)
-    db.row_factory = sqlite3.Row
-    try:
-        row = db.execute(
-            "SELECT * FROM snapshots WHERE ticker = ? AND ts <= ? ORDER BY ts DESC LIMIT 1",
-            [ticker, ts],
-        ).fetchone()
-        if not row:
-            return None
-
-        yes = {}
-        no = {}
-        for price, qty in json.loads(row["yes"] or "[]"):
-            yes[price] = qty
-        for price, qty in json.loads(row["no"] or "[]"):
-            no[price] = qty
-
-        deltas = db.execute(
-            "SELECT * FROM deltas WHERE ticker = ? AND ts > ? AND ts <= ? ORDER BY seq ASC, ts ASC",
-            [ticker, row["ts"], ts],
-        ).fetchall()
-        for d in deltas:
-            side_map = yes if d["side"] == "yes" else no
-            cur = side_map.get(d["price"], 0)
-            upd = cur + d["delta"]
-            if upd <= 0:
-                side_map.pop(d["price"], None)
-            else:
-                side_map[d["price"]] = upd
-
-        return {"yes": yes, "no": no}
-    finally:
-        db.close()
-
-
-def best_yes_ask(book: dict | None) -> float | None:
-    """Lowest YES ask price in dollars. Equivalent to min NO bid price."""
-    if not book or not book["no"]:
-        return None
-    return min(book["no"].keys()) / 100.0
-
-
-def best_yes_bid(book: dict | None) -> float | None:
-    """Highest YES bid price in dollars."""
-    if not book or not book["yes"]:
-        return None
-    return max(book["yes"].keys()) / 100.0
-
-
-def appears_resolved_no(book: dict | None) -> bool:
-    """True if the YES bid is missing or <= 1 cent."""
-    bid = best_yes_bid(book)
-    return bid is None or bid <= 0.01
 
 
 # ── Gate evaluation ─────────────────────────────────────────────────────
@@ -152,64 +89,6 @@ def evaluate_gates(signal: dict, market: dict, book: dict | None,
 
 
 # ── P&L computation ─────────────────────────────────────────────────────
-
-def compute_pnl(fill_price: float, dollar_amount: float, resolution: str | None,
-                resolution_price: float | None = None) -> dict:
-    """Compute P&L for a single trade."""
-    if fill_price is None or fill_price <= 0:
-        fill_price = 0.50  # fallback when no orderbook data
-    contracts = dollar_amount / fill_price
-
-    if resolution == "yes":
-        payout = contracts * 1.0  # each contract pays $1
-        pnl = payout - dollar_amount
-    elif resolution == "no":
-        pnl = -dollar_amount  # contracts worth $0
-    else:
-        pnl = 0  # unresolved — no settlement
-
-    return {
-        "fill_price": fill_price,
-        "contracts": contracts,
-        "dollar_amount": dollar_amount,
-        "resolution": resolution or "unresolved",
-        "pnl": pnl,
-    }
-
-
-# ── Timestamp conversion ────────────────────────────────────────────────
-
-def compute_stream_start(session_dir: Path) -> float | None:
-    """Compute absolute Unix timestamp of the Deepgram stream start.
-
-    Uses the first dg_*.json file with word data.
-    """
-    dg_dir = session_dir / "deepgram_responses"
-    if not dg_dir.is_dir():
-        return None
-
-    for f in sorted(dg_dir.glob("dg_*.json")):
-        try:
-            data = json.loads(f.read_text())
-            if data.get("type") != "Results":
-                continue
-            words = data.get("channel", {}).get("alternatives", [{}])[0].get("words", [])
-            if not words:
-                continue
-            ts_ns = int(f.stem.split("_")[1])
-            return ts_ns / 1e9 - words[0]["start"]
-        except (json.JSONDecodeError, IndexError, KeyError, ValueError):
-            continue
-    return None
-
-
-def signal_to_iso(signal_timestamp: float, stream_start_unix: float) -> str:
-    """Convert a signal's stream-relative timestamp to ISO 8601 UTC string."""
-    abs_unix = stream_start_unix + signal_timestamp
-    dt = datetime.fromtimestamp(abs_unix, tz=timezone.utc)
-    # SQLite timestamps use 'T' separator with milliseconds
-    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
-
 
 # ── Main ────────────────────────────────────────────────────────────────
 

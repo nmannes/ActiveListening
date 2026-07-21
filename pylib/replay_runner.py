@@ -54,6 +54,13 @@ class TradeSignal:
     speaker_whitelisted: bool    # was the speaker in trading_speakers?
     would_trade: bool            # True if all gates passed
     blocked_by: str              # "" if would_trade, else gate name
+    # P&L fields (populated by BacktestSignalHandler; None in RecordingSignalHandler)
+    firing_index: int = -1       # which identification firing was active
+    fill_price: float | None = None
+    dollar_amount: float | None = None
+    contracts: float | None = None
+    pnl: float | None = None
+    resolution: str | None = None
 
 
 @dataclass
@@ -128,6 +135,7 @@ class RecordingSignalHandler:
         self._virtual_time = virtual_time
         self.signals: list[TradeSignal] = []
         self.trading_speakers: set[str] = set()
+        self.current_firing_index: int = 0  # set by ReplayRunner before each firing
 
     def set_trading_speakers(self, speaker_ids: list[str]):
         self.trading_speakers = set(str(s) for s in speaker_ids)
@@ -155,6 +163,7 @@ class RecordingSignalHandler:
             speaker_whitelisted=whitelisted,
             would_trade=False,
             blocked_by="",
+            firing_index=self.current_firing_index,
         )
 
         # Evaluate gates in the same order as SignalHandler.handle_signal()
@@ -209,6 +218,7 @@ class ReplayRunner:
         max_duration_secs: int = 1200,
         bedrock_region: str = "us-east-1",
         bedrock_model_id: str = "us.amazon.nova-lite-v1:0",
+        handler_factory: callable = None,
     ):
         self.recording_dir = Path(recording_dir)
         self.market = market
@@ -218,6 +228,7 @@ class ReplayRunner:
         self.max_duration_secs = max_duration_secs
         self.bedrock_region = bedrock_region
         self.bedrock_model_id = bedrock_model_id
+        self.handler_factory = handler_factory  # None → default RecordingSignalHandler
 
     # ── public API ──────────────────────────────────────────────────────
 
@@ -263,7 +274,10 @@ class ReplayRunner:
         session.trade_processor = trade_processor
 
         # Replace handler with recorder that captures TradeSignals
-        recorder = RecordingSignalHandler(trade_processor, virtual_time)
+        if self.handler_factory is not None:
+            recorder = self.handler_factory(trade_processor, virtual_time)
+        else:
+            recorder = RecordingSignalHandler(trade_processor, virtual_time)
         trade_processor.handler = recorder
 
         from pylib.speaker_recognition import SpeakerRecognitionSession
@@ -290,6 +304,7 @@ class ReplayRunner:
         # 6. Set up scheduling: fire identification every interval_secs of virtual time
         result = ReplayResult()
         next_fire = self.interval_secs
+        firing_index = [0]  # mutable counter so _capture_firing can bump it
 
         from pylib.speaker_policy import InferencePolicy
         policy = InferencePolicy(
@@ -307,6 +322,11 @@ class ReplayRunner:
 
         async def _capture_firing():
             """Run identification and record state at this firing."""
+            nonlocal firing_index
+            firing_index[0] += 1
+            # Stamp handler with current firing index so signals get tagged
+            if hasattr(trade_processor.handler, 'current_firing_index'):
+                trade_processor.handler.current_firing_index = firing_index[0]
             await rec_session.run_identity_inference()
             total_words = sum(
                 len(tokens) for tokens in session.transcript.values()

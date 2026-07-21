@@ -225,6 +225,28 @@ class KalshiClient:
             logger.error(f"Kalshi API error fetching market {ticker}: {e}")
             return None
 
+    def get_market_full(self, ticker: str) -> dict | None:
+        """Fetch a single market by ticker, returning the FULL API response.
+
+        Unlike get_market() which returns a simplified subset, this returns
+        all fields including orderbook pricing (yes_ask_dollars, yes_bid_dollars,
+        no_ask_dollars, no_bid_dollars, last_price_dollars, previous_yes_ask_dollars,
+        previous_yes_bid_dollars) and settlement (status, result/yes_result).
+
+        Returns the raw market dict from the API, or None on failure.
+        """
+        path = f"/markets/{ticker}"
+        url = self.base_url + path
+        headers = self._get_auth_headers("GET", url)
+        try:
+            response = self.session.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("market", data)
+        except Exception as e:
+            logger.error(f"Kalshi API error fetching full market {ticker}: {e}")
+            return None
+
     def get_ws_auth_headers(self) -> dict:
         """Create auth headers for the Kalshi WebSocket connection."""
         path = "/trade-api/ws/v2"
