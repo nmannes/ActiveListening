@@ -444,11 +444,11 @@ class TestReplayRunner(unittest.IsolatedAsyncioTestCase):
 
             # Tokens spread across time, each batch adds more words
             responses = [
-                self._make_dg_response(0, [("word1", 0.0, 0.5)]),
-                self._make_dg_response(0, [("word2", 8.0, 8.5)]),
-                self._make_dg_response(0, [("word3", 18.0, 18.5)]),
-                self._make_dg_response(0, [("word4", 28.0, 28.5)]),
-                self._make_dg_response(0, [("word5", 38.0, 38.5)]),
+                self._make_dg_response(0, [("alpha", 0.0, 0.5)]),
+                self._make_dg_response(0, [("bravo", 8.0, 8.5)]),
+                self._make_dg_response(0, [("charlie", 18.0, 18.5)]),
+                self._make_dg_response(0, [("delta", 28.0, 28.5)]),
+                self._make_dg_response(0, [("echo", 38.0, 38.5)]),
             ]
             self._make_dg_dir(tmp, responses)
 
