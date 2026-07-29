@@ -529,6 +529,81 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Callback query handler — voice sample verification
 # ---------------------------------------------------------------------------
 
+async def _recompute_and_update_captions(slug: str, context: ContextTypes.DEFAULT_TYPE):
+    """Recompute scores for all pending segments based on approved embeddings.
+
+    When a user approves a sample, that embedding becomes a known-good
+    reference. Remaining pending segments are rescored by cosine similarity
+    to the centroid of all approved embeddings, and their Telegram captions
+    are updated to reflect the new scores.
+    """
+    import torch
+
+    all_states = get_all_verification_states(slug)
+    if not all_states:
+        return
+
+    # Load all approved embeddings and build a reference centroid
+    approved_embs = []
+    for idx, sdata in all_states.items():
+        if sdata.get("approved") is True:
+            emb_path = sdata.get("emb_path")
+            if emb_path and os.path.exists(emb_path):
+                emb = torch.load(emb_path, weights_only=True)
+                if emb.dim() > 1:
+                    emb = emb.squeeze(0)
+                approved_embs.append(emb)
+
+    if not approved_embs:
+        return
+
+    approved_stack = torch.stack(approved_embs)
+    approved_stack = torch.nn.functional.normalize(approved_stack, p=2, dim=1)
+    ref_centroid = approved_stack.mean(dim=0)
+    ref_centroid = torch.nn.functional.normalize(ref_centroid, p=2, dim=0)
+
+    # Rescore each pending segment by similarity to the approved centroid
+    pending = {idx: sdata for idx, sdata in all_states.items() if sdata.get("approved") is None}
+    for idx, sdata in pending.items():
+        emb_path = sdata.get("emb_path")
+        if not emb_path or not os.path.exists(emb_path):
+            continue
+        emb = torch.load(emb_path, weights_only=True)
+        if emb.dim() > 1:
+            emb = emb.squeeze(0)
+        emb = torch.nn.functional.normalize(emb, p=2, dim=0)
+        sim = float(emb @ ref_centroid.T)
+        new_score = round(max(0.0, min(1.0, sim)), 4)
+        update_verification_state(slug, idx, {"score": new_score, "ref_score": new_score})
+
+        # Edit the Telegram caption if we have the message info
+        msg_id = sdata.get("message_id")
+        chat_id = sdata.get("chat_id")
+        if msg_id and chat_id:
+            target = sdata.get("target", slug.replace("-", " ").title())
+            source = sdata.get("source", "")
+            vid_id = source.split("_", 1)[1] if "_" in source else source
+            source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
+            new_caption = (
+                f"🎙️ {target} — sample {idx + 1}\n"
+                f"Confidence: {new_score:.3f} | Duration: {sdata.get('duration', 0):.1f}s\n"
+                f"Source: {source_url}"
+            )
+            try:
+                await context.bot.edit_message_caption(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    caption=new_caption,
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to edit caption for {slug}[{idx}]: {exc}")
+
+    logger.info(
+        f"Score recompute for {slug}: {len(approved_embs)} approved, "
+        f"{len(pending)} rescored"
+    )
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
@@ -569,6 +644,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "approved_indices": [idx],
             "chat_id": query.message.chat.id,
         })
+        # Rescore remaining pending samples against the newly approved embedding
+        await _recompute_and_update_captions(slug, context)
 
     elif action == "reject":
         update_verification_state(slug, idx, approved=False)
@@ -618,6 +695,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "approved_indices": auto_idxs,
                 "chat_id": query.message.chat.id,
             })
+        # Rescore remaining pending samples against the newly approved embeddings
+        await _recompute_and_update_captions(slug, context)
 
     else:
         await query.answer(f"Unknown action: {action}")

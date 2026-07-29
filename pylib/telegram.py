@@ -217,6 +217,21 @@ def answer_callback_query(callback_query_id, text=None, channel="info"):
     return requests.post(url, json=data).json()
 
 
+def edit_message_caption(chat_id, message_id, caption, reply_markup=None, channel="info"):
+    """Edit the caption of a message that was already sent. Used to update
+    confidence scores after a sample is approved and scores are recomputed."""
+    token, _ = get_bot(channel)
+    url = f"https://api.telegram.org/bot{token}/editMessageCaption"
+    data = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "caption": caption,
+    }
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    return requests.post(url, json=data).json()
+
+
 def poll_telegram_callbacks(timeout=30, channel="info"):
     """
     Poll for pending callback queries. Returns list of dicts with keys:

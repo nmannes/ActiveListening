@@ -1099,6 +1099,11 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
 
         if result.get("ok"):
             sent_count += 1
+            msg_result = result.get("result", {})
+            update_verification_state(slug, i, {
+                "message_id": msg_result.get("message_id"),
+                "chat_id": msg_result.get("chat", {}).get("id") or msg_result.get("chat_id"),
+            })
             logger.info(f"  Sent segment {i} (score={score:.3f}{pre_label})")
         else:
             logger.error(f"  Failed to send segment {i}: {result}")
