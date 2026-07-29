@@ -264,10 +264,7 @@ async function main() {
     ),
   ];
 
-  // 4. Enqueue sample generation for speakers with fewer than 5 embeddings
-  await enqueueMissingSamples(matches);
-
-  // 5. Collect candidates
+  // 4. Collect candidates
   const now = new Date();
   const { candidates } = collectCandidates(matches, {
     targetSlug: opts.targetSlug,
@@ -275,6 +272,10 @@ async function main() {
     lookaheadMs: opts.lookaheadMs,
     now,
   });
+
+  // 5. Enqueue sample generation for speakers with fewer than 5 embeddings
+  //    (only for speakers who actually have a scheduled event)
+  await enqueueMissingSamples(candidates);
 
   // 6. Schedule (or dry-run)
   await processCandidates(candidates, matches, {
