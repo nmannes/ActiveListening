@@ -38,6 +38,16 @@ class MockSession:
         self.server = MockServer()
 
 class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self._tg_patch = patch("pylib.speaker_recognition.send_telegram")
+        self._tga_patch = patch("pylib.speaker_recognition.send_telegram_audio")
+        self._tg_patch.start()
+        self._tga_patch.start()
+
+    def tearDown(self):
+        self._tg_patch.stop()
+        self._tga_patch.stop()
+
     async def test_infer_identity_with_bedrock_mock(self):
         session = MockSession()
         recognizer = TranscriptSpeakerRecognizer(session)
@@ -362,6 +372,16 @@ class TestSpeakerRecognitionLoop(unittest.IsolatedAsyncioTestCase):
 
 class TestReplayRunner(unittest.IsolatedAsyncioTestCase):
     """Test ReplayRunner with synthetic Deepgram responses."""
+
+    def setUp(self):
+        self._tg_patch = patch("pylib.speaker_recognition.send_telegram")
+        self._tga_patch = patch("pylib.speaker_recognition.send_telegram_audio")
+        self._tg_patch.start()
+        self._tga_patch.start()
+
+    def tearDown(self):
+        self._tg_patch.stop()
+        self._tga_patch.stop()
 
     @staticmethod
     def _make_dg_response(speaker_id, words_data, is_final=True):
