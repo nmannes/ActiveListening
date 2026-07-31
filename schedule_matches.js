@@ -217,7 +217,7 @@ async function enqueueMissingSamples(matches) {
     if (!entities) continue;
     for (const name of entities) {
       const lower = name ? name.toLowerCase() : "";
-      if (lower && lower !== "announcer" && lower !== "panelist" && lower !== "cast" && !lower.includes("employee") && !lower.includes("contestant") && !lower.includes("houseguest") && !lower.includes("__witnesses")) {
+      if (lower && lower !== "announcer" && lower !== "panelist" && lower !== "cast" && !lower.includes("employee") && !lower.includes("contestant") && !lower.includes("houseguest") && !lower.includes("__witnesses") && !lower.includes("__candidates")) {
         speakers.add(name);
       }
     }
