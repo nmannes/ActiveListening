@@ -19,7 +19,7 @@ const KalshiClient = require("./lib/kalshi");
 const { computeMarketPnL, summarizeOrders } = require("./lib/kalshi_trade_history");
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.UI_PORT || 80;
 
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
