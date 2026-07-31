@@ -282,6 +282,17 @@ async def _run_ytdlp_json(cmd: list, timeout: int) -> list[dict]:
     return results
 
 
+# Negative keywords that suggest a video is *about* the target (news analysis,
+# commentary, panel discussion) rather than featuring the target as a speaker.
+_NEGATIVE_TITLE_KEYWORDS = [
+    "highlights", "reaction", "analysis", "recap", "summary", "summarizes",
+    "breaking", "explained", "explains", "what they said", "fact check",
+    "fact-check", "takes on", "responds to", "slams", "blasts", "rips",
+    "wins", "loses", "poll", "polls", "polling", "approval rating",
+    "latest news", "week in review", "day in review",
+]
+
+
 def _target_in_metadata(target: str, info: dict) -> bool:
     """Check whether every word of the target name appears in the video
     title or description (case-insensitive)."""
@@ -290,6 +301,67 @@ def _target_in_metadata(target: str, info: dict) -> bool:
     combined = f"{title} {description}"
     target_words = target.lower().split()
     return all(word in combined for word in target_words)
+
+
+def _filter_candidates(target: str, candidates: list[dict]) -> list[dict]:
+    """Filter candidate videos: word-match first pass, then negative keywords
+    and duration heuristics to exclude news clips about the target."""
+    # Pass 1: target name must appear in metadata
+    matching = [c for c in candidates if _target_in_metadata(target, c)]
+
+    # Pass 2: exclude titles with negative keywords
+    filtered = []
+    for c in matching:
+        title = (c.get("title") or "").lower()
+        if any(kw in title for kw in _NEGATIVE_TITLE_KEYWORDS):
+            continue
+        # Exclude very short videos (<90s) — likely clips, not full appearances
+        duration = c.get("duration") or 0
+        if duration and duration < 90:
+            continue
+        filtered.append(c)
+
+    return filtered
+
+
+async def _classify_via_js(target: str, candidates: list[dict]) -> dict[str, str]:
+    """Classify video candidates using the Anthropic-powered JS classifier.
+
+    Returns a dict mapping video ID to classification ("primary"|"mentioned"|"irrelevant").
+    On failure, returns all as "primary" so the pipeline degrades gracefully.
+    """
+    videos_json = []
+    for c in candidates:
+        videos_json.append({
+            "id": c.get("id", ""),
+            "title": c.get("title", ""),
+            "channel": c.get("channel") or c.get("uploader") or "",
+            "description": c.get("description") or "",
+            "duration_sec": c.get("duration") or 0,
+        })
+
+    classifier_script = ROOT / "lib" / "classify_video.js"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "node", str(classifier_script), target, json.dumps(videos_json),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except (FileNotFoundError, asyncio.TimeoutError) as e:
+        logger.warning(f"JS classifier unavailable ({e}), falling back to word-match only")
+        return {c.get("id", ""): "primary" for c in candidates}
+
+    if proc.returncode != 0:
+        logger.warning(f"JS classifier exited {proc.returncode}: {stderr.decode()[:200]}")
+        return {c.get("id", ""): "primary" for c in candidates}
+
+    try:
+        result = json.loads(stdout.decode())
+        return result.get("classifications", {})
+    except (json.JSONDecodeError, KeyError) as e:
+        logger.warning(f"JS classifier returned invalid JSON: {e}")
+        return {c.get("id", ""): "primary" for c in candidates}
 
 
 async def search_and_download(target: str, num_videos: int, work_dir: Path) -> list:
@@ -301,15 +373,17 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
     Returns list of downloaded WAV paths (deduplicated across queries).
     """
     pool = [
-        f"{target} speech",
-        f"{target} interview",
-        f"{target} press conference",
-        f"{target} speaking event",
-        f"{target} hearing",
-        f"{target} announces",
-        f"{target} remarks",
-        f"{target} address",
-        f"{target} appearance",
+        f'"{target}" interview',
+        f'"{target}" speech',
+        f'"{target}" press conference',
+        f'"{target}" remarks',
+        f'"{target}" testimony',
+        f'"{target}" hearing',
+        f'"{target}" speaks at',
+        f'"{target}" "full event"',
+        f'"{target}" address',
+        f'"interview with {target}"',
+        f'"{target}" appearance',
     ]
 
     # Use one distinct search query per desired video so every downloaded
@@ -361,20 +435,30 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
 
         total_candidates += len(candidates)
 
-        # --- Step 2: filter by target name in title/description ---
-        matching = [c for c in candidates if _target_in_metadata(target, c)]
+        # --- Step 2: cheap filter (word-match + negative keywords + duration) ---
+        matching = _filter_candidates(target, candidates)
         filtered = len(candidates) - len(matching)
         total_filtered += filtered
         if filtered > 0:
-            logger.info(f"  Filtered {filtered}/{len(candidates)} — '{target}' not in title/description")
+            logger.info(f"  Filtered {filtered}/{len(candidates)} — word-match, negative keywords, or duration")
 
         if not matching:
-            logger.warning(f"  No candidates mention '{target}' in metadata for '{q}'")
+            logger.warning(f"  No candidates match filters for '{q}'")
             continue
 
-        # --- Step 3: pick two matching videos per query for variety ---
-        random.shuffle(matching)
-        selected = matching[:2]
+        # --- Step 3: LLM classification via Anthropic ---
+        classifications = await _classify_via_js(target, matching)
+        primary = [c for c in matching if classifications.get(c.get("id", "")) == "primary"]
+        mentioned = sum(1 for cls in classifications.values() if cls != "primary")
+        if mentioned > 0:
+            logger.info(f"  LLM: {len(primary)} primary, {mentioned} mentioned/irrelevant (filtered)")
+        if not primary:
+            logger.warning(f"  No primary videos found for '{q}' after LLM classification")
+            continue
+
+        # --- Step 4: pick two primary videos per query for variety ---
+        random.shuffle(primary)
+        selected = primary[:2]
 
         for j, info in enumerate(selected):
             vid_id = info.get("id")
@@ -465,12 +549,23 @@ async def download_from_urls(urls: list, work_dir: Path, target: str | None = No
                     url,
                 ]
                 meta = await _run_ytdlp_json(meta_cmd, timeout=30)
-                if meta and not _target_in_metadata(target, meta[0]):
-                    title = meta[0].get("title", "?")
-                    logger.warning(
-                        f"  Target '{target}' not found in title/description of "
-                        f"user-provided URL: {title[:80]} — downloading anyway"
-                    )
+                if meta:
+                    info = meta[0]
+                    title = info.get("title", "?")
+                    if not _target_in_metadata(target, info):
+                        logger.warning(
+                            f"  Target '{target}' not found in title/description of "
+                            f"user-provided URL: {title[:80]} — downloading anyway"
+                        )
+                    else:
+                        # Run LLM classifier for an additional quality check
+                        classifications = await _classify_via_js(target, [info])
+                        cls = classifications.get(info.get("id", ""), "primary")
+                        if cls != "primary":
+                            logger.warning(
+                                f"  LLM classifies as '{cls}': {title[:80]} — "
+                                f"may not feature {target} as a speaker"
+                            )
             except Exception as e:
                 logger.warning(f"  Could not fetch metadata for {url}: {e}")
 
@@ -960,7 +1055,7 @@ class SampleGenerator:
 # Telegram verification
 # ---------------------------------------------------------------------------
 
-async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work_dir: Path):
+async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
     """
     Persist segments to disk, register verification state in Redis, and send
     voice messages via Telegram for review. Returns immediately — callbacks are
@@ -977,9 +1072,6 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
     if not segments:
         logger.warning("No segments to verify.")
         return [], 0
-
-    auto_approve, trust_threshold = get_trust_for(slug, trust_data)
-    effective_threshold = generator.auto_threshold or trust_threshold
 
     # Select a diverse subset for human review: up to max_per_video segments
     # per source video, sorted by score. Guarantee at least min_sources (5)
@@ -1064,7 +1156,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
             logger.info(f"  Segment {i} skipped (score=1.0, likely duplicate)")
             continue
 
-        pre_label = " (pre-approved)" if is_pre_approved else ""
+        needs_approval += 1
         source = seg.get("source", "").replace(".wav", "")
         vid_id = source.split("_", 1)[1] if "_" in source else source
         source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
@@ -1073,22 +1165,15 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
         display_num = review_indices.index(i) + 1 if i in review_set_indices else i + 1
         caption = (
             f"🎙️ {target} — sample {display_num}/{len(review_set_indices)}\n"
-            f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s{pre_label}\n"
+            f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s\n"
             f"Source: {source_url}"
         )
 
-        if is_pre_approved:
-            pre_approved_idxs.append(i)
-            keyboard = build_inline_keyboard([
-                [("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
-            ])
-        else:
-            needs_approval += 1
-            keyboard = build_inline_keyboard([
-                [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{slug}:{i}"),
-                 ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
-                [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{slug}:{i}")],
-            ])
+        keyboard = build_inline_keyboard([
+            [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{slug}:{i}"),
+             ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
+            [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{slug}:{i}")],
+        ])
 
         result = send_telegram_voice(
             str(seg["ogg_path"]),
@@ -1104,7 +1189,7 @@ async def verify_via_telegram(generator: SampleGenerator, trust_data: dict, work
                 "message_id": msg_result.get("message_id"),
                 "chat_id": msg_result.get("chat", {}).get("id") or msg_result.get("chat_id"),
             })
-            logger.info(f"  Sent segment {i} (score={score:.3f}{pre_label})")
+            logger.info(f"  Sent segment {i} (score={score:.3f})")
         else:
             logger.error(f"  Failed to send segment {i}: {result}")
 
@@ -1293,9 +1378,6 @@ async def main():
                 if line and not line.startswith("#"):
                     urls.append(line)
 
-    # Load trust preferences
-    trust_data = load_trust()
-
     generator = SampleGenerator(
         target=args.target,
         num_videos=args.num_videos,
@@ -1365,7 +1447,7 @@ async def main():
             pending = 0
             logger.info(f"Skipping verification. {len(approved)} segment(s) will be saved.")
         else:
-            approved, pending = await verify_via_telegram(generator, trust_data, work_dir)
+            approved, pending = await verify_via_telegram(generator, work_dir)
 
         # 9. Save pre-approved segments immediately; pending ones are saved
         #    asynchronously by telegram_server via the save-samples queue.

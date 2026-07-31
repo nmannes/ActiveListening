@@ -40,8 +40,6 @@ from pylib.telegram import send_telegram_voice, send_telegram, build_inline_keyb
 from scripts.generate_samples import (
     SampleGenerator,
     slugify,
-    load_trust,
-    get_trust_for,
     VAD,
     TitaNetEmbedder,
     search_and_download,
@@ -293,21 +291,11 @@ async def _process_sample_generation(job, job_token, progress=None):
 
         await run_blocking(run_conversion)
 
-        # 7. Apply trust preferences and send for verification
+        # 7. Send for verification
         progress.update({"stage": "verification", "segment_count": len(segments)})
-
-        def load_trust_data():
-            trust_data = load_trust()
-            return get_trust_for(slug, trust_data)
-
-        auto_approve, threshold = await run_blocking(load_trust_data)
-
-        # Never auto-approve samples for a speaker with no existing voice samples
-        is_new_speaker = len(existing_samples) == 0
 
         # Select a diverse review subset: up to 3 segments per source video,
         # with a minimum of 5 distinct sources.
-        # Segments outside this set are auto-approved and saved immediately.
         max_per_video = 3
         min_sources = 5
         by_source = {}
@@ -361,8 +349,6 @@ async def _process_sample_generation(job, job_token, progress=None):
                 "ref_score": seg.get("ref_score"),
             })
 
-            pre_label = " (pre-approved)" if is_pre_approved else ""
-
             if not in_review:
                 continue
             if score >= 1.0:
@@ -374,20 +360,14 @@ async def _process_sample_generation(job, job_token, progress=None):
             source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
             caption = (
                 f"\U0001f399️ {target} — sample {i + 1}/{len(segments)}\n"
-                f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s{pre_label}\n"
+                f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s\n"
                 f"Source: {source_url}"
             )
-            if is_pre_approved:
-                pre_approved_idxs.append(i)
-                keyboard = build_inline_keyboard([
-                    [("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
-                ])
-            else:
-                keyboard = build_inline_keyboard([
-                    [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{slug}:{i}"),
-                     ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
-                    [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{slug}:{i}")],
-                ])
+            keyboard = build_inline_keyboard([
+                [("✅ Approve", f"{CALLBACK_PREFIX}:approve:{slug}:{i}"),
+                 ("❌ Reject", f"{CALLBACK_PREFIX}:reject:{slug}:{i}")],
+                [("🎯 Best per source", f"{CALLBACK_PREFIX}:auto_best:{slug}:{i}")],
+            ])
 
             result = await run_blocking(
                 send_telegram_voice, seg["ogg_path"],
@@ -395,7 +375,7 @@ async def _process_sample_generation(job, job_token, progress=None):
             )
             if result.get("ok"):
                 sent_count += 1
-                logger.info(f"[{job_id}] Sent segment {i} for review (score={score:.3f}{pre_label})")
+                logger.info(f"[{job_id}] Sent segment {i} for review (score={score:.3f})")
             else:
                 logger.error(f"[{job_id}] Failed to send segment {i}: {result}")
 
