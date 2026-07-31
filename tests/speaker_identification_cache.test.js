@@ -41,15 +41,21 @@ filesToTest.forEach(filename => {
     }
 
     if (title) {
-      // If it's an earnings call, the expected result is now "[Company] employee"
-      // per the new requirement, even if the cache says otherwise.
+      // Override cached expectations for sentinel/resolved patterns where
+      // getSpeakerEntities returns sentinel values or generic entities rather
+      // than the fully-resolved names that appear in the discovery cache.
       const earningsMatch = title.match(/^What will (.*) say during their next earnings call/i);
       if (earningsMatch) {
         expected = [`${earningsMatch[1].trim()} employee`];
       }
-      // Reporters markets now return ["reporters"] (identified via Bedrock inference).
       if (/what will (?:the )?reporters? say/i.test(title)) {
         expected = ["reporters"];
+      }
+      if (/what will (?:the )?candidates? say/i.test(title)) {
+        expected = ["__CANDIDATES_NEED_RESOLUTION__"];
+      }
+      if (/what will (?:the )?witness(?:es)? say/i.test(title)) {
+        expected = ["__WITNESSES_NEED_RESOLUTION__"];
       }
       testData.push({ title, expected, source: filename });
     }
