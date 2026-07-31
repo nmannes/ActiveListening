@@ -264,10 +264,16 @@ class ClientSession:
         if self.market.get("speakerEntities"):
             logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
             entities = self.market.get("speakerEntities")
+            # Generic entities (reporters, panelists, etc.) are identified via
+            # Bedrock transcript inference and don't need the full 10s cadence.
+            # Use a 30s interval to reduce LLM costs.
+            interval = self.server.config.speaker_recognition_interval_secs
+            if "reporters" in entities:
+                interval = max(interval, 30)
             self.speaker_recognition_session = SpeakerRecognitionSession(
                 self, entities,
                 speaker_identifier=self.server.speaker_identifier,
-                interval_secs=self.server.config.speaker_recognition_interval_secs,
+                interval_secs=interval,
                 max_duration_secs=self.server.config.speaker_recognition_max_duration_secs,
             )
             logger.info(f"[{self.session_id}] Speaker recognition session created (interval={self.speaker_recognition_session.policy.interval_secs}s, max_duration={self.speaker_recognition_session.policy.max_duration_secs}s)")
