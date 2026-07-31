@@ -15,12 +15,13 @@ except ImportError:
     boto3 = None
 
 from pylib.prompt_templates import (
+    get_reporters_prompt,
     get_survivor_prompt,
     get_interview_prompt,
     get_sports_prompt,
     get_earnings_prompt,
     get_big_brother_prompt,
-    get_default_prompt
+    get_default_prompt,
 )
 
 logger = logging.getLogger("remote_server")
@@ -135,7 +136,9 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
         title = market_title.lower()
         
         event_type = "standard"
-        if clip_profile == "survivor" or "survivor" in title:
+        if "reporters" in market.get("speakerEntities", []):
+            event_type = "reporters"
+        elif clip_profile == "survivor" or "survivor" in title:
             event_type = "survivor"
         elif clip_profile == "big_brother" or "big brother" in title:
             event_type = "big_brother"
@@ -147,7 +150,9 @@ class TranscriptSpeakerRecognizer(BaseSpeakerRecognizer):
             event_type = "earnings_call"
 
         # prompt generation
-        if event_type == "survivor":
+        if event_type == "reporters":
+            return get_reporters_prompt(market_title, target_speaker_name, summary_block, transcript_block)
+        elif event_type == "survivor":
             return get_survivor_prompt(market_title, target_speaker_name, summary_block, transcript_block)
         elif event_type == "big_brother":
             return get_big_brother_prompt(market_title, target_speaker_name, summary_block, transcript_block)

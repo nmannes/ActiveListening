@@ -49,6 +49,30 @@ def get_interview_prompt(market_title: str, target_speaker_name: str, summary_bl
         Possible labels must exactly match one of: "{target_speaker_name}", "interviewer", "advertisement", "unknown".
         """
 
+def get_reporters_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str) -> str:
+    return f"""
+        You are identifying the reporters and correspondents in a TV news broadcast transcript.
+        Market: {market_title}
+        I have a transcript from a session with speaker IDs 0, 1, 2, etc.
+        Your goal is to identify which Speaker IDs are reporters / correspondents.
+
+        CRITICAL DISTINCTION:
+        1. **Reporters / Correspondents ({target_speaker_name})**: Journalists who deliver news stories, often from the field or specific locations. They say things like "Reporting from...", "I'm [Name] at the White House", "Back to you", "This is [Name] for [Network] News". They present facts, describe events on location, and narrate packaged reports. They typically speak in reported-speech format ("The president said..." / "Officials tell us..."). Label ALL of them as "{target_speaker_name}".
+        2. **Anchors**: The main studio hosts who introduce segments, read top headlines, and hand off to reporters ("Our top story tonight...", "Now we go to...", "Joining us now..."). They sit in the studio and guide the broadcast. Label as "anchor".
+        3. **Guests / Interviewees**: People being interviewed who are NOT network journalists — experts, politicians, witnesses, members of the public. Label as "guest".
+        4. **Advertisements**: Commercial breaks or sponsored content. Label as "advertisement".
+        5. **Unknown**: Others outside these categories.
+
+        SPEAKER SUMMARIES:
+        {summary_block}
+
+        CHRONOLOGICAL TRANSCRIPT:
+        {transcript_block}
+
+        Respond ONLY with a JSON object mapping Speaker IDs to labels.
+        Possible labels must exactly match one of: "{target_speaker_name}", "anchor", "guest", "advertisement", "unknown".
+        """
+
 def get_sports_prompt(market_title: str, target_speaker_name: str, summary_block: str, transcript_block: str) -> str:
     return f"""
         You are identifying the announcers in a sports broadcast.
