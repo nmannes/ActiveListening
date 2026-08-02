@@ -427,6 +427,66 @@ describe("resolveOverlappingBaseballCandidates", () => {
     assert.equal(candidates[0].slug, "kxbb-mets-vs-phillies");
   });
 
+  it("disambiguates overlapping baseball games with same-city teams using raw team names", () => {
+    const now = new Date();
+    const overlapTime = new Date(now.getTime() + 3600000);
+
+    // Two overlapping games that share cities: Dodgers=LA, Angels=LA; Yankees=NY, Mets=NY.
+    // Without raw name checking, expanded city variants would cause both to match.
+    const matches = [
+      {
+        market: {
+          slug: "kxbb-dodgers-vs-yankees",
+          title: "Dodgers vs Yankees",
+          keywords: { run: "TICKER" },
+          eventStartTime: overlapTime.toISOString(),
+        },
+        mediaSources: [
+          {
+            type: "tv",
+            name: "ESPN",
+            url: "https://espn.com/stream",
+            startTime: overlapTime.toISOString(),
+            metadata: {
+              description: "Dodgers at Yankees. From Yankee Stadium.",
+            },
+          },
+        ],
+      },
+      {
+        market: {
+          slug: "kxbb-angels-vs-mets",
+          title: "Angels vs Mets",
+          keywords: { run: "TICKER" },
+          eventStartTime: overlapTime.toISOString(),
+        },
+        mediaSources: [
+          {
+            type: "tv",
+            name: "MLB Network",
+            url: "https://mlb.com/stream",
+            startTime: overlapTime.toISOString(),
+            metadata: {
+              description: "Dodgers at Yankees. From Yankee Stadium.",
+            },
+          },
+        ],
+      },
+    ];
+
+    const { candidates } = collectCandidates(matches, {
+      targetSlug: null,
+      youtubeOnly: false,
+      lookaheadMs: 4 * 3600000,
+      now,
+    });
+
+    // Only the Dodgers vs Yankees market should survive — raw names "dodgers" and "yankees"
+    // match the TV description, while "angels" and "mets" do not.
+    assert.equal(candidates.length, 1);
+    assert.equal(candidates[0].slug, "kxbb-dodgers-vs-yankees");
+  });
+
   it("keeps all overlapping baseball candidates when no TV descriptions exist", () => {
     const now = new Date();
     const overlapTime = new Date(now.getTime() + 3600000);
