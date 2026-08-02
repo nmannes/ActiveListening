@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
-const { collectCandidates } = require("../lib/scheduling");
+const { collectCandidates, groupByStreamUrl, buildCombinedMarket } = require("../lib/scheduling");
 
 const cacheDir = fs.mkdtempSync(path.join(os.tmpdir(), "scheduling-test-"));
 process.env.KALSHI_CACHE_DIR = cacheDir;
@@ -476,5 +476,188 @@ describe("resolveOverlappingBaseballCandidates", () => {
 
     // No TV descriptions means we can't disambiguate — keep both
     assert.equal(candidates.length, 2);
+  });
+});
+
+// ── groupByStreamUrl ──────────────────────────────────────────────────────
+
+describe("groupByStreamUrl", () => {
+  it("returns single candidate unchanged", () => {
+    const now = new Date();
+    const start = new Date(now.getTime() + 3600000);
+    const candidates = [{
+      slug: "single-market",
+      title: "Single",
+      keywords: { test: "TICK" },
+      eventStartTime: start.toISOString(),
+      mediaStreamURL: "https://youtube.com/abc",
+    }];
+
+    const result = groupByStreamUrl(candidates);
+    assert.equal(result.length, 1);
+    assert(!result[0].markets); // no grouping wrapper
+    assert.equal(result[0].slug, "single-market");
+  });
+
+  it("groups two candidates with same URL and exact same start time", () => {
+    const start = "2026-08-02T14:30:00.000Z";
+    const candidates = [
+      {
+        slug: "market-a",
+        title: "Market A",
+        keywords: { cherry: "TICK-A" },
+        speakerEntities: ["Speaker A"],
+        eventStartTime: start,
+        mediaStreamURL: "https://youtube.com/shared",
+        mediaSources: [{ type: "tv", url: "https://youtube.com/shared" }],
+      },
+      {
+        slug: "market-b",
+        title: "Market B",
+        keywords: { apple: "TICK-B" },
+        speakerEntities: ["Speaker B"],
+        eventStartTime: start,
+        mediaStreamURL: "https://youtube.com/shared",
+        mediaSources: [{ type: "tv", url: "https://youtube.com/shared" }],
+      },
+    ];
+
+    const result = groupByStreamUrl(candidates);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].markets.length, 2);
+    assert.equal(result[0].slug, "combined-market-a-market-b");
+    assert.equal(result[0].markets[0].slug, "market-a");
+    assert.equal(result[0].markets[1].slug, "market-b");
+    // Union speaker entities
+    assert.deepEqual(result[0].speakerEntities, ["Speaker A", "Speaker B"]);
+    // Merged keywords
+    assert.equal(result[0].keywords.cherry, "TICK-A");
+    assert.equal(result[0].keywords.apple, "TICK-B");
+  });
+
+  it("does not group candidates with different URLs", () => {
+    const start = "2026-08-02T14:30:00.000Z";
+    const candidates = [
+      {
+        slug: "market-a",
+        title: "Market A",
+        keywords: { test: "TICK-A" },
+        eventStartTime: start,
+        mediaStreamURL: "https://youtube.com/stream-a",
+      },
+      {
+        slug: "market-b",
+        title: "Market B",
+        keywords: { test: "TICK-B" },
+        eventStartTime: start,
+        mediaStreamURL: "https://youtube.com/stream-b",
+      },
+    ];
+
+    const result = groupByStreamUrl(candidates);
+    assert.equal(result.length, 2);
+    assert(!result[0].markets);
+    assert(!result[1].markets);
+  });
+
+  it("does not group candidates with different start times", () => {
+    const candidates = [
+      {
+        slug: "market-a",
+        title: "Market A",
+        keywords: { test: "TICK" },
+        eventStartTime: "2026-08-02T14:30:00.000Z",
+        mediaStreamURL: "https://youtube.com/shared",
+      },
+      {
+        slug: "market-b",
+        title: "Market B",
+        keywords: { test: "TICK" },
+        eventStartTime: "2026-08-02T15:30:00.000Z",
+        mediaStreamURL: "https://youtube.com/shared",
+      },
+    ];
+
+    const result = groupByStreamUrl(candidates);
+    assert.equal(result.length, 2);
+  });
+
+  it("passes candidate without stream URL through unchanged", () => {
+    const candidates = [{
+      slug: "no-stream",
+      title: "No Stream",
+      keywords: { test: "TICK" },
+      eventStartTime: "2026-08-02T14:30:00.000Z",
+    }];
+
+    const result = groupByStreamUrl(candidates);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].slug, "no-stream");
+  });
+});
+
+// ── buildCombinedMarket ───────────────────────────────────────────────────
+
+describe("buildCombinedMarket", () => {
+  it("merges keywords from both markets", () => {
+    const group = [
+      { slug: "a", title: "A", keywords: { alpha: "TICK-A" }, speakerEntities: ["Alice"], eventStartTime: "2026-08-02T14:30:00.000Z", mediaStreamURL: "url", mediaSources: [] },
+      { slug: "b", title: "B", keywords: { beta: "TICK-B" }, speakerEntities: ["Bob"], eventStartTime: "2026-08-02T14:30:00.000Z", mediaStreamURL: "url", mediaSources: [] },
+    ];
+
+    const combined = buildCombinedMarket(group);
+    assert.equal(combined.markets.length, 2);
+    assert.equal(combined.keywords.alpha, "TICK-A");
+    assert.equal(combined.keywords.beta, "TICK-B");
+    assert.deepEqual(combined.speakerEntities, ["Alice", "Bob"]);
+    assert.equal(combined.mediaStreamURL, "url");
+  });
+
+  it("deduplicates speaker entities", () => {
+    const group = [
+      { slug: "a", title: "A", keywords: { alpha: "TICK-A" }, speakerEntities: ["Alice", "Shared"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+      { slug: "b", title: "B", keywords: { beta: "TICK-B" }, speakerEntities: ["Bob", "Shared"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+    ];
+
+    const combined = buildCombinedMarket(group);
+    assert.deepEqual(combined.speakerEntities, ["Alice", "Shared", "Bob"]);
+  });
+
+  it("builds keywordMarketMap with array values for shared keywords", () => {
+    const group = [
+      { slug: "a", title: "A", keywords: { shared: "TICK-A-SHARED", unique_a: "TICK-A" }, speakerEntities: ["Alice"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+      { slug: "b", title: "B", keywords: { shared: "TICK-B-SHARED", unique_b: "TICK-B" }, speakerEntities: ["Bob"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+    ];
+
+    const combined = buildCombinedMarket(group);
+    // Both ticks present (tickers differ per market). Last market wins in Object.assign.
+    assert.equal(combined.keywords.shared, "TICK-B-SHARED");
+    // keywordMarketMap has array entries
+    assert.deepEqual(combined.keywordMarketMap.shared, [0, 1]);
+    assert.deepEqual(combined.keywordMarketMap.unique_a, [0]);
+    assert.deepEqual(combined.keywordMarketMap.unique_b, [1]);
+  });
+
+  it("preserves individual market keywordConfigs", () => {
+    const group = [
+      { slug: "a", title: "A", keywords: { alpha: "TICK-A" }, speakerEntities: ["Alice"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [], keywordConfigs: { alpha: { dollarAmount: 5 } } },
+      { slug: "b", title: "B", keywords: { beta: "TICK-B" }, speakerEntities: ["Bob"], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+    ];
+
+    const combined = buildCombinedMarket(group);
+    // Individual market objects preserved in markets array
+    assert.equal(combined.markets[0].keywordConfigs.alpha.dollarAmount, 5);
+  });
+
+  it("truncates slug to 80 chars", () => {
+    const longSlug = "x".repeat(50);
+    const group = [
+      { slug: longSlug, title: "A", keywords: { a: "T" }, speakerEntities: [], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+      { slug: longSlug, title: "B", keywords: { b: "T" }, speakerEntities: [], eventStartTime: "t", mediaStreamURL: "u", mediaSources: [] },
+    ];
+
+    const combined = buildCombinedMarket(group);
+    assert(combined.slug.length <= 80);
+    assert(combined.slug.startsWith("combined-"));
   });
 });

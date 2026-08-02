@@ -15,12 +15,12 @@ class TradeProcessor:
         self.handler = SignalHandler(session)
         self.logger = logger
 
-    def set_trading_speakers(self, speaker_ids: list[str]):
-        self.handler.set_trading_speakers(speaker_ids)
+    def set_trading_speakers(self, speaker_ids: list[str], market_indices: list[int] = None):
+        self.handler.set_trading_speakers(speaker_ids, market_indices=market_indices)
 
-    def add_trading_speaker(self, speaker_id: str) -> bool:
+    def add_trading_speaker(self, speaker_id: str, market_indices: list[int] = None) -> bool:
         """Add a speaker to the trading whitelist. Returns True if newly added, False if already present."""
-        return self.handler.add_trading_speaker(speaker_id)
+        return self.handler.add_trading_speaker(speaker_id, market_indices=market_indices)
 
     async def process_tokens(self, tokens: list[dict], speaker_id: str = None):
         if not tokens:

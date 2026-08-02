@@ -290,7 +290,7 @@ class TestHandleSignalIntegration:
         self, handler, mock_session, sample_match, sample_token
     ):
         """When all gates pass, handle_signal should call _execute_trade."""
-        handler.trading_speakers.add("speaker-1")
+        handler.add_trading_speaker("speaker-1")
         handler._send_signal_telegram = MagicMock()
         handler._notify_client = AsyncMock()
         called_with = {}
@@ -331,3 +331,289 @@ class TestOrderFailure:
 
         # Cost should be unchanged since order returned None
         assert handler.session_cost_total == 10.0
+
+
+# ── Multi-market fixtures ────────────────────────────────────────────────────
+
+@pytest.fixture
+def multi_market_session(mock_server):
+    """Session with two markets sharing a stream."""
+    sess = MagicMock()
+    sess.server = mock_server
+    sess.session_id = "multi-test-1"
+    sess.market = {"title": "Bernie Market", "slug": "kxbernie-test"}
+    sess.markets = [
+        {"title": "Bernie Market", "slug": "kxbernie-test",
+         "speakerEntities": ["Bernie Sanders"],
+         "keywords": {"cherry blossom": "BERNIE-CHERRY", "shared word": "BERNIE-SHARED"},
+         "keywordConfigs": {"cherry blossom": {"dollarAmount": 3}}},
+        {"title": "Moore Market", "slug": "kxmoore-test",
+         "speakerEntities": ["Wes Moore"],
+         "keywords": {"apple pie": "MOORE-APPLE", "shared word": "MOORE-SHARED"},
+         "keywordConfigs": {}},
+    ]
+    sess.keyword_index = {}
+    sess.keyword_indexes = []
+    sess.keyword_to_market = {
+        "cherry blossom": [0],
+        "shared word": [0, 1],
+        "apple pie": [1],
+    }
+    sess.speaker_to_markets = {
+        "bernie sanders": [0],
+        "wes moore": [1],
+    }
+    sess.orderbook_tracker = None
+    return sess
+
+
+@pytest.fixture
+def multi_handler(multi_market_session):
+    return SignalHandler(multi_market_session)
+
+
+# ── Multi-market: Market resolution ──────────────────────────────────────────
+
+class TestMultiMarketResolution:
+    """Tests for _get_markets and _resolve_markets."""
+
+    def test_get_markets_returns_list_when_set(self, multi_handler, multi_market_session):
+        markets = multi_handler._get_markets()
+        assert len(markets) == 2
+        assert markets[0]["slug"] == "kxbernie-test"
+
+    def test_get_markets_falls_back_to_single_market(self, handler, mock_session):
+        mock_session.market = {"slug": "single"}
+        mock_session.markets = []  # not a real list
+        markets = handler._get_markets()
+        assert len(markets) == 1
+        assert markets[0] == mock_session.market
+
+    def test_resolve_markets_unique_keyword(self, multi_handler):
+        markets = multi_handler._resolve_markets("cherry blossom")
+        assert len(markets) == 1
+        assert markets[0][1] == 0  # market index
+        assert markets[0][0]["slug"] == "kxbernie-test"
+
+    def test_resolve_markets_shared_keyword(self, multi_handler):
+        markets = multi_handler._resolve_markets("shared word")
+        assert len(markets) == 2
+        assert markets[0][1] == 0
+        assert markets[1][1] == 1
+
+    def test_resolve_markets_unknown_keyword_defaults_to_zero(self, multi_handler):
+        markets = multi_handler._resolve_markets("nonexistent")
+        assert len(markets) == 1
+        assert markets[0][1] == 0
+
+    def test_resolve_markets_backward_compat_int_value(self, handler, mock_session):
+        mock_session.markets = [{"slug": "single", "speakerEntities": []}]
+        mock_session.keyword_to_market = {"test word": 0}  # int, not list
+        markets = handler._resolve_markets("test word")
+        assert len(markets) == 1
+        assert markets[0][1] == 0
+
+
+# ── Multi-market: Speaker whitelisting ───────────────────────────────────────
+
+class TestMultiMarketSpeakerWhitelist:
+    """Tests for add_trading_speaker with market indices."""
+
+    def test_add_speaker_for_specific_market(self, multi_handler):
+        was_new = multi_handler.add_trading_speaker("0", market_indices=[0])
+        assert was_new
+        assert multi_handler.trading_speakers["0"] == {0}
+
+    def test_add_speaker_for_all_markets(self, multi_handler):
+        multi_handler.add_trading_speaker("0")  # market_indices=None → all
+        assert multi_handler.trading_speakers["0"] == {0, 1}
+
+    def test_add_speaker_multiple_calls_union(self, multi_handler):
+        multi_handler.add_trading_speaker("0", market_indices=[0])
+        was_new = multi_handler.add_trading_speaker("0", market_indices=[1])
+        assert was_new  # new market index added
+        assert multi_handler.trading_speakers["0"] == {0, 1}
+
+    def test_add_speaker_duplicate_not_new(self, multi_handler):
+        multi_handler.add_trading_speaker("0", market_indices=[0])
+        was_new = multi_handler.add_trading_speaker("0", market_indices=[0])
+        assert not was_new
+        assert multi_handler.trading_speakers["0"] == {0}
+
+    def test_set_trading_speakers_all_markets(self, multi_handler):
+        multi_handler.set_trading_speakers(["0", "1"])
+        assert multi_handler.trading_speakers["0"] == {0, 1}
+        assert multi_handler.trading_speakers["1"] == {0, 1}
+
+    def test_set_trading_speakers_specific_market(self, multi_handler):
+        multi_handler.set_trading_speakers(["0"], market_indices=[0])
+        assert multi_handler.trading_speakers["0"] == {0}
+
+
+# ── Multi-market: handle_signal routing ──────────────────────────────────────
+
+class TestMultiMarketSignalRouting:
+    """Tests that handle_signal routes to the correct market."""
+
+    @pytest.mark.asyncio
+    async def test_signal_routes_to_correct_market_for_unique_keyword(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """Bernie's keyword should route to Bernie's market."""
+        multi_handler.add_trading_speaker("speaker-1")  # whitelisted for both
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        captured_market = {}
+
+        def capture(match, dollar_amount, confidence, start, end, best_ask, market=None):
+            if market:
+                captured_market["slug"] = market.get("slug")
+
+        multi_handler._execute_trade = MagicMock(side_effect=capture)
+
+        match = {"key": "cherry blossom", "value": "BERNIE-CHERRY", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        assert captured_market["slug"] == "kxbernie-test"
+
+    @pytest.mark.asyncio
+    async def test_signal_blocked_when_speaker_not_whitelisted_for_market(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """Speaker whitelisted for market 0 only should not trade market 1 keywords."""
+        multi_handler.add_trading_speaker("speaker-1", market_indices=[0])
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        multi_handler._execute_trade = MagicMock()
+
+        match = {"key": "apple pie", "value": "MOORE-APPLE", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        multi_handler._execute_trade.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_shared_keyword_trades_first_whitelisted_market(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """Shared keyword with speaker whitelisted for both → trades market 0 first."""
+        multi_handler.add_trading_speaker("speaker-1")  # whitelisted for both
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        captured_market = {}
+
+        def capture(match, dollar_amount, confidence, start, end, best_ask, market=None):
+            if market:
+                captured_market["slug"] = market.get("slug")
+
+        multi_handler._execute_trade = MagicMock(side_effect=capture)
+
+        match = {"key": "shared word", "value": "BERNIE-SHARED", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        # Trades on market 0 (Bernie) since speaker is whitelisted for both
+        assert captured_market["slug"] == "kxbernie-test"
+
+    @pytest.mark.asyncio
+    async def test_shared_keyword_falls_back_to_second_market(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """Shared keyword with speaker only whitelisted for market 1 → trades market 1."""
+        multi_handler.add_trading_speaker("speaker-1", market_indices=[1])
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        captured_market = {}
+
+        def capture(match, dollar_amount, confidence, start, end, best_ask, market=None):
+            if market:
+                captured_market["slug"] = market.get("slug")
+
+        multi_handler._execute_trade = MagicMock(side_effect=capture)
+
+        match = {"key": "shared word", "value": "MOORE-SHARED", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        # Speaker is only whitelisted for market 1, skips market 0
+        assert captured_market["slug"] == "kxmoore-test"
+
+    @pytest.mark.asyncio
+    async def test_get_dollar_amount_receives_resolved_market(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """get_dollar_amount is called with the keyword's market, not session.market."""
+        multi_handler.add_trading_speaker("speaker-1")
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        multi_handler._execute_trade = MagicMock()
+
+        match = {"key": "cherry blossom", "value": "BERNIE-CHERRY", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0) as mock_gda:
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        market_passed = mock_gda.call_args[0][0]
+        assert market_passed["slug"] == "kxbernie-test"
+        assert "Bernie Sanders" in str(market_passed.get("speakerEntities"))
+
+    @pytest.mark.asyncio
+    async def test_moore_keyword_receives_moore_market_for_dollar_amount(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """get_dollar_amount receives Moore's market for Moore's keywords."""
+        multi_handler.add_trading_speaker("speaker-1")
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        multi_handler._execute_trade = MagicMock()
+
+        match = {"key": "apple pie", "value": "MOORE-APPLE", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=2.0) as mock_gda:
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        market_passed = mock_gda.call_args[0][0]
+        assert market_passed["slug"] == "kxmoore-test"
+
+    @pytest.mark.asyncio
+    async def test_telegram_message_uses_correct_market_title(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """SIGNAL Telegram should reference the correct market's title."""
+        multi_handler.add_trading_speaker("speaker-1")
+        multi_handler._notify_client = AsyncMock()
+        multi_handler._execute_trade = MagicMock()
+
+        match = {"key": "cherry blossom", "value": "BERNIE-CHERRY", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.send_telegram") as mock_tg:
+            with patch("pylib.signal_handler.get_dollar_amount", return_value=1.0):
+                await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        # Check that at least one send_telegram call contains market title
+        title_calls = [
+            c for c in mock_tg.call_args_list
+            if "Bernie Market" in str(c)
+        ]
+        assert len(title_calls) >= 1, f"Expected 'Bernie Market' in Telegram, got: {mock_tg.call_args_list}"
+
+    @pytest.mark.asyncio
+    async def test_moore_keyword_routes_to_moore_market(
+        self, multi_handler, multi_market_session, sample_token
+    ):
+        """Wes Moore's keyword → Moore's market, Moore's configs."""
+        multi_handler.add_trading_speaker("speaker-1")
+        multi_handler._send_signal_telegram = MagicMock()
+        multi_handler._notify_client = AsyncMock()
+        captured = {}
+
+        def capture(match, dollar_amount, confidence, start, end, best_ask, market=None):
+            captured["slug"] = market.get("slug") if market else None
+            captured["dollar_amount"] = dollar_amount
+
+        multi_handler._execute_trade = MagicMock(side_effect=capture)
+
+        match = {"key": "apple pie", "value": "MOORE-APPLE", "min_confidence": 0.92}
+        with patch("pylib.signal_handler.get_dollar_amount", return_value=2.0):
+            await multi_handler.handle_signal(match, "speaker-1", sample_token)
+
+        assert captured["slug"] == "kxmoore-test"
+        assert captured["dollar_amount"] == 2.0  # from get_dollar_amount patch, not keywordConfigs

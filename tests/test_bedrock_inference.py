@@ -142,7 +142,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
 
             # Verify profile labels and whitelist addition
             self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
-            mock_trade_processor.add_trading_speaker.assert_called_once_with("0")
+            mock_trade_processor.add_trading_speaker.assert_called_once_with("0", market_indices=None)
             mock_websocket.send.assert_called_once()
             self.assertGreaterEqual(mock_send_telegram.call_count, 1)
 
@@ -597,6 +597,256 @@ class TestReplayRunner(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result.signals[1].speaker_whitelisted)
             self.assertTrue(result.signals[1].would_trade)
             self.assertEqual(result.signals[1].blocked_by, "trade_for_real_disabled")
+
+
+    async def test_multi_market_keyword_routed_to_correct_speaker(self):
+        """Two markets on one stream: each keyword only trades for its market's speaker.
+
+        Market A: Bernie Sanders → "cherry blossom" = BERNIE-CHERRY
+        Market B: Wes Moore    → "apple pie"      = MOORE-APPLE
+
+        Timeline (interval=10, duration=30):
+          t=3s    speaker 0 says "cherry blossom" → Bernie keyword, blocked (not whitelisted yet)
+          t=10s   firing: Bedrock identifies speaker 0 as "Bernie Sanders"
+          t=15s   speaker 0 says "cherry blossom" → Bernie keyword, Bernie speaking → would_trade
+          t=17s   speaker 0 says "apple pie"      → Moore keyword, Bernie speaking → wrong_speaker_for_market
+          t=20s   firing
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            responses = [
+                # t=3s: Bernie says his keyword (before identification)
+                self._make_dg_response(0, [("cherry", 3.0, 3.3), ("blossom", 3.3, 3.6)]),
+                # Extra words so Bedrock has context to identify speaker 0
+                self._make_dg_response(0, [
+                    ("hello", 6.0, 6.1), ("i", 6.1, 6.2), ("am", 6.2, 6.3),
+                    ("bernie", 6.3, 6.5), ("sanders", 6.5, 6.8),
+                    ("and", 6.8, 6.9), ("i", 6.9, 7.0),
+                    ("approve", 7.0, 7.2), ("this", 7.2, 7.3), ("message", 7.3, 7.5),
+                ]),
+                # t=15s: Bernie says his keyword again (now that he's identified)
+                self._make_dg_response(0, [("cherry", 15.0, 15.3), ("blossom", 15.3, 15.6)]),
+                # t=17s: Bernie says Wes Moore's keyword → should be blocked!
+                self._make_dg_response(0, [("apple", 17.0, 17.3), ("pie", 17.3, 17.6)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market_bernie = {
+                "speakerEntities": ["Bernie Sanders"],
+                "keywords": {"cherry blossom": "BERNIE-CHERRY"},
+                "title": "What will Bernie say during Meet the Press?",
+            }
+            market_moore = {
+                "speakerEntities": ["Wes Moore"],
+                "keywords": {"apple pie": "MOORE-APPLE"},
+                "title": "What will Wes Moore say during Meet the Press?",
+            }
+            markets = [market_bernie, market_moore]
+
+            # Mock Bedrock to identify speaker 0 as Bernie Sanders
+            mock_mapping = {"0": "Bernie Sanders"}
+            with patch.object(
+                TranscriptSpeakerRecognizer,
+                "infer_identity_with_bedrock",
+                return_value=mock_mapping,
+            ):
+                runner = ReplayRunner(
+                    tmp, market_bernie, markets=markets,
+                    interval_secs=10, max_duration_secs=30,
+                )
+                result = await runner.run()
+
+            # Firings at t=10, 20, 30
+            self.assertEqual(len(result.firings), 3)
+            # Speaker identified as Bernie Sanders
+            self.assertEqual(result.profile_labels.get("0"), "Bernie Sanders")
+            self.assertIn("0", result.trading_speakers)
+
+            # 3 signals: cherry@3s, cherry@15s, apple@17s
+            self.assertEqual(len(result.signals), 3)
+
+            # Signal 1: t=3s, Bernie keyword → blocked (not yet whitelisted)
+            s0 = result.signals[0]
+            self.assertEqual(s0.keyword, "cherry blossom")
+            self.assertEqual(s0.ticker, "BERNIE-CHERRY")
+            self.assertFalse(s0.speaker_whitelisted)
+            self.assertEqual(s0.blocked_by, "speaker_not_whitelisted")
+
+            # Signal 2: t=15s, Bernie keyword → Bernie IS whitelisted → would_trade
+            s1 = result.signals[1]
+            self.assertEqual(s1.keyword, "cherry blossom")
+            self.assertEqual(s1.ticker, "BERNIE-CHERRY")
+            self.assertTrue(s1.speaker_whitelisted)
+            self.assertTrue(s1.would_trade)
+            self.assertEqual(s1.blocked_by, "trade_for_real_disabled")
+
+            # Signal 3: t=17s, Moore keyword → Bernie is whitelisted but for the
+            # WRONG market → blocked by wrong_speaker_for_market
+            s2 = result.signals[2]
+            self.assertEqual(s2.keyword, "apple pie")
+            self.assertEqual(s2.ticker, "MOORE-APPLE")
+            self.assertTrue(s2.speaker_whitelisted)  # Bernie IS a trading speaker
+            self.assertFalse(s2.would_trade)
+            self.assertEqual(s2.blocked_by, "wrong_speaker_for_market")
+
+    async def test_multi_market_shared_keyword_routes_to_speakers_market(self):
+        """Shared keyword routes to the market whose speaker matches.
+
+        Both markets have "shared word" as a keyword.
+        Market A: Bernie Sanders → "shared word" = BERNIE-SHARED
+        Market B: Wes Moore    → "shared word" = MOORE-SHARED
+
+        When speaker 0 (identified as Bernie) says "shared word", only
+        Bernie's market should trade.
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            responses = [
+                # t=3s: speaker 0 says shared word (before identification → blocked)
+                self._make_dg_response(0, [("shared", 3.0, 3.3), ("word", 3.3, 3.6)]),
+                # Words for identification
+                self._make_dg_response(0, [
+                    ("hello", 6.0, 6.1), ("i", 6.1, 6.2), ("am", 6.2, 6.3),
+                    ("bernie", 6.3, 6.5), ("sanders", 6.5, 6.8),
+                    ("and", 6.8, 6.9), ("i", 6.9, 7.0),
+                    ("approve", 7.0, 7.2), ("this", 7.2, 7.3), ("message", 7.3, 7.5),
+                ]),
+                # t=15s: speaker 0 says shared word again (Bernie identified → would_trade)
+                self._make_dg_response(0, [("shared", 15.0, 15.3), ("word", 15.3, 15.6)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market_bernie = {
+                "speakerEntities": ["Bernie Sanders"],
+                "keywords": {"shared word": "BERNIE-SHARED"},
+                "title": "Bernie Market",
+            }
+            market_moore = {
+                "speakerEntities": ["Wes Moore"],
+                "keywords": {"shared word": "MOORE-SHARED"},
+                "title": "Moore Market",
+            }
+            markets = [market_bernie, market_moore]
+
+            mock_mapping = {"0": "Bernie Sanders"}
+            with patch.object(
+                TranscriptSpeakerRecognizer,
+                "infer_identity_with_bedrock",
+                return_value=mock_mapping,
+            ):
+                runner = ReplayRunner(
+                    tmp, market_bernie, markets=markets,
+                    interval_secs=10, max_duration_secs=30,
+                )
+                result = await runner.run()
+
+            self.assertIn("0", result.trading_speakers)
+
+            # 2 signals: shared@3s (blocked), shared@15s (would_trade)
+            self.assertEqual(len(result.signals), 2)
+
+            # First signal: speaker not yet identified → blocked
+            self.assertFalse(result.signals[0].speaker_whitelisted)
+            self.assertEqual(result.signals[0].blocked_by, "speaker_not_whitelisted")
+            self.assertEqual(result.signals[0].ticker, "BERNIE-SHARED")
+
+            self.assertTrue(result.signals[1].speaker_whitelisted)
+            self.assertTrue(result.signals[1].would_trade)
+            self.assertEqual(result.signals[1].ticker, "BERNIE-SHARED")
+
+    async def test_multi_market_unique_keywords_each_speakers_own(self):
+        """Each speaker's unique keyword only trades on their own market.
+
+        Market A: Bernie Sanders -> "cherry blossom" = BERNIE-CHERRY
+        Market B: Wes Moore    -> "apple pie"      = MOORE-APPLE
+
+        Both speakers talk across all 4 combinations:
+          Bernie says "cherry blossom" -> Bernie market
+          Bernie says "apple pie"      -> Moore market, wrong speaker
+          Moore says "apple pie"       -> Moore market, would_trade
+          Moore says "cherry blossom"  -> Bernie market, wrong speaker
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+
+            responses = [
+                # Speaker 0 (Bernie) says his keyword at t=2s
+                self._make_dg_response(0, [("cherry", 2.0, 2.3), ("blossom", 2.3, 2.6)]),
+                # Speaker 0 says Moore's keyword at t=4s -> wrong speaker
+                self._make_dg_response(0, [("apple", 4.0, 4.3), ("pie", 4.3, 4.6)]),
+                # Identity words for both speakers
+                self._make_dg_response(0, [
+                    ("hello", 6.0, 6.1), ("i", 6.1, 6.2), ("am", 6.2, 6.3),
+                    ("bernie", 6.3, 6.5), ("sanders", 6.5, 6.8),
+                ]),
+                self._make_dg_response(1, [
+                    ("hi", 7.0, 7.1), ("i", 7.1, 7.2), ("am", 7.2, 7.3),
+                    ("wes", 7.3, 7.5), ("moore", 7.5, 7.8),
+                ]),
+                # Speaker 1 (Moore) says his keyword at t=16s
+                self._make_dg_response(1, [("apple", 16.0, 16.3), ("pie", 16.3, 16.6)]),
+                # Speaker 1 says Bernie's keyword at t=18s -> wrong speaker
+                self._make_dg_response(1, [("cherry", 18.0, 18.3), ("blossom", 18.3, 18.6)]),
+            ]
+            self._make_dg_dir(tmp, responses)
+
+            market_bernie = {
+                "speakerEntities": ["Bernie Sanders"],
+                "keywords": {"cherry blossom": "BERNIE-CHERRY"},
+                "title": "Bernie Market",
+            }
+            market_moore = {
+                "speakerEntities": ["Wes Moore"],
+                "keywords": {"apple pie": "MOORE-APPLE"},
+                "title": "Moore Market",
+            }
+            markets = [market_bernie, market_moore]
+
+            mock_mapping = {"0": "Bernie Sanders", "1": "Wes Moore"}
+            with patch.object(
+                TranscriptSpeakerRecognizer,
+                "infer_identity_with_bedrock",
+                return_value=mock_mapping,
+            ):
+                runner = ReplayRunner(
+                    tmp, market_bernie, markets=markets,
+                    interval_secs=10, max_duration_secs=30,
+                )
+                result = await runner.run()
+
+            # 4 signals covering all 4 speaker×keyword combinations
+            self.assertEqual(len(result.signals), 4)
+
+            # Signal 1: Bernie says "cherry blossom" (t=2s) -> blocked (not whitelisted yet)
+            s0 = result.signals[0]
+            self.assertEqual(s0.ticker, "BERNIE-CHERRY")
+            self.assertFalse(s0.speaker_whitelisted)
+
+            # Signal 2: Bernie says "apple pie" (t=4s) -> blocked (not whitelisted)
+            s1 = result.signals[1]
+            self.assertEqual(s1.ticker, "MOORE-APPLE")
+            self.assertFalse(s1.speaker_whitelisted)
+
+            # Signal 3: Moore says "apple pie" (t=16s, after identification)
+            # -> would_trade (Moore is whitelisted and it's his keyword)
+            s2 = result.signals[2]
+            self.assertEqual(s2.ticker, "MOORE-APPLE")
+            self.assertTrue(s2.speaker_whitelisted)
+            self.assertTrue(s2.would_trade)
+            self.assertEqual(s2.blocked_by, "trade_for_real_disabled")
+
+            # Signal 4: Moore says "cherry blossom" (t=18s)
+            # -> blocked: Moore is whitelisted but for the WRONG market
+            s3 = result.signals[3]
+            self.assertEqual(s3.ticker, "BERNIE-CHERRY")
+            self.assertTrue(s3.speaker_whitelisted)
+            self.assertFalse(s3.would_trade)
+            self.assertEqual(s3.blocked_by, "wrong_speaker_for_market")
 
 
 if __name__ == "__main__":

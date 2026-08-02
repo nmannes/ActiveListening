@@ -132,9 +132,13 @@ class ClientSession:
         self.server = server
         self.session_id = None
         self.market = None
+        self.markets: list[dict] = []  # multi-market: all markets in this session
+        self.keyword_to_market: dict[str, int] = {}  # phrase → market index
+        self.speaker_to_markets: dict[str, list[int]] = {}  # entity → market indices
         self.audio_only = False
         self.voice_profile = None
         self.keyword_index = None
+        self.keyword_indexes: list[dict] = []  # per-market indexes
 
         self.transcript = defaultdict(list)  # {speaker_id: [token_dicts]}
         self.transcript_lock = asyncio.Lock()
@@ -194,7 +198,14 @@ class ClientSession:
             logger.error(f"Handshake parse error: {e}")
 
     async def start_session(self, msg):
-        self.market = msg["market"]
+        ms = msg.get("markets")
+        if ms and isinstance(ms, list) and len(ms) > 0:
+            self.markets = ms
+        elif msg.get("market"):
+            self.markets = [msg["market"]]
+        else:
+            self.markets = [{}]
+        self.market = self.markets[0]  # backward compat: first market is default
         self.audio_only = msg.get("audioOnly", False)
         self.voice_profile = msg.get("voiceProfile")
         self.clip_profile = msg.get("clipProfile")
@@ -207,10 +218,25 @@ class ClientSession:
             f"[{self.session_id}] Client identified: {self.market.get('title', self.session_id)} (audioOnly={self.audio_only}, voiceProfile={self.voice_profile}, clipProfile={self.clip_profile})"
         )
 
-        # Build keyword index
-        self.keyword_index = build_keyword_index(self.market.get("keywords", {}))
+        # Build per-market keyword indexes + merged index for signal detection
+        self.keyword_indexes = [
+            build_keyword_index(m.get("keywords", {})) for m in self.markets
+        ]
+        # Merged index (backward compat — SignalDetector queries one flat index)
+        self.keyword_index = {}
+        for idx, kw_idx in enumerate(self.keyword_indexes):
+            for last_word, entries in kw_idx.items():
+                self.keyword_index.setdefault(last_word, []).extend(entries)
+            for phrase in self.markets[idx].get("keywords", {}):
+                k = phrase.lower()
+                self.keyword_to_market.setdefault(k, []).append(idx)
+        # Build speaker-to-market mapping
+        for idx, m in enumerate(self.markets):
+            for entity in (m.get("speakerEntities") or []):
+                ent_lower = entity.lower()
+                self.speaker_to_markets.setdefault(ent_lower, []).append(idx)
         logger.info(
-            f"[{self.session_id}] Keyword index: {len(self.keyword_index)} last-words"
+            f"[{self.session_id}] Keyword index: {len(self.keyword_index)} last-words across {len(self.markets)} market(s)"
         )
 
         # Save debug index
@@ -261,9 +287,13 @@ class ClientSession:
         if self.predictor:
             await self.predictor.start()
 
-        if self.market.get("speakerEntities"):
-            logger.info(f"[{self.session_id}] Target speaker entities: {self.market.get('speakerEntities')}")
-            entities = self.market.get("speakerEntities")
+        # Union all speaker entities across markets
+        all_entities = list(dict.fromkeys(
+            e for m in self.markets for e in (m.get("speakerEntities") or [])
+        ))
+        if all_entities:
+            logger.info(f"[{self.session_id}] Target speaker entities: {all_entities}")
+            entities = all_entities
             # Generic entities (reporters, panelists, etc.) are identified via
             # Bedrock transcript inference and don't need the full 10s cadence.
             # Use a 30s interval to reduce LLM costs.
@@ -286,7 +316,9 @@ class ClientSession:
         else:
             logger.info(f"[{self.session_id}] No speakerEntities defined — skipping speaker recognition")
 
-        tickers = list(dict.fromkeys(self.market.get("keywords", {}).values()))  # dedupe
+        tickers = list(dict.fromkeys(
+            t for m in self.markets for t in m.get("keywords", {}).values()
+        ))  # dedupe across all markets
         if tickers:
             # MVE collection tickers (KXMVE*) don't carry their own orderbooks —
             # the liquidity lives on leg markets listed in custom_strike.

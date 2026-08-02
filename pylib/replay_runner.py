@@ -103,14 +103,30 @@ class ReplaySession:
     and SpeakerRecognitionSession to work."""
 
     def __init__(self, session_id: str, market: dict = None,
-                 speaker_identifier=None):
+                 speaker_identifier=None, markets: list[dict] = None):
         self.session_id = session_id
         self.transcript = defaultdict(list)
         self.transcript_lock = asyncio.Lock()
         self.market = market or {}
-        self.keyword_index = build_keyword_index(
-            self.market.get("keywords", {})
-        )
+        self.markets = markets or [self.market]
+        # Per-market keyword indexes
+        self.keyword_indexes = [
+            build_keyword_index(m.get("keywords", {})) for m in self.markets
+        ]
+        # Merged index for backward compat (SignalDetector queries one index)
+        self.keyword_index = {}
+        self.keyword_to_market: dict[str, list[int]] = {}  # phrase → market indices
+        for idx, kw_idx in enumerate(self.keyword_indexes):
+            for last_word, entries in kw_idx.items():
+                self.keyword_index.setdefault(last_word, []).extend(entries)
+            for phrase in self.markets[idx].get("keywords", {}):
+                self.keyword_to_market.setdefault(phrase.lower(), []).append(idx)
+        # Which speaker entities belong to which market indices
+        self.speaker_to_markets: dict[str, list[int]] = {}
+        for idx, m in enumerate(self.markets):
+            for entity in (m.get("speakerEntities") or []):
+                ent_lower = entity.lower()
+                self.speaker_to_markets.setdefault(ent_lower, []).append(idx)
         self.server = MockServer(speaker_identifier=speaker_identifier)
         self.websocket = MockWebsocket()
         self.punct_re = re.compile(r'[!"#$%&\'()*+,\-./:;<=>?@\[\]^_`{|}~]')
@@ -137,15 +153,29 @@ class RecordingSignalHandler:
         self.trading_speakers: set[str] = set()
         self.current_firing_index: int = 0  # set by ReplayRunner before each firing
 
-    def set_trading_speakers(self, speaker_ids: list[str]):
+    def set_trading_speakers(self, speaker_ids: list[str], market_indices: list[int] = None):
         self.trading_speakers = set(str(s) for s in speaker_ids)
 
-    def add_trading_speaker(self, speaker_id: str) -> bool:
+    def add_trading_speaker(self, speaker_id: str, market_indices: list[int] = None) -> bool:
         sid = str(speaker_id)
         if sid in self.trading_speakers:
             return False
         self.trading_speakers.add(sid)
         return True
+
+    def _market_idxs_for_keyword(self, keyword: str) -> list[int]:
+        """Return all market indices that own this keyword."""
+        val = self._tp.session.keyword_to_market.get(keyword.lower())
+        if val is None:
+            return []
+        return val if isinstance(val, list) else [val]
+
+    def _first_market_for_keyword(self, keyword: str) -> dict | None:
+        """Return the first market that owns this keyword."""
+        for idx in self._market_idxs_for_keyword(keyword):
+            if idx < len(self._tp.session.markets):
+                return self._tp.session.markets[idx]
+        return None
 
     async def handle_signal(self, match: dict, speaker_id: str, token: dict):
         ticker = match["value"]
@@ -153,6 +183,16 @@ class RecordingSignalHandler:
         confidence = match.get("min_confidence", token.get("confidence", 0))
         config = self._tp.session.server.config
         whitelisted = speaker_id in self.trading_speakers
+
+        # Multi-market: validate speaker entity against keyword's market
+        market = self._first_market_for_keyword(keyword)
+        speaker_wrong_for_market = False
+        if market and market.get("speakerEntities"):
+            rec = getattr(self._tp.session, 'speaker_recognition_session', None)
+            speaker_label = (rec.profile_labels.get(speaker_id, "") if rec else "").lower()
+            market_entities = [e.lower() for e in market["speakerEntities"]]
+            if speaker_label and market_entities:
+                speaker_wrong_for_market = speaker_label not in market_entities
 
         signal = TradeSignal(
             elapsed_secs=self._virtual_time[0],
@@ -169,6 +209,8 @@ class RecordingSignalHandler:
         # Evaluate gates in the same order as SignalHandler.handle_signal()
         if not whitelisted:
             signal.blocked_by = "speaker_not_whitelisted"
+        elif speaker_wrong_for_market:
+            signal.blocked_by = "wrong_speaker_for_market"
         elif not config.trade_for_real:
             signal.blocked_by = "trade_for_real_disabled"
             signal.would_trade = True  # all real gates passed
@@ -212,6 +254,7 @@ class ReplayRunner:
         recording_dir: Path,
         market: dict,
         *,
+        markets: list[dict] = None,
         audio_library_path: Path | None = None,
         device: str = "cpu",
         interval_secs: int = 10,
@@ -222,6 +265,7 @@ class ReplayRunner:
     ):
         self.recording_dir = Path(recording_dir)
         self.market = market
+        self.markets = markets  # list of market dicts for multi-market sessions
         self.audio_library_path = audio_library_path
         self.device = device
         self.interval_secs = interval_secs
@@ -263,10 +307,17 @@ class ReplayRunner:
         virtual_time = [0.0]
 
         # 4. Build session + recognition session
+        markets_list = self.markets or [self.market]
+        # Union of all speaker entities across markets
+        all_entities = list(dict.fromkeys(
+            e for m in markets_list
+            for e in (m.get("speakerEntities") or [])
+        ))
         session = ReplaySession(
             self.recording_dir.name,
             self.market,
             speaker_identifier=speaker_identifier,
+            markets=markets_list,
         )
 
         from pylib.trade_processor import TradeProcessor
@@ -283,13 +334,15 @@ class ReplayRunner:
         from pylib.speaker_recognition import SpeakerRecognitionSession
         rec_session = SpeakerRecognitionSession(
             session,
-            self.market.get("speakerEntities", []),
+            all_entities,
             speaker_identifier=speaker_identifier,
             interval_secs=self.interval_secs,
             max_duration_secs=self.max_duration_secs,
         )
         rec_session.transcript_recognizer.region_name = self.bedrock_region
         rec_session.transcript_recognizer.model_id = self.bedrock_model_id
+        # Expose so RecordingSignalHandler can look up speaker→entity mappings
+        session.speaker_recognition_session = rec_session
 
         # 5. Set up WAV directory and writer state
         audio_dir = None

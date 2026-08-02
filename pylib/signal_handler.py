@@ -48,36 +48,78 @@ class SignalHandler:
 
     def __init__(self, session):
         self.session = session
-        self.trading_speakers: set[str] = set()
+        self.trading_speakers: dict[str, set[int]] = {}  # speaker_id → set of market indices
         self.session_cost_total: float = 0.0
 
-    def set_trading_speakers(self, speaker_ids: list[str]):
-        self.trading_speakers = set(str(s) for s in speaker_ids)
+    def _get_markets(self) -> list[dict]:
+        """Return the session's market list, handling mocks and backward compat."""
+        if hasattr(self.session, 'markets') and isinstance(self.session.markets, list) and self.session.markets:
+            return self.session.markets
+        return [self.session.market] if self.session.market else []
+
+    def _resolve_markets(self, keyword: str) -> list[tuple[dict, int]]:
+        """Return [(market_dict, market_index), ...] for a keyword phrase.
+        A phrase may belong to multiple markets (shared keywords)."""
+        markets = self._get_markets()
+        if not markets or not isinstance(getattr(self.session, 'keyword_to_market', None), dict):
+            return [(self.session.market, 0)]
+        value = self.session.keyword_to_market.get(keyword.lower(), [0])
+        indices = value if isinstance(value, list) else [value]
+        result = []
+        for idx in indices:
+            if isinstance(idx, int) and idx < len(markets):
+                result.append((markets[idx], idx))
+        return result or [(self.session.market, 0)]
+
+    def set_trading_speakers(self, speaker_ids: list[str], market_indices: list[int] = None):
+        """Whitelist speakers for specific market indices (or all markets if None)."""
+        indices = set(market_indices or range(len(self._get_markets())))
+        for sid in speaker_ids:
+            s = str(sid)
+            if s not in self.trading_speakers:
+                self.trading_speakers[s] = set()
+            self.trading_speakers[s].update(indices)
         logger.info(
             f"[{self.session.session_id}][TRADE] Whitelist updated: {self.trading_speakers}"
         )
 
-    def add_trading_speaker(self, speaker_id: str) -> bool:
-        """Add a speaker to the trading whitelist. Returns True if newly added, False if already present."""
+    def add_trading_speaker(self, speaker_id: str, market_indices: list[int] = None) -> bool:
+        """Add a speaker to the trading whitelist for given market indices.
+        If market_indices is None, whitelist for ALL markets.
+        Returns True if the speaker was newly added for any market index."""
         sid = str(speaker_id)
-        is_new = sid not in self.trading_speakers
-        self.trading_speakers.add(sid)
-        return is_new
+        indices = set(market_indices or range(len(self._get_markets())))
+        if sid not in self.trading_speakers:
+            self.trading_speakers[sid] = set()
+        before = len(self.trading_speakers[sid])
+        self.trading_speakers[sid].update(indices)
+        return len(self.trading_speakers[sid]) > before
 
     async def handle_signal(self, match: dict, speaker_id: str, token: dict):
-        self._send_signal_telegram(match, speaker_id)
+        # Resolve candidate markets for this keyword (may appear in multiple)
+        candidates = self._resolve_markets(match["key"])
+        # Pick the first market where the speaker is whitelisted
+        market, market_idx = candidates[0]
+        speaker_markets = self.trading_speakers.get(speaker_id, set())
+        for m, mi in candidates:
+            if mi in speaker_markets:
+                market, market_idx = m, mi
+                break
+
+        self._send_signal_telegram(match, speaker_id, market)
         await self._notify_client(match, token)
 
-        if speaker_id not in self.trading_speakers:
+        # Multi-market: speaker must be whitelisted for this specific market
+        if market_idx not in speaker_markets:
             logger.info(
-                f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id} because not a trading speaker"
+                f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, \"{match['key']}\" — speaker not whitelisted for market index {market_idx}"
             )
             return
 
         if not self.session.server.config.trade_for_real:
             return
 
-        dollar_amount = get_dollar_amount(self.session.market, match["key"])
+        dollar_amount = get_dollar_amount(market, match["key"])
         if dollar_amount <= 0:
             logger.info(
                 f"[{self.session.session_id}][TRADE] Skipping trade for {speaker_id}, {match['key']}, because dollarAmount is {dollar_amount}"
@@ -125,10 +167,12 @@ class SignalHandler:
                 )
                 return
 
-        self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"), best_ask)
+        self._execute_trade(match, dollar_amount, word_confidence, token.get("start"), token.get("end"), best_ask, market)
 
-    def _send_signal_telegram(self, match: dict, speaker_id: str):
-        market_title = self.session.market.get("title", match["key"])
+    def _send_signal_telegram(self, match: dict, speaker_id: str, market: dict = None):
+        if market is None:
+            market = self.session.market
+        market_title = market.get("title", match["key"])
         msg = "\n".join([
             f"\U0001f514 [SIGNAL] {market_title}",
             f"Keyword: \"{match['key']}\"",
@@ -157,7 +201,9 @@ class SignalHandler:
                 f"[{self.session.session_id}] Error notifying client of signal: {e}"
             )
 
-    def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None, best_ask: float | None = None):
+    def _execute_trade(self, match: dict, dollar_amount: float, confidence: float, start: float | None, end: float | None, best_ask: float | None = None, market: dict = None):
+        if market is None:
+            market = self.session.market
         limit_price = (min(0.99, best_ask + 0.05) if best_ask is not None and best_ask > 0 else 0.99)
         logger.info(
             f"[{self.session.session_id}][TRADE] Placing market order for \"{match['key']}\" (up to ${dollar_amount}, limit {limit_price:.2f})"
@@ -182,7 +228,7 @@ class SignalHandler:
             )
             return
 
-        order_result = self._place_order(match, dollar_amount, best_ask)
+        order_result = self._place_order(match, dollar_amount, best_ask, market)
         if order_result is None:
             logger.error(
                 f"[{self.session.session_id}][TRADE] Order failed, no result returned for {match['key']}"
@@ -195,7 +241,7 @@ class SignalHandler:
             f"[{self.session.session_id}][TRADE] Order result: {order_result}"
         )
         msg = "\n".join([
-            f"\U0001f680 [TRADE] {self.session.market.get('title', match['value'])}",
+            f"\U0001f680 [TRADE] {market.get('title', match['value'])}",
             f"Ticker: {match['value']}",
             f"Word: {match['key']}",
             f"Confidence: {confidence:.3f}",
@@ -253,14 +299,16 @@ class SignalHandler:
             None, _send_audio_clip, audio_bytes, word, clip_start, clip_end
         )
 
-    def _place_order(self, match: dict, dollar_amount: float, best_ask: float | None = None):
+    def _place_order(self, match: dict, dollar_amount: float, best_ask: float | None = None, market: dict = None):
         try:
-            keyword_configs = self.session.market.get("keywordConfigs", {})
+            if market is None:
+                market = self.session.market
+            keyword_configs = market.get("keywordConfigs", {})
             word_config = keyword_configs.get(match["key"], {})
             dollar_amount = (
                 word_config.get("dollarAmount")
                 or dollar_amount
-                or self.session.market.get("dollarAmount")
+                or market.get("dollarAmount")
                 or self.session.server.config.buy_max_cost
             )
             t0 = time.time()
@@ -282,7 +330,7 @@ class SignalHandler:
                 f"[{self.session.session_id}][TRADE] Error placing order"
             )
             msg = "\n".join([
-                f"❌ [ORDER ERROR] {self.session.market.get('title', match['value'])}",
+                f"❌ [ORDER ERROR] {market.get('title', match['value'])}",
                 f"Ticker: {match['value']}",
                 f"Word: {match['key']}",
                 f"Dollar amount: ${dollar_amount}",

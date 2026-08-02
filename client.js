@@ -263,8 +263,13 @@ function connectWebSocket() {
     logger.info(`[ws] Connected to remote server`);
     reconnectStartTime = null;
 
-    // Send handshake with market data
-    const hello = { type: "hello", market, runUUID };
+    // Send handshake with market data (multi-market support)
+    const hello = { type: "hello", runUUID };
+    if (market.markets && Array.isArray(market.markets)) {
+      hello.markets = market.markets;
+    } else {
+      hello.market = market;
+    }
     if (provider.audioOnly) hello.audioOnly = true;
     if (market.clipProfile !== undefined)
       hello.clipProfile = market.clipProfile;

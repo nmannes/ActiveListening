@@ -258,6 +258,14 @@ class SpeakerRecognitionSession:
             listening_session=self.listening_session
         )
 
+    def _entity_market_indices(self, entity: str) -> list[int] | None:
+        """Return the market indices that an entity belongs to.
+        None means all markets (backward compat when speaker_to_markets isn't set)."""
+        stm = getattr(self.listening_session, 'speaker_to_markets', None)
+        if stm and isinstance(stm, dict) and stm:
+            return stm.get(entity.lower())
+        return None  # None → add_trading_speaker defaults to all markets
+
     @staticmethod
     def _event_duration_secs(listening_session, fallback_secs: int = 1200) -> int:
         """Parse the event duration in seconds from market media source metadata.
@@ -398,7 +406,8 @@ class SpeakerRecognitionSession:
                 if label in self.market_entities:
                     is_new = False
                     if hasattr(self.listening_session, "trade_processor"):
-                        is_new = self.listening_session.trade_processor.add_trading_speaker(sid)
+                        market_indices = self._entity_market_indices(label)
+                        is_new = self.listening_session.trade_processor.add_trading_speaker(sid, market_indices=market_indices)
 
                     if is_new:
                         logger.info(f"[{self.session_id}] Bedrock ID: speaker {sid} -> {label} (added to trading whitelist)")
@@ -561,7 +570,8 @@ class SpeakerRecognitionSession:
 
                 is_new = False
                 if hasattr(self.listening_session, "trade_processor"):
-                    is_new = self.listening_session.trade_processor.add_trading_speaker(speaker_id)
+                    market_indices = self._entity_market_indices(matched_entity)
+                    is_new = self.listening_session.trade_processor.add_trading_speaker(speaker_id, market_indices=market_indices)
                 else:
                     logger.warning(f"[{self.session_id}] No trade_processor available to add speaker {speaker_id} to whitelist")
 
