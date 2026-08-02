@@ -939,10 +939,18 @@ app.get("/api/runtime-logs-view/:filename", (req, res) => {
 });
 
 // ── Market Logs API ──────────────────────────────────────────────────────────
+let marketListCache = null;
+let marketListCacheTime = 0;
+const MARKET_LIST_CACHE_TTL = 30000; // 30 seconds
+
 app.get("/api/market-logs", (req, res) => {
     try {
-        const markets = listMarkets();
-        res.json({ markets, kalshiBaseUrl: KALSHI_BASE_URL });
+        const now = Date.now();
+        if (!marketListCache || (now - marketListCacheTime) > MARKET_LIST_CACHE_TTL) {
+            marketListCache = listMarkets();
+            marketListCacheTime = now;
+        }
+        res.json({ markets: marketListCache, kalshiBaseUrl: KALSHI_BASE_URL });
     } catch (e) {
         console.error(`Error in /api/market-logs: ${e.message}`);
         res.status(500).json({ error: e.message });
