@@ -95,8 +95,6 @@ async function scheduleNextFromRedis() {
 async function enqueueSchedulingLoop() {
   try {
     await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
-    const timestamp = new Date().toISOString();
-    sendTelegram(`[${timestamp}] Scheduling loop enqueued`, "debug").catch(() => { });
   } catch (e) {
     console.error("Failed to enqueue scheduling loop:", e);
   }

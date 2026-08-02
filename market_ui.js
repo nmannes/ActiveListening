@@ -495,10 +495,6 @@ app.post("/api/market/:slug/stop", async (req, res) => {
     }
 });
 
-app.get("/signals", (req, res) => {
-    res.sendFile(path.join(DATA_DIR, "signal_vs_no_closeout.html"));
-});
-
 app.get("/logs", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "market.html"));
 });
