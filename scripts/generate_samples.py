@@ -374,16 +374,18 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
     """
     pool = [
         f'"{target}" interview',
-        f'"{target}" speech',
-        f'"{target}" press conference',
-        f'"{target}" remarks',
-        f'"{target}" testimony',
-        f'"{target}" hearing',
+        f'"{target}" town hall',
+        f'"{target}" debate',
+        f'"{target}" Q&A',
+        f'"{target}" podcast',
         f'"{target}" speaks at',
-        f'"{target}" "full event"',
-        f'"{target}" address',
         f'"interview with {target}"',
-        f'"{target}" appearance',
+        f'"{target}" press conference',
+        f'"{target}" "questions from reporters"',
+        f'"{target}" hearing',
+        f'"{target}" "fireside chat"',
+        f'"{target}" "one on one"',
+        f'"{target}" "sit down"',
     ]
 
     # Use one distinct search query per desired video so every downloaded
@@ -406,9 +408,9 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
     cutoff_date = time.strftime("%Y%m%d", time.gmtime(time.time() - 7 * 86400))
 
     for i, q in enumerate(queries):
-        # Fetch 8 candidates so metadata filtering has enough to choose
-        # from even for less-famous targets; only download 1 per query.
-        search_count = 8
+        # Fetch a random number of candidates so different runs see
+        # different slices of YouTube results for the same query.
+        search_count = random.randint(12, 25)
 
         # --- Step 1: fetch metadata for candidates without downloading ---
         search_query = f"ytsearch{search_count}:{q}"
@@ -456,9 +458,10 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
             logger.warning(f"  No primary videos found for '{q}' after LLM classification")
             continue
 
-        # --- Step 4: pick two primary videos per query for variety ---
+        # --- Step 4: pick randomly from primary results ---
         random.shuffle(primary)
-        selected = primary[:2]
+        pick_count = random.randint(1, min(3, len(primary)))
+        selected = primary[:pick_count]
 
         for j, info in enumerate(selected):
             vid_id = info.get("id")
@@ -471,13 +474,8 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
             video_url = f"https://youtube.com/watch?v={vid_id}"
             output_template = work_dir / f"q{i}_%(id)s.%(ext)s"
 
-            # Pick a random 8-minute window from the first ~12 minutes.
-            section_start = random.randint(0, 240)
-            section_end = section_start + 480
-            section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
-
             title = info.get("title", "?")
-            logger.info(f"  Downloading [{j + 1}/{len(selected)}]: {title[:80]} (section {section})")
+            logger.info(f"  Downloading [{j + 1}/{len(selected)}]: {title[:80]}")
 
             download_cmd = [
                 YT_DLP,
@@ -491,7 +489,6 @@ async def search_and_download(target: str, num_videos: int, work_dir: Path) -> l
                 "--no-continue",
                 "--socket-timeout", "30",
                 "--retries", "2",
-                "--download-sections", section,
                 video_url,
             ]
 
@@ -571,10 +568,6 @@ async def download_from_urls(urls: list, work_dir: Path, target: str | None = No
 
         output_template = work_dir / f"v{i}_%(id)s.%(ext)s"
 
-        section_start = random.randint(0, 240)
-        section_end = section_start + 480
-        section = f"*{section_start // 60}:{section_start % 60:02d}-{section_end // 60}:{section_end % 60:02d}"
-
         cmd = [
             YT_DLP,
             YT_DLP_JS_RUNTIME,
@@ -587,11 +580,10 @@ async def download_from_urls(urls: list, work_dir: Path, target: str | None = No
             "--no-continue",
             "--socket-timeout", "30",
             "--retries", "2",
-            "--download-sections", section,
             url,
         ]
 
-        logger.info(f"Downloading [{i + 1}/{len(urls)}]: {url} (section {section})")
+        logger.info(f"Downloading [{i + 1}/{len(urls)}]: {url}")
         try:
             await _run_ytdlp(cmd, timeout=120)
         except subprocess.CalledProcessError as e:
@@ -771,6 +763,21 @@ class SampleGenerator:
             )
 
         return centroids
+
+    def _load_existing_individuals(self) -> list[torch.Tensor]:
+        """Load all individual embeddings for this speaker (not centroids)."""
+        emb_files = sorted(AUDIO_LIBRARY.glob(f"{self.slug}.embedding"))
+        emb_files += sorted(AUDIO_LIBRARY.glob(f"{self.slug}-*.embedding"))
+        refs = []
+        for ef in emb_files:
+            try:
+                emb = torch.load(str(ef), weights_only=False)
+                if emb.dim() == 2:
+                    emb = emb.squeeze(0)
+                refs.append(emb)
+            except Exception:
+                pass
+        return refs
 
     def cluster_and_score(self, segments: list, min_cluster_ratio: float = 0.1,
                           min_ref_similarity: float = 0.2):
@@ -1073,13 +1080,27 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
         logger.warning("No segments to verify.")
         return [], 0
 
+    # Scale review batch down as library grows: fewer sources and fewer
+    # per-video segments needed once we have a solid reference to rank against.
+    existing_count = len(sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav")))
+    if existing_count >= 5:
+        max_per_video = 1
+        min_sources = 2
+    elif existing_count >= 3:
+        max_per_video = 2
+        min_sources = 3
+    else:
+        max_per_video = generator.max_per_video
+        min_sources = 5
+
+    # Load existing embeddings for dedup checks (only when library exists)
+    existing_individuals = generator._load_existing_individuals() if existing_count > 0 else []
+
     # Select a diverse subset for human review: up to max_per_video segments
-    # per source video, sorted by score. Guarantee at least min_sources (5)
+    # per source video, sorted by score. Guarantee at least min_sources
     # distinct sources by pulling in the best segment from additional sources.
     # All segments remain on generator.segments for reference-centroid use;
     # only the diverse subset is sent for verification.
-    max_per_video = generator.max_per_video
-    min_sources = 5
     by_source = {}
     for i, s in enumerate(segments):
         src = s.get("source", "unknown")
@@ -1154,6 +1175,24 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
             continue
         if score >= 1.0:
             logger.info(f"  Segment {i} skipped (score=1.0, likely duplicate)")
+            continue
+
+        # Near-duplicate of an existing library sample — skip review.
+        if existing_individuals and seg.get("ref_score") is not None:
+            emb_np = seg["embedding"].squeeze(0).numpy()
+            emb_n = normalize(emb_np.reshape(1, -1), norm="l2")
+            max_dup = max(
+                float(emb_n @ normalize(ref.numpy().reshape(1, -1), norm="l2").T)
+                for ref in existing_individuals
+            )
+            if max_dup > 0.95:
+                logger.info(f"  Segment {i} skipped (near-duplicate of existing, sim={max_dup:.3f})")
+                continue
+
+        # When we already have a solid library, skip segments that are
+        # acoustically redundant — very close to what we already have.
+        if existing_count >= 3 and seg.get("ref_score") is not None and seg["ref_score"] >= 0.90:
+            logger.info(f"  Segment {i} skipped (acoustically redundant, ref_score={seg['ref_score']:.3f})")
             continue
 
         needs_approval += 1
