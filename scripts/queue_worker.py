@@ -138,6 +138,12 @@ async def _process_sample_generation(job, job_token, progress=None):
     slug = slugify(target)
     job_id = job.id or "?"
 
+    await run_blocking(
+        send_telegram,
+        f"🎙️ Voice sample generation started for *{target}*\nJob: `{job_id}`",
+        "voice",
+    )
+
     # Don't run sample generation while client listening sessions are active —
     # yt-dlp + ffmpeg compete for memory and bandwidth with live audio streaming.
     # Telegram-triggered jobs skip the reschedule and run immediately.
