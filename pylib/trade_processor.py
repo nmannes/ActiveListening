@@ -5,7 +5,6 @@ from pylib.signal_detector import SignalDetector
 from pylib.signal_handler import SignalHandler
 
 logger = logging.getLogger("remote_server")
-transcript_logger = logging.getLogger("transcript")
 
 
 class TradeProcessor:
@@ -27,9 +26,6 @@ class TradeProcessor:
             return
 
         speaker_id = str(speaker_id) if speaker_id else "unknown"
-        logger.info(
-            f"[{self.session.session_id}][DIARIZED] Processing {len(tokens)} tokens from speaker: {speaker_id}"
-        )
 
         new_tokens = await self._update_transcript(speaker_id, tokens)
         if not new_tokens:
@@ -38,6 +34,9 @@ class TradeProcessor:
         for token in new_tokens:
             match = self.detector.feed_token(speaker_id, token, self.session.keyword_index)
             if match:
+                logger.info(
+                    f"[{self.session.session_id}][TRADE] Signal matched: \"{match['key']}\" ({match['value']}) by speaker {speaker_id}"
+                )
                 await self.handler.handle_signal(match, speaker_id, token)
 
         await self._emit_transcript(speaker_id, new_tokens)
@@ -61,19 +60,6 @@ class TradeProcessor:
 
     async def _emit_transcript(self, speaker_id: str, new_tokens: list[dict]):
         new_text = " ".join(t["text"] for t in new_tokens)
-        async with self.session.transcript_lock:
-            recent = " ".join(
-                t["text"]
-                for t in self.session.transcript[speaker_id][
-                    -self.session.server.config.last_words_count :
-                ]
-            )
-        logger.info(
-            f"[{self.session.session_id}][{speaker_id}] Transcript: {new_text} (Last {self.session.server.config.last_words_count}: {recent})"
-        )
-        transcript_logger.info(
-            f"[{self.session.session_id}][{speaker_id}] {new_text}"
-        )
         try:
             await self.session.websocket.send(
                 json.dumps({

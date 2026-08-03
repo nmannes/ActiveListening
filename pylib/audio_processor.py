@@ -361,12 +361,9 @@ class AudioProcessor:
                         speaker_id, words[0]["start"], words[-1]["end"]
                     )
 
-                    # Log transcript segment
+                    # Send transcript segment to Telegram debug channel
                     transcript_text = alt.get("transcript", "").strip()
                     if transcript_text:
-                        logger.info(
-                            f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}"
-                        )
                         msg_text = f"[{self.session.session_id}][DG][{speaker_id}] {transcript_text}"
                         asyncio.get_running_loop().run_in_executor(
                             None, send_telegram, msg_text, "debug"
