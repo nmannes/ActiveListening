@@ -184,12 +184,12 @@ class OrderbookTracker:
         yes_levels = msg.get("yes_dollars_fp") or []
         for price_str, qty_str in yes_levels:
             price_cents = round(float(price_str) * 100)
-            book.yes[price_cents] = int(qty_str)
+            book.yes[price_cents] = round(float(qty_str))
 
         no_levels = msg.get("no_dollars_fp") or []
         for price_str, qty_str in no_levels:
             price_cents = round(float(price_str) * 100)
-            book.no[price_cents] = int(qty_str)
+            book.no[price_cents] = round(float(qty_str))
 
         self._books[ticker] = book
         logger.info(
