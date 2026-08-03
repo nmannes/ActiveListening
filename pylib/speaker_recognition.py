@@ -33,6 +33,17 @@ from pylib.telegram import send_telegram, send_telegram_audio
 # while preventing nonsense matches from tiny or irrelevant libraries.
 FALLBACK_THRESHOLD = 0.40
 
+# Identification embeds only the *most recent* audio of each per-speaker WAV,
+# never the full accumulated file, so embedding cost stays bounded as sessions
+# get long (re-embedding a 20-minute WAV every 10s also ratcheted up memory
+# via torch's cached allocations).  Sizes are bytes of 16 kHz mono 16-bit PCM
+# (32000 bytes/second).
+PCM_BYTES_PER_SEC = 32000
+IDENTIFY_MIN_NEW_BYTES = 3 * PCM_BYTES_PER_SEC    # >= 3s of recent audio before a first ID
+RECHECK_MIN_NEW_BYTES = 10 * PCM_BYTES_PER_SEC    # re-check labeled speakers every >= 10s of new audio
+MAX_RECENT_BYTES = 60 * PCM_BYTES_PER_SEC         # never embed more than the latest 60s
+WAV_HEADER_BYTES = 44
+
 # Note: Profile labels and mapping are now managed per-session via SpeakerRecognitionSession.
 
 
@@ -240,9 +251,10 @@ class SpeakerRecognitionSession:
 
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
-        # Track WAV file size at last identification so we can re-identify
-        # when Deepgram appends a different speaker's audio to the same ID.
-        self._speaker_file_sizes: Dict[str, int] = {}
+        # Track WAV byte offset of the last identification per speaker, so each
+        # cycle embeds only the audio appended since then (recent audio rather
+        # than the full accumulated file).
+        self._speaker_file_offsets: Dict[str, int] = {}
 
         from pylib.speaker_policy import InferencePolicy
 
@@ -482,31 +494,43 @@ class SpeakerRecognitionSession:
             # Extract speaker ID from filename: "speaker_0.wav" -> "0"
             speaker_id = wav_path.stem.replace("speaker_", "")
 
-            # Re-identify already-labeled speakers when their WAV has grown
-            # substantially.  Deepgram can merge a late-arriving speaker into
-            # an existing diarization ID, so a label from early audio may be
-            # stale once the file contains a different voice.
+            # Identify on the most recent audio only.  Each cycle embeds the
+            # bytes appended since the last identification (bounded to the
+            # latest MAX_RECENT_BYTES), never the full accumulated WAV.
             current_size = wav_path.stat().st_size
-            prev_size = self._speaker_file_sizes.get(speaker_id, 0)
-            self._speaker_file_sizes[speaker_id] = current_size
+            last_offset = self._speaker_file_offsets.get(speaker_id, 0)
+            new_bytes = current_size - last_offset
 
+            # Re-identify already-labeled speakers once enough new audio has
+            # arrived.  Deepgram can merge a late-arriving speaker into an
+            # existing diarization ID, so a label from earlier audio may be
+            # stale once the file contains a different voice.
+            old_label = None
             if speaker_id in self.profile_labels:
-                if prev_size > 0 and current_size >= prev_size * 1.5:
-                    logger.info(
-                        f"[{self.session_id}] Speaker {speaker_id} WAV grew "
-                        f"{prev_size} -> {current_size} bytes — re-identifying"
-                    )
-                    del self.profile_labels[speaker_id]
-                    # Fall through to identification below.
-                else:
+                if new_bytes < RECHECK_MIN_NEW_BYTES:
                     logger.debug(
-                        f"[{self.session_id}] Speaker {speaker_id} already "
-                        f"labeled as '{self.profile_labels[speaker_id]}', skipping"
+                        f"[{self.session_id}] Speaker {speaker_id} labeled "
+                        f"'{self.profile_labels[speaker_id]}', only "
+                        f"{new_bytes / PCM_BYTES_PER_SEC:.1f}s of new audio — skipping"
                     )
                     continue
+                logger.info(
+                    f"[{self.session_id}] Speaker {speaker_id} WAV grew "
+                    f"{last_offset} -> {current_size} bytes — re-identifying on recent audio"
+                )
+                old_label = self.profile_labels.pop(speaker_id)
+            elif new_bytes < IDENTIFY_MIN_NEW_BYTES:
+                logger.debug(
+                    f"[{self.session_id}] Speaker {speaker_id} only has "
+                    f"{new_bytes / PCM_BYTES_PER_SEC:.1f}s of new audio — waiting for more"
+                )
+                continue
 
-            logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path}")
-            matches, scores = await identifier.identify_file(wav_path)
+            start_byte = max(last_offset, current_size - MAX_RECENT_BYTES)
+            start_frame = max(0, (start_byte - WAV_HEADER_BYTES)) // 2
+            logger.debug(f"[{self.session_id}] Attempting identification for speaker {speaker_id} using {wav_path} (frames {start_frame}+)")
+            matches, scores = await identifier.identify_file(wav_path, start_frame=start_frame)
+            self._speaker_file_offsets[speaker_id] = current_size
             cumulative_elapsed = time.perf_counter() - t_start
             logger.info(f"[{self.session_id}] Speaker {speaker_id} identification: matches={matches}, scores={scores} (cumulative {cumulative_elapsed:.3f}s)")
 
@@ -609,6 +633,14 @@ class SpeakerRecognitionSession:
                     logger.info(f"[{self.session_id}] Speaker {speaker_id} ({matched_entity}) already whitelisted, skipping Telegram notification")
 
                 matched_any = True
+            elif old_label is not None:
+                # Recent audio didn't match any market entity — keep the
+                # previous label instead of leaving the speaker unlabeled.
+                logger.info(
+                    f"[{self.session_id}] Speaker {speaker_id} recent audio had "
+                    f"no match, keeping label '{old_label}'"
+                )
+                self.profile_labels[speaker_id] = old_label
 
         logger.debug(f"[{self.session_id}] Finished audio identification iteration. matched_any={matched_any}")
         return dict(self.profile_labels)

@@ -274,23 +274,32 @@ class SignalHandler:
                 f"[{self.session.session_id}][TRADE] No audio_processor on session — cannot extract audio clip for '{word}'"
             )
             return
-        pcm_buffer = audio_processor._pcm_buffer
-        buf_len = len(pcm_buffer)
+        full_wav_path = audio_processor._full_wav_path
+        if not full_wav_path:
+            logger.warning(
+                f"[{self.session.session_id}][TRADE] No recording file — cannot extract audio clip for '{word}'"
+            )
+            return
+        bytes_written = audio_processor.total_bytes_sent
 
         clip_start = max(0, start - PAD_SECS)
-        clip_end = min(end + PAD_SECS, buf_len / bytes_per_sec)
+        clip_end = min(end + PAD_SECS, bytes_written / bytes_per_sec)
         start_byte = (int(clip_start * bytes_per_sec) // 2) * 2
         end_byte = (int(clip_end * bytes_per_sec) // 2) * 2
 
         if end_byte <= start_byte:
             logger.warning(
                 f"[{self.session.session_id}][TRADE] Audio clip bounds invalid: "
-                f"start={start:.1f}s end={end:.1f}s buf_len={buf_len} "
+                f"start={start:.1f}s end={end:.1f}s bytes_written={bytes_written} "
                 f"start_byte={start_byte} end_byte={end_byte} — skipping"
             )
             return
 
-        audio_bytes = bytes(pcm_buffer[start_byte:end_byte])
+        # full.wav is written unbuffered; seek past the 44-byte header
+        # (unfinalized while open) and read the raw PCM slice.
+        with open(str(full_wav_path), "rb") as f:
+            f.seek(44 + start_byte)
+            audio_bytes = f.read(end_byte - start_byte)
         logger.info(
             f"[{self.session.session_id}][TRADE] Extracting audio clip for '{word}': "
             f"{clip_start:.1f}s-{clip_end:.1f}s ({len(audio_bytes)} bytes)"

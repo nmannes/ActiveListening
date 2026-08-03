@@ -42,6 +42,7 @@ def mock_session(mock_server):
     sess.market = {"title": "Test Market", "slug": "test-market"}
     sess.keyword_index = {}
     sess.orderbook_tracker = None
+    sess.audio_processor = None
     return sess
 
 

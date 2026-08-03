@@ -183,13 +183,35 @@ class SpeakerIdentifier:
         return matches, scores
 
     async def identify_file(
-        self, path: Path, threshold: Optional[float] = None
+        self,
+        path: Path,
+        threshold: Optional[float] = None,
+        start_frame: Optional[int] = None,
     ) -> Tuple[List[str], Dict[str, float]]:
-        """Convenience wrapper that accepts a .wav path."""
+        """Convenience wrapper that accepts a .wav path.
+
+        With *start_frame*, only the audio from that sample frame to the end of
+        the file is embedded — for identifying on the most recent audio of a
+        WAV that is still being appended to, instead of re-embedding the full
+        history.
+        """
         loop = asyncio.get_running_loop()
-        audio = await loop.run_in_executor(
-            None, lambda: librosa.load(str(path), sr=16000)[0]
+
+        def _load_recent():
+            # WAVs written by AudioProcessor are standard 16-bit PCM with a
+            # 44-byte header.  Reading raw to EOF also works while the header
+            # is unfinalized (file still open for writing).
+            with open(str(path), "rb") as f:
+                f.seek(44 + start_frame * 2)
+                raw = f.read()
+            return np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+        loader = (
+            _load_recent
+            if start_frame is not None
+            else lambda: librosa.load(str(path), sr=16000)[0]
         )
+        audio = await loop.run_in_executor(None, loader)
         return await self.identify(audio, threshold=threshold)
 
     def has_sample_for(self, entity: str) -> bool:

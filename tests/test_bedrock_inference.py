@@ -112,7 +112,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         mock_wav_path.name = "speaker_0.wav"
         mock_wav_path.stem = "speaker_0"
         mock_wav_path.absolute.return_value = mock_wav_path
-        mock_wav_path.stat.return_value.st_size = 16000  # bytes
+        mock_wav_path.stat.return_value.st_size = 160000  # 5s of audio (>= 3s first-identify minimum)
 
         mock_audio_dir.glob.return_value = [mock_wav_path]
         mock_audio_processor._audio_dir = mock_audio_dir
@@ -176,7 +176,7 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
         mock_wav_path.name = "speaker_0.wav"
         mock_wav_path.stem = "speaker_0"
         mock_wav_path.absolute.return_value = mock_wav_path
-        mock_wav_path.stat.return_value.st_size = 16000  # bytes
+        mock_wav_path.stat.return_value.st_size = 160000  # 5s of audio (>= 3s first-identify minimum)
 
         mock_audio_dir.glob.return_value = [mock_wav_path]
         mock_audio_processor._audio_dir = mock_audio_dir
@@ -201,8 +201,8 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
 
     # ── WAV growth re-identification ─────────────────────────────────
 
-    async def test_reidentify_when_wav_grows_by_50_percent(self):
-        """Speaker should be re-identified when their WAV grows >= 50%."""
+    async def test_reidentify_after_ten_seconds_of_new_audio(self):
+        """Labeled speaker should be re-identified once >= 10s of new audio arrives."""
         session = self._make_audio_session()
 
         with patch("pylib.speaker_recognition.send_telegram"), \
@@ -212,14 +212,14 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
                 speaker_identifier=session.server.speaker_identifier,
             )
 
-            # Round 1: identify speaker 0 (file size: 16000 bytes)
+            # Round 1: identify speaker 0 (file size: 160000 bytes = 5s)
             await rec_session.run_identity_inference()
             self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
 
-            # Simulate WAV growth: 16000 -> 32000 bytes (100% growth)
-            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 32000
+            # Simulate WAV growth: 160000 -> 480000 bytes (320000 new = 10s)
+            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 480000
 
-            # Round 2: WAV grew by >= 50%, speaker should be re-identified
+            # Round 2: 10s of new audio, speaker should be re-identified
             # Change the match to verify re-identification actually ran
             session.server.speaker_identifier.identify_file.return_value = (
                 ["wes-moore"], {"wes-moore": 0.92}
@@ -231,8 +231,8 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
                 session.server.speaker_identifier.identify_file.call_count, 2
             )
 
-    async def test_skip_when_wav_has_not_grown_enough(self):
-        """Speaker should NOT be re-identified when WAV growth < 50%."""
+    async def test_skip_when_less_than_ten_seconds_of_new_audio(self):
+        """Labeled speaker should NOT be re-identified until >= 10s of new audio."""
         session = self._make_audio_session()
 
         with patch("pylib.speaker_recognition.send_telegram"), \
@@ -242,14 +242,14 @@ class TestBedrockInference(unittest.IsolatedAsyncioTestCase):
                 speaker_identifier=session.server.speaker_identifier,
             )
 
-            # Round 1: identify speaker 0 (file size: 16000 bytes)
+            # Round 1: identify speaker 0 (file size: 160000 bytes = 5s)
             await rec_session.run_identity_inference()
             self.assertEqual(rec_session.profile_labels["0"], "Wes Moore")
 
-            # Simulate small WAV growth: 16000 -> 20000 bytes (25% growth)
-            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 20000
+            # Simulate small WAV growth: 160000 -> 200000 bytes (40000 new = 1.25s)
+            session.audio_processor._audio_dir.glob.return_value[0].stat.return_value.st_size = 200000
 
-            # Round 2: WAV grew by only 25%, speaker should be skipped
+            # Round 2: only 1.25s of new audio, speaker should be skipped
             await rec_session.run_identity_inference()
             # identify_file should still have been called only once
             self.assertEqual(

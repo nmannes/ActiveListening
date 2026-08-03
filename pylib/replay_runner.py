@@ -352,7 +352,7 @@ class ReplayRunner:
             audio_dir = TemporaryDirectory(prefix="replay_audio_")
             audio_path = Path(audio_dir.name)
             session.audio_processor = _FakeAudioProcessor(audio_path)
-            rec_session._speaker_file_sizes = {}
+            rec_session._speaker_file_offsets = {}
 
         # 6. Set up scheduling: fire identification every interval_secs of virtual time
         result = ReplayResult()

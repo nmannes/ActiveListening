@@ -45,13 +45,15 @@ class AudioProcessor:
             f"endpointing={_audio['endpointingMs']}"
         )
 
-        # Audio recording
-        self._pcm_buffer = bytearray()  # all PCM sent, for slicing by timestamp
+        # Audio recording.  The full PCM stream lives on disk in full.wav
+        # (written unbuffered); downstream slicing reads from the file so
+        # RAM usage stays bounded regardless of session length.
         self._speaker_wav_files = {}  # {speaker_id: wave.Wave_write}
         self._recordings_dir = None
         self._audio_dir = None
         self._dg_dir = None
         self._wav_file = None
+        self._full_wav_path = None
 
         # Performance counters
         self.total_bytes_sent = 0
@@ -87,13 +89,14 @@ class AudioProcessor:
         self._dg_dir = self._recordings_dir / "deepgram_responses"
         self._dg_dir.mkdir(parents=True, exist_ok=True)
 
-        # Full raw audio WAV
+        # Full raw audio WAV — opened unbuffered so a separate read handle
+        # always sees the latest bytes while the file is still being written.
         wav_path = self._audio_dir / "full.wav"
-        self._wav_file = wave.open(str(wav_path), "wb")
+        self._full_wav_path = wav_path
+        self._wav_file = wave.open(open(str(wav_path), "wb", buffering=0), "wb")
         self._wav_file.setnchannels(1)
         self._wav_file.setsampwidth(2)  # 16-bit
         self._wav_file.setframerate(16000)
-        self._pcm_buffer.clear()
         logger.info(
             f"[{self.session.session_id}] Recording audio to {self._recordings_dir}"
         )
@@ -235,7 +238,6 @@ class AudioProcessor:
                     chunk = pcm_data[i : i + chunk_len]
 
                     self.total_bytes_sent += len(chunk)
-                    self._pcm_buffer.extend(chunk)
 
                     # Record audio to WAV file
                     if self._wav_file:
@@ -398,14 +400,21 @@ class AudioProcessor:
         start_byte = (int(start_time * bytes_per_sec) // 2) * 2
         end_byte = (int(end_time * bytes_per_sec) // 2) * 2
 
-        buf_len = len(self._pcm_buffer)
-        if start_byte >= buf_len:
-            return  # audio not in buffer yet
-        end_byte = min(end_byte, buf_len)
+        if not self._full_wav_path:
+            return  # recording not started yet
+        bytes_written = self.total_bytes_sent
+        if start_byte >= bytes_written:
+            return  # audio not written to disk yet
+        end_byte = min(end_byte, bytes_written)
         if end_byte <= start_byte:
             return
 
-        audio_slice = bytes(self._pcm_buffer[start_byte:end_byte])
+        # full.wav is written unbuffered, so a separate read handle always
+        # sees the latest data.  Seek past the 44-byte header (sizes are
+        # unfinalized until close) and read the raw PCM slice.
+        with open(str(self._full_wav_path), "rb") as f:
+            f.seek(44 + start_byte)
+            audio_slice = f.read(end_byte - start_byte)
 
         # Lazily open per-speaker WAV file
         if speaker_id not in self._speaker_wav_files:
@@ -430,9 +439,9 @@ class AudioProcessor:
             return
 
         # 16000 Hz * 2 bytes/sample * 60 seconds = 1920000 bytes
-        if len(self._pcm_buffer) < 1920000:
+        if self.total_bytes_sent < 1920000:
             logger.info(
-                f"[{self.session.session_id}] Less than 1 minute of audio ({len(self._pcm_buffer)} bytes), skipping S3 upload & deleting local files"
+                f"[{self.session.session_id}] Less than 1 minute of audio ({self.total_bytes_sent} bytes), skipping S3 upload & deleting local files"
             )
             if self._recordings_dir and self._recordings_dir.exists():
                 import shutil
