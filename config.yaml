@@ -93,7 +93,7 @@ trading:
   kxwcDollarAmount: 25
   defaultLimitPriceCents: 1
   aggressiveLimitPriceCents: 99
-  maxSessionLoss: 100
+  maxSessionLoss: 500
 
 # ── CLIP / content detection ─────────────────────────────────────────────
 clip:
