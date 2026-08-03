@@ -152,3 +152,151 @@ describe("removeFromIndex", () => {
     assert.equal(index.touchdown.length, 1);
   });
 });
+
+const { getSource } = require("../lib/discover_markets");
+const { matchDiscoveryEvents } = require("../lib/discovery_matcher");
+
+const DEBATE_TITLE =
+  "What will the candidates say during the Massachusetts Democratic Senate Debate?";
+
+function makeDebateResult() {
+  return {
+    videoTitle: "U.S. Senate Massachusetts Democratic Primary Debate",
+    videoId: "QBq3mjDMHRQ",
+    url: "https://www.youtube.com/watch?v=QBq3mjDMHRQ",
+    channel: "GBH News",
+    badge: "Premieres",
+    scheduledText: "Premieres Aug 3, 2026",
+    scheduledISO: "2026-08-03T23:00:00.000Z",
+    isLiveNow: false,
+  };
+}
+
+describe("getSource debate branch", () => {
+  it("runs the debate finder and attaches the stream to a debate market", async () => {
+    const market = { slug: "kxdebatemention-test", mediaStreamURL: null };
+    let calledTopic = null;
+    const url = await getSource(
+      { title: DEBATE_TITLE },
+      market,
+      [],
+      null,
+      null,
+      async (topic) => {
+        calledTopic = topic;
+        return makeDebateResult();
+      },
+    );
+    assert.equal(calledTopic, "Massachusetts Democratic Senate");
+    assert.equal(url, "https://www.youtube.com/watch?v=QBq3mjDMHRQ");
+    assert.equal(market.debateStream.channel, "GBH News");
+  });
+
+  it("returns no URL when the finder finds nothing", async () => {
+    const market = { slug: "kxdebatemention-test" };
+    const url = await getSource(
+      { title: DEBATE_TITLE },
+      market,
+      [],
+      null,
+      null,
+      async () => null,
+    );
+    assert.equal(url, null);
+    assert.equal(market.debateStream, undefined);
+  });
+
+  it("catches finder errors instead of losing the market", async () => {
+    const market = { slug: "kxdebatemention-test" };
+    const url = await getSource(
+      { title: DEBATE_TITLE },
+      market,
+      [],
+      null,
+      null,
+      async () => {
+        throw new Error("youtube blocked");
+      },
+    );
+    assert.equal(url, null);
+  });
+
+  it("does not call the finder for non-debate titles", async () => {
+    const market = { slug: "kxdebate-sports" };
+    let calls = 0;
+    const url = await getSource(
+      { title: "What will the announcers say during Boston vs New York?" },
+      market,
+      [],
+      null,
+      null,
+      async () => {
+        calls += 1;
+        return makeDebateResult();
+      },
+    );
+    assert.equal(calls, 0);
+    assert.equal(url, null);
+  });
+
+  it("respects ENABLE_DEBATE_FINDER=false", async () => {
+    const previous = process.env.ENABLE_DEBATE_FINDER;
+    process.env.ENABLE_DEBATE_FINDER = "false";
+    try {
+      const market = { slug: "kxdebatemention-test" };
+      let calls = 0;
+      const url = await getSource(
+        { title: DEBATE_TITLE },
+        market,
+        [],
+        null,
+        null,
+        async () => {
+          calls += 1;
+          return makeDebateResult();
+        },
+      );
+      assert.equal(calls, 0);
+      assert.equal(url, null);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.ENABLE_DEBATE_FINDER;
+      } else {
+        process.env.ENABLE_DEBATE_FINDER = previous;
+      }
+    }
+  });
+});
+
+describe("matchDiscoveryEvents debate media source", () => {
+  it("builds a channel-named media source from market.debateStream", () => {
+    const market = {
+      slug: "kxdebatemention-test",
+      title: DEBATE_TITLE,
+      speakerEntities: ["Ed Markey", "Seth Moulton"],
+      eventStartTime: "2026-08-03T23:00:00.000Z",
+      mediaStreamURL: "https://www.youtube.com/watch?v=QBq3mjDMHRQ",
+      debateStream: makeDebateResult(),
+    };
+    const results = matchDiscoveryEvents(
+      [market],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+    );
+    const [result] = results;
+    assert.equal(result.market.slug, "kxdebatemention-test");
+    assert.ok(result.mediaSources.length > 0);
+    const source = result.mediaSources[0];
+    assert.equal(source.type, "tv");
+    assert.equal(source.name, "GBH News");
+    assert.equal(source.url, "https://www.youtube.com/watch?v=QBq3mjDMHRQ");
+    assert.equal(source.startTime, "2026-08-03T23:00:00.000Z");
+    assert.equal(source.metadata.videoTitle, "U.S. Senate Massachusetts Democratic Primary Debate");
+    assert.equal(source.commonName, "GBH News");
+  });
+});
