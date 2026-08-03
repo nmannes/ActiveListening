@@ -369,6 +369,32 @@ class TestSpeakerRecognitionLoop(unittest.IsolatedAsyncioTestCase):
         await loop.run()
         self.assertEqual(len(calls), 3)
 
+    async def test_require_audio_defers_clock_to_first_audio(self):
+        """With require_audio=True, time only counts after the first True return.
+
+        interval=10, duration=20. run_fn returns False for the first 2 cycles
+        (no audio yet), then True. The clock starts on the 3rd cycle (which
+        also identifies), then fires at elapsed 10 and 20, and stops when the
+        next cycle exceeds the 20s window → 5 calls. If the clock started at
+        session start, the pre-audio cycles would have burned the budget and
+        we'd see only 3 calls.
+        """
+        policy = InferencePolicy(interval_secs=10, max_duration_secs=20)
+        calls = []
+
+        async def run_fn():
+            calls.append(1)
+            return len(calls) >= 3
+
+        loop = SpeakerRecognitionLoop(
+            policy, run_fn,
+            clock=self._fake_clock(step=10),
+            sleep=lambda _: asyncio.sleep(0),
+            require_audio=True,
+        )
+        await loop.run()
+        self.assertEqual(len(calls), 5)
+
 
 class TestReplayRunner(unittest.IsolatedAsyncioTestCase):
     """Test ReplayRunner with synthetic Deepgram responses."""

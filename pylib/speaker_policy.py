@@ -33,20 +33,30 @@ class SpeakerRecognitionLoop:
     def __init__(
         self,
         policy: InferencePolicy,
-        run_fn,  # async () -> None
+        run_fn,  # async () -> bool
         *,
         clock=time.monotonic,
         sleep=asyncio.sleep,
+        require_audio: bool = False,
     ):
         self._policy = policy
         self._run_fn = run_fn
         self._clock = clock
         self._sleep = sleep
+        self._require_audio = require_audio
 
     async def run(self):
-        start = self._clock()
+        start = self._clock() if not self._require_audio else None
         while True:
             await self._sleep(self._policy.interval_secs)
+            if start is None:
+                # Waiting for the first audio: keep polling without counting
+                # time, so a late-starting stream (yt-dlp retries on a
+                # "begins in a few moments" stream) doesn't burn the
+                # identification budget before there is anything to identify.
+                if await self._run_fn():
+                    start = self._clock()
+                continue
             elapsed = self._clock() - start
             if self._policy.is_duration_exceeded(elapsed):
                 break

@@ -329,11 +329,18 @@ class SpeakerRecognitionSession:
 
         return None
 
-    async def run_identity_inference(self):
+    async def run_identity_inference(self) -> bool:
         """
         Aggregates session transcripts and runs LLM-based identity inference.
+
+        Returns True once audio has arrived (PCM flowing through the audio
+        processor) so the inference loop can start its duration window from
+        first audio rather than session start.
         """
         logger.info(f"Running identity inference for session {self.session_id}")
+        audio_processor = getattr(self.listening_session, "audio_processor", None)
+        total_sent = getattr(audio_processor, "total_bytes_sent", 0)
+        audio_active = isinstance(total_sent, (int, float)) and total_sent > 0
 
         # If any market entity has a voice sample, use audio-based identification
         # only — don't fall through to Bedrock. Bedrock inference is reserved for
@@ -348,7 +355,7 @@ class SpeakerRecognitionSession:
         if target_has_voice_sample:
             logger.info(f"Audio ID: voice sample found for target, using audio identification (skipping Bedrock)")
             await self._run_audio_identification(entity_slugs)
-            return
+            return audio_active
 
         # Earnings calls: auto-allowlist any speaker with >=100 words.
         # Don't stabilize early — keep scanning for the full policy duration
@@ -363,12 +370,12 @@ class SpeakerRecognitionSession:
                             if hasattr(self.listening_session, "trade_processor"):
                                 self.listening_session.trade_processor.add_trading_speaker(sid)
                                 logger.info(f"[{self.session_id}] Earnings call: auto-allowlisted speaker {sid} ({len(tokens)} words)")
-            return
+            return audio_active
 
         # Access transcript from session
         if not hasattr(self.listening_session, "transcript"):
             logger.warning("Session has no transcript to infer identities from.")
-            return
+            return audio_active
 
         async with self.listening_session.transcript_lock:
             all_tokens = []
@@ -399,7 +406,7 @@ class SpeakerRecognitionSession:
 
         if not transcript_history:
             logger.info("Transcript is empty, skipping identity inference.")
-            return
+            return audio_active
 
         # Use the first market entity as the target speaker by default
         target_name = self.market_entities[0] if self.market_entities else "Unknown"
@@ -452,6 +459,8 @@ class SpeakerRecognitionSession:
 
         else:
             logger.warning("Identity inference returned no mapping.")
+
+        return audio_active
 
     async def _run_audio_identification(self, entity_slugs: Dict[str, str]) -> Dict[str, str]:
         """

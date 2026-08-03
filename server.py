@@ -311,6 +311,7 @@ class ClientSession:
             loop = SpeakerRecognitionLoop(
                 self.speaker_recognition_session.policy,
                 self.speaker_recognition_session.run_identity_inference,
+                require_audio=True,
             )
             self.speaker_task = asyncio.create_task(loop.run())
         else:
