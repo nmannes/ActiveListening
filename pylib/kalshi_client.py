@@ -33,8 +33,8 @@ class OrderV2(BaseModel):
         return "resting"
 
     @property
-    def taker_fill_cost_dollars(self) -> str:
-        return str(float(self.fill_count) * float(self.average_fill_price))
+    def taker_fill_cost_dollars(self) -> float:
+        return float(self.fill_count) * float(self.average_fill_price)
 
 logger = logging.getLogger("remote_server")
 

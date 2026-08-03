@@ -29,6 +29,7 @@ class MockServerConfig:
         self.buy_max_cost = 5
         self.last_words_count = 5
         self.min_confidence = 0
+        self.max_session_loss = 100.0
 
 
 class MockKalshiClient:
@@ -148,7 +149,7 @@ class TestSignalHandler:
         )
 
         session.server.kalshi.place_market_order.assert_called_once_with(
-            ticker="CHERRY-YES", dollar_amount=10
+            ticker="CHERRY-YES", dollar_amount=10, best_ask_dollars=None
         )
 
     @pytest.mark.asyncio
@@ -195,7 +196,7 @@ class TestTradeProcessorIntegration:
             speaker_id="0",
         )
         session.server.kalshi.place_market_order.assert_called_once_with(
-            ticker="CHERRY-YES", dollar_amount=10
+            ticker="CHERRY-YES", dollar_amount=10, best_ask_dollars=None
         )
 
     @pytest.mark.asyncio
