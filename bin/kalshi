@@ -69,6 +69,14 @@ def main():
     sub.add_parser("js-worker", help="Start the BullMQ worker (Node.js)")
 
     # Audio / speaker
+    sp_tr = sub.add_parser("transcripts", help="Fetch historical earnings call transcripts into the dataset")
+    sp_tr.add_argument("tickers", nargs="*", help="Stock tickers to fetch (or use --from-markets)")
+    sp_tr.add_argument("--quarters", type=int, default=8, help="Most recent N quarters per ticker")
+    sp_tr.add_argument("--force", action="store_true", help="Re-fetch even if already in the dataset")
+    sp_tr.add_argument("--from-markets", action="store_true",
+                       help="Derive tickers from cached Kalshi earnings markets")
+    sp_tr.add_argument("--delay", type=float, default=1.5,
+                       help="Minimum seconds between requests (rate-limit pacing)")
     sp_gen = sub.add_parser("generate", help="Generate voice samples for a target")
     sp_gen.add_argument("target", help="Target speaker name")
     sp_gen.add_argument("--num-videos", type=int, default=5)
@@ -135,6 +143,15 @@ def main():
 
     elif cmd == "js-worker":
         sys.exit(node("worker.js", *extra))
+
+    elif cmd == "transcripts":
+        tr_args = list(args.tickers)
+        if args.from_markets:
+            tr_args.append("--from-markets")
+        if args.force:
+            tr_args.append("--force")
+        tr_args += ["--quarters", str(args.quarters), "--delay", str(args.delay)]
+        sys.exit(python("scripts/fetch_transcripts.py", *tr_args))
 
     elif cmd == "generate":
         gen_args = [args.target]
