@@ -248,12 +248,13 @@ class SignalHandler:
             f"Channel: {self.session.market.get('mediaSourceCommonName', 'Unknown')}",
             f"Source: {self.session.market.get('mediaStreamURL', '')}",
             f"Status: {order_result.status}",
-            f"Taker fill cost: ${order_result.taker_fill_cost_dollars}",
+            f"Cost: ${order_result.taker_fill_cost_dollars:.2f} (fill + fees)",
             f"Session total: ${self.session_cost_total:.2f} / ${self.session.server.config.max_session_loss:.0f}",
         ])
-        level = "info" if order_result.status == "filled" else "debug"
+        # Always send to info — the debug channel buffers messages in batches
+        # and users would never see the fill result individually.
         asyncio.get_running_loop().run_in_executor(
-            None, send_telegram, msg, level
+            None, send_telegram, msg, "info"
         )
 
         if start is not None and end is not None:

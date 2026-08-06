@@ -34,7 +34,9 @@ class OrderV2(BaseModel):
 
     @property
     def taker_fill_cost_dollars(self) -> float:
-        return float(self.fill_count) * float(self.average_fill_price)
+        return float(self.fill_count) * (
+            float(self.average_fill_price) + float(self.average_fee_paid)
+        )
 
 logger = logging.getLogger("remote_server")
 
