@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from pylib import transcript_fetcher
 from pylib.transcript_fetcher import (
     parse_index_html,
     parse_transcript_html,
@@ -103,10 +104,30 @@ def test_ticker_from_leg():
     assert ticker_from_leg("KXEARNINGSMENTION-26AUG04-X") is None
 
 
-def test_tickers_from_markets():
+def test_tickers_from_markets(tmp_path, monkeypatch):
+    market_file = tmp_path / "markets.json"
+    market_file.write_text(
+        json.dumps(
+            [
+                {
+                    "keywords": {
+                        "spot": "KXEARNINGSMENTIONSPOT-26AUG04-RETA",
+                        "toast": "KXEARNINGSMENTIONTOST-26AUG04-RETA",
+                    }
+                },
+                {"keywords": {"mcd": "KXEARNINGSMENTIONMCD-26AUG04-BIG"}},
+                {"keywords": {"apple": "KXNOTANEARINGSMARKET-26AUG04-X"}},
+            ]
+        )
+    )
+    monkeypatch.setattr(
+        transcript_fetcher, "_MARKET_CACHE_FILES", [str(market_file)]
+    )
     tickers = tickers_from_markets()
     assert isinstance(tickers, list)
     assert all(t.isupper() for t in tickers)
-    # The current market list includes these
     assert "SPOT" in tickers
     assert "TOST" in tickers
+    assert "MCD" in tickers
+    # Non-earnings legs are ignored
+    assert "APPLE" not in tickers
