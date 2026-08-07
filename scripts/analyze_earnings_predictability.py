@@ -23,23 +23,17 @@ Usage:
 """
 
 import json
-import re
+import sys
 from collections import defaultdict
 from pathlib import Path
 
-ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from pylib.earnings_word_stats import normalize, word_in_text, word_variants  # noqa: E402
+
+ROOT = Path(__file__).resolve().parent.parent
 MENTIONS = ROOT / "data" / "earnings_mentions.jsonl"
 MARKETS = ROOT / "cache" / "latest_markets.json"
-
-_WORD_SPLIT_RE = re.compile(r"\s*/\s*")
-
-
-def word_variants(word: str) -> list:
-    return [v.strip() for v in _WORD_SPLIT_RE.split(word) if v.strip()]
-
-
-def normalize(w: str) -> str:
-    return w.lower().replace("’", "'")
 
 
 def load_rows():
@@ -148,22 +142,6 @@ def current_market_report(hist, rows):
 
 
 # ── 3. Transcript cross-validation ─────────────────────────────────────
-
-def word_in_text(word: str, text: str) -> bool:
-    """Match any synonym variant, including plural/possessive forms.
-
-    Mirrors Kalshi's resolution rule: resolves YES for the exact word or
-    its plural/possessive form (e.g. "Message" matches "Messages").
-    """
-    t = text.lower().replace("’", "'")
-    for v in word_variants(word):
-        base = normalize(v)
-        for form in (base, base + "s", base + "es", base + "'s", base + "s'", base + "es'"):
-            esc = re.escape(form)
-            if re.search(rf"(?<![a-z0-9]){esc}(?![a-z0-9])", t):
-                return True
-    return False
-
 
 def transcript_validation(rows):
     print("\n== Transcript cross-validation (Kalshi resolutions vs our transcripts) ==")

@@ -77,6 +77,7 @@ def main():
                        help="Derive tickers from cached Kalshi earnings markets")
     sp_tr.add_argument("--delay", type=float, default=1.5,
                        help="Minimum seconds between requests (rate-limit pacing)")
+    sub.add_parser("report", help="Generate human-readable earnings report (earnings-report-report.md)")
     sp_gen = sub.add_parser("generate", help="Generate voice samples for a target")
     sp_gen.add_argument("target", help="Target speaker name")
     sp_gen.add_argument("--num-videos", type=int, default=5)
@@ -152,6 +153,9 @@ def main():
             tr_args.append("--force")
         tr_args += ["--quarters", str(args.quarters), "--delay", str(args.delay)]
         sys.exit(python("scripts/fetch_transcripts.py", *tr_args))
+
+    elif cmd == "report":
+        sys.exit(python("scripts/generate_earnings_report.py", *extra))
 
     elif cmd == "generate":
         gen_args = [args.target]
