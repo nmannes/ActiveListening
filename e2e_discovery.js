@@ -115,9 +115,15 @@ async function main() {
       defaultViewport: null,
     });
 
+    // Kalshi markets must be fetched before the heavy scrapers: the market
+    // page's client-side list never renders while the browser is simultaneously
+    // loading ESPN/YouTube/C-SPAN pages (fails the selector wait even after 2min).
+    logger.info("Fetching Kalshi markets (sequential, before parallel scrapers)...");
+    const marketsResults = await fetchOpenMarkets(browser);
+    logger.info(`Kalshi market discovery complete: ${marketsResults.length} markets`);
+
     logger.info("Starting remaining parallel data fetching...");
-    const [marketsResults, espnResults, amazonResults, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
-      fetchOpenMarkets(browser),
+    const [espnResults, amazonResults, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
       scrapeESPNMatchups(browser),
       scrapeAmazonNBA(browser),
       scrapeCspanSchedule(browser),
