@@ -243,11 +243,12 @@ def render_opportunities(upcoming: Dict[str, dict], docs_by_ticker: Dict[str, Li
                 rows.append((code, word, p, yes_px, p - yes_px))
     if not rows:
         return []
-    rows.sort(key=lambda r: -abs(r[4]))
+    rows.sort(key=lambda r: -r[4])
     lines = ["## Opportunities (prior data vs market)",
              "",
-             "Sorted by |gap| — a positive gap means prior data says the word is "
-             "more likely than the market prices it.",
+             "Sorted by gap descending — a positive gap means prior data says the "
+             "word is more likely than the market prices it (buy YES); a negative "
+             "gap means less likely (buy NO).",
              "",
              "| Company | Word | Baseline P | Market YES | Gap |",
              "|---|---|---|---|---|"]
