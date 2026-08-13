@@ -32,7 +32,7 @@ import re
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BASE_URL = "https://api.elections.kalshi.com/trade-api/v2"
@@ -178,10 +178,18 @@ def main():
                     markets_by_event.setdefault(ev, []).append(m)
 
     # 2. event metadata from the settled + archived event walks (bounded to
-    # the lookback window so the walk stops once events are older than it)
+    # the lookback window so the walk stops once events are older than it).
+    # min_close_ts is epoch seconds, not ISO — ISO strings get a 400.
     min_close = (datetime.now() - timedelta(days=args.max_age_days)).date()
-    events = walk_paged(f"events?status=settled&min_close_ts={min_close}T00:00:00Z", "settled")
-    events += walk_paged(f"events?archived=true&min_close_ts={min_close}T00:00:00Z", "archived")
+    min_close_ts = int(datetime.combine(min_close, datetime.min.time())
+                       .replace(tzinfo=timezone.utc).timestamp())
+    events = []
+    for path, label in ((f"events?status=settled&min_close_ts={min_close_ts}", "settled"),
+                        (f"events?archived=true&min_close_ts={min_close_ts}", "archived")):
+        try:
+            events += walk_paged(path, label)
+        except Exception as e:
+            print(f"{label}: FAILED {e}")
     meta = {}
     for e in events:
         if is_earnings(e):
