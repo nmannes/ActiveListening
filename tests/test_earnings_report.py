@@ -2,6 +2,7 @@
 
 import json
 import sys
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -132,11 +133,12 @@ def test_report_structure(tmp_path, monkeypatch):
 
     text, upcoming, docs, live = report.build_report()
 
-    # header + method
+    # header + method; undated markets (TOST) are excluded — no event date means
+    # the pre-event transcript filter can't be applied
     assert text.startswith("# Earnings Report\n")
-    assert "2 companies with upcoming word markets · 3 words" in text
+    assert "1 company with upcoming word markets · 2 words" in text
     assert "Aggregate transitions over all upcoming words" in text
-    assert "1 of 2 companies lack transcript history" in text
+    assert "lack transcript history" not in text
 
     # opportunities: churn has both baseline and market → gap +11; Margin has no market
     assert "| SPOT | Churn | 71% | $0.60 | +11 |" in text
@@ -148,7 +150,44 @@ def test_report_structure(tmp_path, monkeypatch):
     assert "| Churn | 2/2 | 71% | $0.60 | **Strong YES** |" in text
     assert "| Margin | 0/2 | 25% | - | **Unlikely** |" in text
 
-    # company without transcripts: note + dash baseline
-    assert "## Toast (TOST)" in text
-    assert "*No transcript history" in text
-    assert "| Restaurants | - | - | - | **-** |" in text
+    # undated market dropped entirely
+    assert "## Toast (TOST)" not in text
+
+
+def test_event_call_transcript_cannot_leak_into_baseline(tmp_path, monkeypatch):
+    """A transcript dated on/after the event (the answer) must not move the
+    baseline — it would mean predicting the call from the call itself."""
+    tdir = tmp_path / "transcripts"
+    calls = SPOT_CALLS + [make_transcript(
+        "SPOT", "Spotify", "2026-09-01", 3, 2026,
+        [("Alex Norström", "the answer is churn and nothing else")])]
+    write_transcripts(tdir, {"SPOT": calls})
+    monkeypatch.setattr(report, "TRANSCRIPTS_DIR", tdir)
+    monkeypatch.setattr(report, "upcoming_markets", lambda: {
+        "SPOT": {"words": ["Churn"], "title": "t", "event_date": "2026-09-01"}})
+    monkeypatch.setattr(report, "fetch_live_prices", lambda codes: {})
+
+    text, _, _, _ = report.build_report()
+
+    # baseline from the 3 pre-event calls only: 2/2 present, said last call → 71%.
+    # Leaking the event call would lift it to 75% (3/3 present, said last call).
+    assert "| Churn | 2/2 | 71% |" in text
+    assert "75%" not in text
+
+
+def test_stale_markets_excluded(tmp_path, monkeypatch):
+    """A market whose event has passed is resolved-by-information: the report
+    must not list it as an opportunity."""
+    tdir = tmp_path / "transcripts"
+    write_transcripts(tdir, {"SPOT": SPOT_CALLS})
+    monkeypatch.setattr(report, "TRANSCRIPTS_DIR", tdir)
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    monkeypatch.setattr(report, "upcoming_markets", lambda: {
+        "SPOT": {"words": ["Churn"], "title": "t", "event_date": yesterday}})
+    monkeypatch.setattr(report, "fetch_live_prices", lambda codes: {})
+
+    text, upcoming, _, _ = report.build_report()
+
+    assert upcoming == {}
+    assert "## Spotify" not in text
+    assert "Opportunities" not in text

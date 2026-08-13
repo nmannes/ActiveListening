@@ -206,6 +206,10 @@ def fmt_price(dollars) -> str:
     return f"${dollars:.2f}" if dollars is not None else "-"
 
 
+def fmt_pct(p) -> str:
+    return f"{100 * p:.1f}%" if p is not None else "-"
+
+
 def word_prices(word: str, prices: Dict[str, tuple]):
     for v in word_variants(word):
         if normalize(v) in prices:
@@ -218,6 +222,12 @@ def company_name(code: str, entry: dict, docs: List[dict]) -> str:
         return docs[-1].get("company") or code
     m = _TITLE_COMPANY_RE.match(entry.get("title") or "")
     return m.group(1) if m else code
+
+
+def pre_event_docs(docs: List[dict], event_date: str) -> List[dict]:
+    """Transcripts with call_date strictly before the event; same-day
+    transcripts are excluded because they cover the call being predicted."""
+    return [d for d in docs if (d.get("call_date") or "") < event_date]
 
 
 def word_baseline(word: str, docs: List[dict]):
@@ -284,7 +294,12 @@ def render_company(code: str, entry: dict, docs: List[dict],
 
 def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[str, dict]]:
     upcoming = upcoming_markets()
-    docs_by_ticker = load_transcripts()
+    today = date.today().isoformat()
+    upcoming = {code: e for code, e in upcoming.items()
+                if e["event_date"] and e["event_date"] >= today}
+    docs_by_ticker = {code: pre_event_docs(docs, upcoming[code]["event_date"])
+                      for code, docs in load_transcripts().items()
+                      if code in upcoming}
     live = fetch_live_prices(sorted(upcoming))
     words_by_ticker = {code: e["words"] for code, e in upcoming.items()}
     trans = aggregate_transitions(docs_by_ticker, words_by_ticker)
@@ -293,9 +308,11 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
     n_with_history = sum(1 for c in upcoming if c in docs_by_ticker)
     n_words = sum(len(e["words"]) for e in upcoming.values())
 
+    n_companies = len(upcoming)
+    company_label = "company" if n_companies == 1 else "companies"
     lines = ["# Earnings Report",
              "",
-             f"Generated {date.today().isoformat()} · {len(upcoming)} companies with "
+             f"Generated {date.today().isoformat()} · {n_companies} {company_label} with "
              f"upcoming word markets · {n_words} words",
              "",
              "## Method",
@@ -304,20 +321,23 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
              "markets (from the market caches). Word matching follows Kalshi's "
              "resolution rules (word boundaries, plural/possessive forms).",
              ""]
-    if trans["tot_yes"]:
+    if trans["tot_yes"] or trans["tot_no"]:
         lines += [
             f"- Aggregate transitions over all upcoming words: "
             f"P(word said | said last call) = {trans['yes_after_yes']}/{trans['tot_yes']} "
-            f"= {100 * trans['p_yes_after_yes']:.1f}% vs P(said | not said last call) = "
-            f"{trans['yes_after_no']}/{trans['tot_no']} = {100 * trans['p_yes_after_no']:.1f}% "
-            f"(base rate {100 * trans['base_rate']:.1f}%)",
+            f"= {fmt_pct(trans['p_yes_after_yes'])} vs P(said | not said last call) = "
+            f"{trans['yes_after_no']}/{trans['tot_no']} = {fmt_pct(trans['p_yes_after_no'])} "
+            f"(base rate {fmt_pct(trans['base_rate'])})",
             "- Baseline P blends the aggregate transition rate with the word's "
             "own presence rate (Laplace-smoothed); per-word evidence dominates "
             "as call history grows",
         ]
     lines += [
-        "- Baseline P: from prior earnings call transcripts "
-        "(`transcripts/{TICKER}/`); '-' = no transcript history for the company",
+        "- Baseline P: from prior earnings call transcripts dated strictly "
+        "before the event (`transcripts/{TICKER}/`; same-day excluded, so the "
+        "answer can't leak in); '-' = no pre-event history",
+        "- Only markets whose event is today or later are listed — a past "
+        "event means the market is resolved-by-information, not an opportunity",
         "- Last YES: last traded price for the word's currently open market "
         "(Kalshi API, active markets only; the NO side is the pair complement "
         "and always sums to $1.00). '-' = no open market or fetch failed",

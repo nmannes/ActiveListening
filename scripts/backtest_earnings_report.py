@@ -4,8 +4,10 @@ backtest_earnings_report.py — Backtest the earnings-report gap strategy.
 
 For every finalized earnings-mention market with (a) a transcript baseline
 computed from calls BEFORE the event and (b) a last traded price ~24h before
-resolution (data/market_history.jsonl): buy YES when baseline > price, NO
-when baseline < price, and settle at the actual resolution result.
+resolution (data/market_history.jsonl): bet the side that is undervalued
+relative to the baseline — YES when baseline > YES price, NO when
+1 − baseline > NO price — and settle at the actual resolution result.
+Markets where neither side is undervalued are skipped.
 
 The baseline uses only transcripts dated before the event's call date (no
 lookahead); the latest pre-event call counts as "said last call".
@@ -31,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from scripts.generate_earnings_report import (  # noqa: E402
     load_transcripts,
+    pre_event_docs,
     word_baseline,
 )
 from scripts.fetch_market_history import MENTIONS, OUT_FILE  # noqa: E402
@@ -42,12 +45,6 @@ OUT_REPORT = ROOT / "earnings-backtest.md"
 SWEEP_THRESHOLDS = [0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 
 _OLD_EVENT_RE = re.compile(r"KXEARNINGSMENTION[A-Z]+-\d{2}[A-Z]{3}$")
-
-
-def pre_event_docs(docs: List[dict], event_date: str) -> List[dict]:
-    """Transcripts with call_date strictly before the event (no lookahead;
-    same-day transcripts are excluded — they cover the call being predicted)."""
-    return [d for d in docs if (d.get("call_date") or "") < event_date]
 
 
 def pnl(side: str, cost: float, result: str, fee_rate: float) -> tuple:
@@ -83,12 +80,16 @@ def load_call_dates(path: Path) -> Dict[str, str]:
 
 def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
              call_dates: Dict[str, str], fee_rate: float,
-             use_ask: bool) -> tuple:
-    """Tradable candidates (|gap| >= 0) + coverage counts. Threshold
-    filtering happens in the sweep so one pass covers all thresholds."""
+             use_ask: bool, max_price: Optional[float] = None) -> tuple:
+    """Tradable candidates + coverage counts. Side = the one whose edge
+    (baseline vs its executable price: YES ask for YES, NO ask = 1 − YES bid
+    for NO) is positive and larger; trades with no positive edge on either
+    side are skipped, and trades whose chosen side costs more than max_price
+    are excluded. Threshold filtering happens in the sweep so one pass
+    covers all thresholds."""
     trades: List[dict] = []
     coverage = {"n_history": len(history), "n_price": 0, "n_baseline": 0,
-                "n_tradable": 0, "n_old_format": 0}
+                "n_tradable": 0, "n_old_format": 0, "n_capped": 0}
     for r in history:
         price = r.get("price_24h")
         if price is None:
@@ -118,16 +119,26 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
             if r.get("yes_bid_24h") is not None:
                 no_cost = round(1.0 - r["yes_bid_24h"], 2)
 
-        gap = p - yes_cost
-        side = "YES" if gap > 0 else "NO"
+        edge_yes = p - yes_cost          # P − YES price
+        edge_no = (1.0 - p) - no_cost    # (1−P) − NO price
+        side = "YES" if edge_yes >= edge_no else "NO"
+        gap = edge_yes if side == "YES" else edge_no
         cost = yes_cost if side == "YES" else no_cost
+        if gap <= 0:
+            continue                     # neither side undervalued
+        if max_price is not None and cost > max_price:
+            coverage["n_capped"] += 1
+            continue
         gross, net = pnl(side, cost, r["result"], fee_rate)
+        _, net_yes = pnl("YES", yes_cost, r["result"], fee_rate)
+        _, net_no = pnl("NO", no_cost, r["result"], fee_rate)
         trades.append({
             "ticker": r["ticker"], "code": r["code"], "word": r["word"],
             "event_date": ev_date, "close_time_iso": r.get("close_time_iso"),
-            "baseline": p, "price": yes_cost, "gap": gap, "side": side,
+            "baseline": p, "price": cost, "gap": gap, "side": side,
             "cost": cost, "result": r["result"], "win": gross > 0,
             "pnl_gross": gross, "pnl_net": net,
+            "net_yes": net_yes, "net_no": net_no,
         })
     coverage["n_tradable"] = len(trades)
     return trades, coverage
@@ -148,12 +159,14 @@ def sweep(trades: List[dict], thresholds: List[float]) -> List[dict]:
                              sum(x["pnl_net"] for x in s))
         rows.append({"threshold": t, "n": n, "wins": wins,
                      "win_rate": wins / n if n else None,
-                     "gross": gross, "net": net, "by_side": by_side})
+                     "gross": gross, "net": net, "by_side": by_side,
+                     "net_yes": sum(x["net_yes"] for x in sub),
+                     "net_no": sum(x["net_no"] for x in sub)})
     return rows
 
 
 def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
-           fee_rate: float) -> str:
+           fee_rate: float, max_price: Optional[float] = None) -> str:
     lines = ["# Earnings Backtest",
              "",
              f"Generated {date.today().isoformat()}",
@@ -161,10 +174,12 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
              "## Strategy",
              "",
              "For each finalized word market: baseline P from transcripts of "
-             "calls before the event vs the last traded YES price ~24h before "
-             "the market resolved. Buy YES when baseline > price, NO when "
-             "baseline < price; settle at the actual resolution. Gap = "
-             "baseline − price.",
+             "calls before the event vs the executable price ~24h before the "
+             "market resolved (the YES ask, or last trade without orderbook "
+             "data). Bet the undervalued side: YES when baseline > YES price, "
+             "NO when 1 − baseline > NO price; skip when neither side is "
+             "undervalued; settle at the actual resolution. Gap = edge on the "
+             "chosen side.",
              "",
              "## Coverage",
              "",
@@ -172,6 +187,8 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
              f"- {coverage['n_price']} with a price ~24h before resolution",
              f"- {coverage['n_baseline']} with a transcript baseline (pre-event calls)",
              f"- {coverage['n_tradable']} tradable (both price and baseline)",
+             f"- {coverage['n_capped']} excluded by the max-price cap"
+             if max_price is not None else "",
              f"- fee: {100 * fee_rate:.0f}% on profit" if fee_rate else "- fee: 0",
              ""]
     if coverage["n_old_format"]:
@@ -182,15 +199,19 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
 
     lines += ["## Threshold sweep (min |gap|)",
               "",
-              "| Min |gap| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) |",
-              "|---|---|---|---|---|---|---|---|"]
+              "Net if always YES / always NO shows the same candidates traded "
+              "on one fixed side — the benchmark the side selection must beat.",
+              "",
+              "| Min |gap| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |",
+              "|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in sweep_rows:
         wr = f"{100 * r['win_rate']:.0f}%" if r["win_rate"] is not None else "-"
         y = r["by_side"]["YES"]
         n = r["by_side"]["NO"]
         lines.append(f"| {r['threshold']:.2f} | {r['n']} | {r['wins']} | {wr} | "
                      f"{r['gross']:+.2f} | {r['net']:+.2f} | "
-                     f"{y[0]} / {y[1]} / {y[2]:+.2f} | {n[0]} / {n[1]} / {n[2]:+.2f} |")
+                     f"{y[0]} / {y[1]} / {y[2]:+.2f} | {n[0]} / {n[1]} / {n[2]:+.2f} | "
+                     f"{r['net_yes']:+.2f} | {r['net_no']:+.2f} |")
     lines.append("")
 
     lines += ["## Per company (min |gap| 0.10)",
@@ -233,6 +254,9 @@ def main():
                     help="Fee as a share of profit (default 0.03)")
     ap.add_argument("--use-ask", action="store_true",
                     help="Trade at the 24h-before ask/bid instead of last trade")
+    ap.add_argument("--max-price", type=float, default=None,
+                    help="Only take bets whose chosen side costs at most this "
+                         "much (e.g. 0.30 = 30¢ contracts only)")
     args = ap.parse_args()
 
     history = load_history(args.history)
@@ -240,18 +264,20 @@ def main():
     call_dates = load_call_dates(MENTIONS)
 
     trades, coverage = simulate(history, docs_by_ticker, call_dates,
-                                args.fee_rate, args.use_ask)
+                                args.fee_rate, args.use_ask, args.max_price)
     rows = sweep(trades, SWEEP_THRESHOLDS)
-    text = render(trades, coverage, rows, args.fee_rate)
+    text = render(trades, coverage, rows, args.fee_rate, args.max_price)
     args.out.write_text(text)
 
     print(f"Wrote {args.out}")
     print(f"history {coverage['n_history']} · with price {coverage['n_price']} · "
-          f"with baseline {coverage['n_baseline']} · tradable {coverage['n_tradable']}")
+          f"with baseline {coverage['n_baseline']} · tradable {coverage['n_tradable']}"
+          + (f" · capped {coverage['n_capped']}" if args.max_price is not None else ""))
     for r in rows:
         wr = f"{100 * r['win_rate']:.0f}%" if r["win_rate"] is not None else "-"
         print(f"|gap| >= {r['threshold']:.2f}: {r['n']} trades, {r['wins']} wins "
-              f"({wr}), net {r['net']:+.2f}")
+              f"({wr}), net {r['net']:+.2f} (always YES {r['net_yes']:+.2f} / "
+              f"always NO {r['net_no']:+.2f})")
 
 
 if __name__ == "__main__":
