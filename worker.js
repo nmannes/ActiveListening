@@ -229,10 +229,11 @@ const schedulingLoopWorker = new Worker(
   { connection, concurrency: 1, lockDuration: workerConfig.schedulingLoopLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.schedulingLoopLockDurationMinutes * 60 * 1000 },
 );
 
-// Daily dataset refresh: new Kalshi earnings series → transcripts (full
-// history for listed companies, S&P 500 watchlist for future listings) →
-// market history → report + backtest. Long lock: initial watchlist backfill
-// can take ~2h; incremental runs are fast (Redis resume skips done URLs).
+// Hourly dataset refresh with change gating (scripts/refresh_dataset.py):
+// the cheap mentions fetch runs on every tick and the heavy chain
+// (transcripts → history → report → backtest) only when the mentions data
+// changed or the last full run is >24h old. Long lock: the initial
+// watchlist backfill can take ~2h; incremental runs are fast.
 const PYTHON = "/home/nathan/.pyenv/shims/python";
 
 const transcriptRefreshWorker = new Worker(
@@ -247,12 +248,8 @@ const transcriptRefreshWorker = new Worker(
       await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
       return;
     }
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_earnings_mentions.py`, job);
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_transcripts.py --from-markets --quarters 100`, job);
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_transcripts.py --watchlist --quarters 8`, job);
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_market_history.py`, job);
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/generate_earnings_report.py`, job);
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/backtest_earnings_report.py`, job);
+    const full = job.data && job.data.full ? " --full" : "";
+    await spawn(`PYTHONPATH=. ${PYTHON} scripts/refresh_dataset.py${full}`, job);
   },
   { connection, concurrency: workerConfig.transcriptRefreshConcurrency, lockDuration: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000 },
 );

@@ -68,12 +68,21 @@ async function start() {
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
   sendTelegram("Scheduling loop started").catch(() => { });
 
-  // 3b. Daily transcript/dataset refresh (new Kalshi series, new calls)
-  console.log("Registering daily transcript refresh (04:17)...");
+  // 3b. Hourly dataset refresh: cheap mentions check every hour, full chain
+  // (transcripts → history → report → backtest) only when the data changed
+  // or the last full run is >24h old (gating in scripts/refresh_dataset.py)
+  console.log("Registering hourly transcript refresh (:23)...");
+  const repeatables = await transcriptRefreshQueue.getRepeatableJobs();
+  for (const r of repeatables) {
+    if (r.name === "transcript-refresh") {
+      console.log(`Removing stale transcript-refresh repeatable: ${r.key}`);
+      await transcriptRefreshQueue.removeRepeatableByKey(r.key);
+    }
+  }
   await transcriptRefreshQueue.add(
     "transcript-refresh",
     {},
-    { repeat: { pattern: "17 4 * * *" }, jobId: "transcript-refresh-daily" },
+    { repeat: { pattern: "23 * * * *" }, jobId: "transcript-refresh-hourly" },
   );
 
   // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop

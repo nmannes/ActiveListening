@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Earnings Reports</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; background: #111; color: #ddd; display: flex; height: 100vh; overflow: hidden; }
+#nav-sidebar { width: 180px; min-width: 180px; background: #161616; border-right: 1px solid #333; padding: 16px 12px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; font-size: 12px; }
+#nav-sidebar .logo { font-size: 13px; font-weight: 600; color: #68f; margin-bottom: 10px; }
+#nav-sidebar a { color: #999; text-decoration: none; padding: 5px 8px; border-radius: 4px; display: block; }
+#nav-sidebar a:hover { color: #ddd; background: #252525; }
+#nav-sidebar a.active { color: #ddd; background: #252525; }
+#reports-sidebar { width: 220px; min-width: 200px; background: #1a1a1a; border-right: 1px solid #333; padding: 12px; display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
+#reports-sidebar .header { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.report-link { color: #999; text-decoration: none; padding: 6px 10px; border-radius: 4px; font-size: 12px; }
+.report-link:hover { color: #ddd; background: #252525; }
+.report-link.active { color: #fff; background: #2a3a5c; }
+.report-link .mtime { display: block; color: #666; font-size: 10px; margin-top: 2px; }
+#main { flex: 1; overflow-y: auto; padding: 24px 32px; }
+#main table { border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+#main th, #main td { border: 1px solid #333; padding: 6px 10px; text-align: left; }
+#main th { background: #1a1a1a; color: #cde; }
+#main h1 { font-size: 18px; color: #68f; margin: 12px 0 8px; }
+#main h2 { font-size: 15px; color: #9ab; margin: 18px 0 6px; border-bottom: 1px solid #2a2a2a; padding-bottom: 4px; }
+#main h3 { font-size: 13px; color: #cde; margin: 12px 0 4px; }
+#main p, #main li { font-size: 12px; line-height: 1.6; }
+#main ul, #main ol { padding-left: 20px; }
+#main code { background: #1a1a1a; padding: 1px 5px; border-radius: 3px; font-size: 11px; }
+#main pre { background: #1a1a1a; padding: 10px 12px; border-radius: 4px; overflow-x: auto; margin: 8px 0; }
+#main pre code { background: none; padding: 0; }
+#main a { color: #68f; }
+#empty { color: #777; font-size: 13px; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+<div id="nav-sidebar">
+  <div class="logo">KALSHI</div>
+  <a href="/">🏠 Dashboard</a>
+  <a href="/logs">📋 Markets</a>
+  <a href="/sessions">📡 Sessions</a>
+  <a href="/voice" target="_blank">🎙️ Voice &amp; Data</a>
+  <a href="/admin/queues" target="_blank">📊 Queues</a>
+  <a href="/reports" class="active">📈 Reports</a>
+</div>
+<div id="reports-sidebar">
+  <div class="header">Earnings Reports</div>
+  <div id="report-list"></div>
+</div>
+<div id="main"><div id="empty">Loading reports…</div></div>
+<script>
+async function load() {
+  const list = document.getElementById("report-list");
+  const main = document.getElementById("main");
+  const reports = await (await fetch("/api/reports")).json();
+  list.innerHTML = "";
+  if (!reports.length) {
+    main.innerHTML = '<div id="empty">No reports generated yet — run the transcript refresh job.</div>';
+    return;
+  }
+  const q = new URLSearchParams(location.search);
+  const selected = q.get("name") || reports[0].name;
+  for (const r of reports) {
+    const a = document.createElement("a");
+    a.href = "/reports?name=" + encodeURIComponent(r.name);
+    a.className = "report-link" + (r.name === selected ? " active" : "");
+    a.textContent = r.label;
+    const mtime = document.createElement("span");
+    mtime.className = "mtime";
+    mtime.textContent = new Date(r.mtime).toLocaleString();
+    a.appendChild(mtime);
+    list.appendChild(a);
+  }
+  const rep = reports.find((r) => r.name === selected) || reports[0];
+  main.innerHTML = '<div id="empty">Loading ' + rep.label + '…</div>';
+  const html = await (await fetch("/api/reports/" + encodeURIComponent(rep.name))).text();
+  main.innerHTML = html;
+}
+load().catch((e) => {
+  document.getElementById("main").innerHTML = '<div id="empty">Failed to load reports: ' + e.message + '</div>';
+});
+</script>
+</body>
+</html>

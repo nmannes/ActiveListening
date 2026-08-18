@@ -1858,3 +1858,4 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-13 | YETI | Ranger | 17% | 0.32 | +51 | NO | yes | -0.32 | -0.32 |
 | 2026-08-13 | YETI | Tailwind | 39% | 0.15 | +24 | YES | yes | +0.85 | +0.82 |
 | 2026-08-13 | YETI | TikTok | 20% | 0.56 | +24 | NO | no | +0.44 | +0.43 |
+and i w
