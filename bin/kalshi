@@ -75,6 +75,8 @@ def main():
     sp_tr.add_argument("--force", action="store_true", help="Re-fetch even if already in the dataset")
     sp_tr.add_argument("--from-markets", action="store_true",
                        help="Derive tickers from cached Kalshi earnings markets")
+    sp_tr.add_argument("--watchlist", action="store_true",
+                       help="Also fetch the S&P 500 watchlist (broad universe ahead of listings)")
     sp_tr.add_argument("--delay", type=float, default=1.5,
                        help="Minimum seconds between requests (rate-limit pacing)")
     sub.add_parser("report", help="Generate human-readable earnings report (earnings-report-report.md)")
@@ -155,6 +157,8 @@ def main():
         tr_args = list(args.tickers)
         if args.from_markets:
             tr_args.append("--from-markets")
+        if args.watchlist:
+            tr_args.append("--watchlist")
         if args.force:
             tr_args.append("--force")
         tr_args += ["--quarters", str(args.quarters), "--delay", str(args.delay)]

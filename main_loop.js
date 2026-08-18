@@ -10,7 +10,7 @@ for (const line of bashrcEnv.split("\n")) {
   if (eq > 0) process.env[line.slice(0, eq)] = line.slice(eq + 1);
 }
 
-const { connection, schedulingLoopQueue } = require("./lib/queues");
+const { connection, schedulingLoopQueue, transcriptRefreshQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
 
 const PYTHON = "/home/nathan/.pyenv/shims/python";
@@ -67,6 +67,14 @@ async function start() {
   console.log("Enqueuing initial scheduling loop...");
   await schedulingLoopQueue.add("scheduling-loop", { includeDiscovery: true });
   sendTelegram("Scheduling loop started").catch(() => { });
+
+  // 3b. Daily transcript/dataset refresh (new Kalshi series, new calls)
+  console.log("Registering daily transcript refresh (04:17)...");
+  await transcriptRefreshQueue.add(
+    "transcript-refresh",
+    {},
+    { repeat: { pattern: "17 4 * * *" }, jobId: "transcript-refresh-daily" },
+  );
 
   // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop
   await connection.set(REDIS_KEY, Date.now() + POLL_INTERVAL_MS);

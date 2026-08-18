@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pylib.transcript_fetcher import (  # noqa: E402
     DEFAULT_DELAY_SECS,
+    KALSHI_CODE_TO_SLUG,
     fetch_ticker,
+    sp500_tickers,
     tickers_from_markets,
 )
 
@@ -36,6 +38,8 @@ def main():
     ap.add_argument("--force", action="store_true", help="Re-fetch even if already in the dataset")
     ap.add_argument("--from-markets", action="store_true",
                     help="Derive tickers from cached Kalshi earnings markets")
+    ap.add_argument("--watchlist", action="store_true",
+                    help="Also fetch the S&P 500 watchlist (broad universe ahead of listings)")
     ap.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECS,
                     help="Minimum seconds between requests (rate-limit pacing)")
     args = ap.parse_args()
@@ -51,12 +55,18 @@ def main():
         else:
             tickers = list(dict.fromkeys(tickers + auto))
         print(f"Derived {len(tickers)} tickers from market caches: {', '.join(tickers)}")
+    if args.watchlist:
+        wl = sp500_tickers(delay=args.delay)
+        print(f"Watchlist: {len(wl)} S&P 500 tickers")
+        tickers = list(dict.fromkeys(tickers + wl))
     if not tickers:
         ap.error("no tickers given — pass tickers or use --from-markets")
 
     results = []
     for t in tickers:
-        summary = fetch_ticker(t, quarters=args.quarters, force=args.force, delay=args.delay)
+        slug = KALSHI_CODE_TO_SLUG.get(t.upper())
+        summary = fetch_ticker(t, quarters=args.quarters, force=args.force,
+                               delay=args.delay, slug=slug)
         results.append(summary)
 
     print()

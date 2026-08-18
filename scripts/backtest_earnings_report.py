@@ -36,6 +36,7 @@ from scripts.generate_earnings_report import (  # noqa: E402
     pre_event_docs,
     word_baseline,
 )
+from pylib.word_presence import load_presence, save_presence  # noqa: E402
 from scripts.fetch_market_history import MENTIONS, OUT_FILE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,13 +81,15 @@ def load_call_dates(path: Path) -> Dict[str, str]:
 
 def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
              call_dates: Dict[str, str], fee_rate: float,
-             use_ask: bool, max_price: Optional[float] = None) -> tuple:
+             use_ask: bool, max_price: Optional[float] = None,
+             presence: Optional[dict] = None) -> tuple:
     """Tradable candidates + coverage counts. Side = the one whose edge
     (baseline vs its executable price: YES ask for YES, NO ask = 1 − YES bid
     for NO) is positive and larger; trades with no positive edge on either
     side are skipped, and trades whose chosen side costs more than max_price
     are excluded. Threshold filtering happens in the sweep so one pass
-    covers all thresholds."""
+    covers all thresholds. `presence` serves word-presence vectors from the
+    disk cache (pylib/word_presence) instead of rescanning transcript text."""
     trades: List[dict] = []
     coverage = {"n_history": len(history), "n_price": 0, "n_baseline": 0,
                 "n_tradable": 0, "n_old_format": 0, "n_capped": 0}
@@ -96,18 +99,19 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
             continue
         coverage["n_price"] += 1
 
-        docs = docs_by_ticker.get(r["code"], [])
+        full_docs = docs_by_ticker.get(r["code"], [])
         ev_date = call_dates.get(r.get("event_ticker") or "")
         if not ev_date:
             continue
-        docs = pre_event_docs(docs, ev_date)
+        docs = pre_event_docs(full_docs, ev_date)
         if not docs:
             continue
         coverage["n_baseline"] += 1
         if _OLD_EVENT_RE.match(r.get("event_ticker") or ""):
             coverage["n_old_format"] += 1
 
-        _, _, _, p = word_baseline(r["word"], docs)
+        _, _, _, p = word_baseline(r["word"], docs, code=r["code"],
+                                   presence=presence, full_docs=full_docs)
         if p is None:
             continue
 
@@ -186,24 +190,25 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
              f"- {coverage['n_history']} finalized markets with history fetched",
              f"- {coverage['n_price']} with a price ~24h before resolution",
              f"- {coverage['n_baseline']} with a transcript baseline (pre-event calls)",
-             f"- {coverage['n_tradable']} tradable (both price and baseline)",
-             f"- {coverage['n_capped']} excluded by the max-price cap"
-             if max_price is not None else "",
-             f"- fee: {100 * fee_rate:.0f}% on profit" if fee_rate else "- fee: 0",
-             ""]
+             f"- {coverage['n_tradable']} tradable (both price and baseline)"]
+    if max_price is not None:
+        lines.append(f"- {coverage['n_capped']} excluded by the max-price cap")
+    lines += [f"- fee: {100 * fee_rate:.0f}% on profit" if fee_rate else "- fee: 0",
+              ""]
     if coverage["n_old_format"]:
         lines.append(f"- {coverage['n_old_format']} trades use day-less event "
                      "tickers (e.g. -25MAY) whose call date is approximated as "
-                     "the 1st of the month",
-                     "")
+                     "the 1st of the month")
+        lines.append("")
 
     lines += ["## Threshold sweep (min |gap|)",
               "",
               "Net if always YES / always NO shows the same candidates traded "
               "on one fixed side — the benchmark the side selection must beat.",
               "",
-              "| Min |gap| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |",
-              "|---|---|---|---|---|---|---|---|---|---|---|"]
+              "| Min \\|gap\\| | Trades | Wins | Win rate | Gross | Net | "
+              "YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |",
+              "|---|---|---|---|---|---|---|---|---|---|"]
     for r in sweep_rows:
         wr = f"{100 * r['win_rate']:.0f}%" if r["win_rate"] is not None else "-"
         y = r["by_side"]["YES"]
@@ -262,9 +267,12 @@ def main():
     history = load_history(args.history)
     docs_by_ticker = load_transcripts()
     call_dates = load_call_dates(MENTIONS)
+    presence = load_presence()
 
     trades, coverage = simulate(history, docs_by_ticker, call_dates,
-                                args.fee_rate, args.use_ask, args.max_price)
+                                args.fee_rate, args.use_ask, args.max_price,
+                                presence=presence)
+    save_presence(presence)
     rows = sweep(trades, SWEEP_THRESHOLDS)
     text = render(trades, coverage, rows, args.fee_rate, args.max_price)
     args.out.write_text(text)

@@ -1,6 +1,6 @@
 # Earnings Backtest
 
-Generated 2026-08-13
+Generated 2026-08-18
 
 ## Strategy
 
@@ -10,24 +10,23 @@ For each finalized word market: baseline P from transcripts of calls before the 
 
 - 5089 finalized markets with history fetched
 - 4768 with a price ~24h before resolution
-- 2409 with a transcript baseline (pre-event calls)
-- 2395 tradable (both price and baseline)
-
+- 2458 with a transcript baseline (pre-event calls)
+- 2444 tradable (both price and baseline)
 - fee: 3% on profit
 
 ## Threshold sweep (min |gap|)
 
 Net if always YES / always NO shows the same candidates traded on one fixed side — the benchmark the side selection must beat.
 
-| Min |gap| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0.00 | 2395 | 1112 | 46% | +140.35 | +125.60 | 586 / 260 / +12.55 | 1809 / 852 / +113.05 | -119.35 | +94.06 |
-| 0.05 | 1994 | 918 | 46% | +144.64 | +131.57 | 410 / 181 / +15.45 | 1584 / 737 / +116.12 | -117.67 | +95.87 |
-| 0.10 | 1669 | 724 | 43% | +117.66 | +106.61 | 307 / 125 / +11.76 | 1362 / 599 / +94.85 | -97.98 | +79.40 |
-| 0.15 | 1400 | 552 | 39% | +85.26 | +76.16 | 238 / 92 / +8.64 | 1162 / 460 / +67.52 | -71.61 | +55.97 |
-| 0.20 | 1176 | 434 | 37% | +70.67 | +63.04 | 157 / 55 / +4.39 | 1019 / 379 / +58.64 | -65.49 | +52.34 |
-| 0.25 | 990 | 342 | 35% | +59.23 | +52.91 | 110 / 37 / +3.31 | 880 / 305 / +49.60 | -55.89 | +45.03 |
-| 0.30 | 829 | 266 | 32% | +50.01 | +44.86 | 64 / 21 / +4.49 | 765 / 245 / +40.37 | -43.99 | +35.19 |
+| Min \|gap\| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.00 | 2444 | 1124 | 46% | +136.71 | +121.77 | 598 / 263 / +10.43 | 1846 / 861 / +111.34 | -120.09 | +94.31 |
+| 0.05 | 2034 | 929 | 46% | +142.43 | +129.18 | 419 / 183 / +14.00 | 1615 / 746 / +115.18 | -118.49 | +96.26 |
+| 0.10 | 1702 | 733 | 43% | +115.72 | +104.51 | 315 / 127 / +11.11 | 1387 / 606 / +93.41 | -97.45 | +78.51 |
+| 0.15 | 1428 | 559 | 39% | +83.75 | +74.52 | 243 / 93 / +8.18 | 1185 / 466 / +66.34 | -71.12 | +55.18 |
+| 0.20 | 1198 | 441 | 37% | +71.57 | +63.81 | 160 / 56 / +4.58 | 1038 / 385 / +59.23 | -66.07 | +52.70 |
+| 0.25 | 1008 | 347 | 34% | +59.29 | +52.88 | 112 / 37 / +2.67 | 896 / 310 / +50.21 | -57.30 | +46.26 |
+| 0.30 | 843 | 270 | 32% | +50.44 | +45.21 | 65 / 21 / +4.11 | 778 / 249 / +41.11 | -45.23 | +36.29 |
 
 ## Per company (min |gap| 0.10)
 
@@ -59,6 +58,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | CHWY | 8 | 3 | +1.18 |
 | CMG | 20 | 10 | +2.94 |
 | COHR | 10 | 1 | -2.36 |
+| COINBASE | 4 | 0 | -0.57 |
 | COST | 10 | 3 | -0.82 |
 | CRCL | 9 | 3 | +0.93 |
 | CRM | 8 | 3 | +0.64 |
@@ -97,6 +97,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | LMT | 2 | 1 | +0.84 |
 | LOW | 6 | 3 | +0.97 |
 | LULU | 10 | 6 | +2.30 |
+| LUNR | 9 | 4 | +0.39 |
 | LYFT | 18 | 9 | +1.82 |
 | M | 8 | 4 | +0.72 |
 | MCD | 28 | 16 | +3.45 |
@@ -139,12 +140,14 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | ULTA | 12 | 3 | -1.34 |
 | URBN | 5 | 1 | -0.75 |
 | V | 10 | 5 | +1.18 |
+| VSCO | 12 | 0 | -4.10 |
 | VST | 12 | 2 | -1.65 |
 | VZ | 13 | 7 | +0.65 |
 | WEN | 11 | 7 | +1.15 |
 | WFC | 31 | 10 | +0.74 |
 | WING | 14 | 7 | +1.08 |
 | WMT | 10 | 6 | +3.06 |
+| YETI | 8 | 5 | +2.18 |
 | YOU | 12 | 7 | +1.56 |
 | YUM | 12 | 5 | +0.13 |
 | ZETA | 10 | 4 | -0.36 |
@@ -905,6 +908,18 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-06-02 | ULTA | Tariff | 24% | 0.64 | +12 | NO | no | +0.36 | +0.35 |
 | 2026-06-02 | ULTA | Traffic | 80% | 0.58 | +22 | YES | yes | +0.42 | +0.41 |
 | 2026-06-02 | ULTA | Uncertainty | 54% | 0.14 | +32 | NO | yes | -0.14 | -0.14 |
+| 2026-06-02 | VSCO | AI / Artificial Intelligence | 38% | 0.25 | +13 | YES | no | -0.25 | -0.25 |
+| 2026-06-02 | VSCO | Conversion | 70% | 0.57 | +13 | YES | no | -0.57 | -0.57 |
+| 2026-06-02 | VSCO | Dream | 50% | 0.30 | +20 | YES | no | -0.30 | -0.30 |
+| 2026-06-02 | VSCO | Fragrance | 60% | 0.09 | +31 | NO | yes | -0.09 | -0.09 |
+| 2026-06-02 | VSCO | Hailey Bieber | 27% | 0.62 | +11 | NO | yes | -0.62 | -0.62 |
+| 2026-06-02 | VSCO | Headwind | 38% | 0.43 | +19 | NO | yes | -0.43 | -0.43 |
+| 2026-06-02 | VSCO | Loyalty Program | 70% | 0.38 | +32 | YES | no | -0.38 | -0.38 |
+| 2026-06-02 | VSCO | Sport Bra / Sports Bra | 60% | 0.25 | +15 | NO | yes | -0.25 | -0.25 |
+| 2026-06-02 | VSCO | Tailwind | 38% | 0.45 | +17 | NO | yes | -0.45 | -0.45 |
+| 2026-06-02 | VSCO | Tariff | 29% | 0.05 | +66 | NO | yes | -0.05 | -0.05 |
+| 2026-06-02 | VSCO | Ticker | 17% | 0.26 | +57 | NO | yes | -0.26 | -0.26 |
+| 2026-06-02 | VSCO | Valentine | 27% | 0.45 | +28 | NO | yes | -0.45 | -0.45 |
 | 2026-06-03 | AVGO | Acquisition | 82% | 0.50 | +32 | YES | no | -0.50 | -0.50 |
 | 2026-06-03 | AVGO | Hyperscaler | 41% | 0.07 | +52 | NO | yes | -0.07 | -0.07 |
 | 2026-06-03 | AVGO | Meta | 7% | 0.21 | +72 | NO | yes | -0.21 | -0.21 |
@@ -1045,6 +1060,10 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-06-30 | BLK | Record AUM | 28% | 0.22 | +50 | NO | no | +0.78 | +0.76 |
 | 2026-06-30 | BLK | Stablecoin | 17% | 0.16 | +67 | NO | no | +0.84 | +0.81 |
 | 2026-06-30 | BLK | ETF Inflow | 13% | 0.73 | +14 | NO | no | +0.27 | +0.26 |
+| 2026-06-30 | COINBASE | Decentralized Exchange / DEX | 64% | 0.15 | +21 | NO | yes | -0.15 | -0.15 |
+| 2026-06-30 | COINBASE | Margin | 56% | 0.06 | +38 | NO | yes | -0.06 | -0.06 |
+| 2026-06-30 | COINBASE | Web3 | 52% | 0.34 | +18 | YES | no | -0.34 | -0.34 |
+| 2026-06-30 | COINBASE | Stablecoin | 72% | 0.02 | +26 | NO | yes | -0.02 | -0.02 |
 | 2026-06-30 | DAL | Holiday | 61% | 0.10 | +29 | NO | yes | -0.10 | -0.10 |
 | 2026-06-30 | DAL | Nonstop / Non-Stop | 8% | 0.76 | +16 | NO | no | +0.24 | +0.23 |
 | 2026-06-30 | DAL | Partnership | 73% | 0.09 | +18 | NO | yes | -0.09 | -0.09 |
@@ -1822,3 +1841,20 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-12 | COHR | Sherman | 58% | 0.11 | +31 | NO | yes | -0.11 | -0.11 |
 | 2026-08-12 | COHR | Thermadite | 24% | 0.51 | +25 | NO | yes | -0.51 | -0.51 |
 | 2026-08-12 | COHR | Zurich | 24% | 0.54 | +22 | NO | yes | -0.54 | -0.54 |
+| 2026-08-13 | LUNR | AI / Artificial Intelligence | 23% | 0.32 | +45 | NO | no | +0.68 | +0.66 |
+| 2026-08-13 | LUNR | Artemis III | 23% | 0.63 | +14 | NO | no | +0.37 | +0.36 |
+| 2026-08-13 | LUNR | Artemis IV | 17% | 0.64 | +19 | NO | yes | -0.64 | -0.64 |
+| 2026-08-13 | LUNR | China / Chinese | 56% | 0.26 | +30 | YES | no | -0.26 | -0.26 |
+| 2026-08-13 | LUNR | Golden Dome | 30% | 0.28 | +42 | NO | yes | -0.28 | -0.28 |
+| 2026-08-13 | LUNR | Goonhilly Earth Station | 23% | 0.05 | +72 | NO | yes | -0.05 | -0.05 |
+| 2026-08-13 | LUNR | Mars (3+ times) | 10% | 0.64 | +26 | NO | no | +0.36 | +0.35 |
+| 2026-08-13 | LUNR | Moon Base | 17% | 0.37 | +46 | NO | yes | -0.37 | -0.37 |
+| 2026-08-13 | LUNR | SpaceX | 49% | 0.36 | +13 | YES | yes | +0.64 | +0.62 |
+| 2026-08-13 | YETI | AI / Artificial Intelligence | 14% | 0.28 | +58 | NO | yes | -0.28 | -0.28 |
+| 2026-08-13 | YETI | Ceramic | 17% | 0.19 | +64 | NO | no | +0.81 | +0.79 |
+| 2026-08-13 | YETI | China (3+ times) | 5% | 0.55 | +40 | NO | no | +0.45 | +0.44 |
+| 2026-08-13 | YETI | GoBox | 48% | 0.30 | +22 | NO | yes | -0.30 | -0.30 |
+| 2026-08-13 | YETI | NFL | 27% | 0.37 | +36 | NO | no | +0.63 | +0.61 |
+| 2026-08-13 | YETI | Ranger | 17% | 0.32 | +51 | NO | yes | -0.32 | -0.32 |
+| 2026-08-13 | YETI | Tailwind | 39% | 0.15 | +24 | YES | yes | +0.85 | +0.82 |
+| 2026-08-13 | YETI | TikTok | 20% | 0.56 | +24 | NO | no | +0.44 | +0.43 |

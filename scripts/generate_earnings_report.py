@@ -31,7 +31,12 @@ from pylib.earnings_word_stats import (  # noqa: E402
     word_in_text,
     word_variants,
 )
-from pylib.transcript_fetcher import ticker_from_leg  # noqa: E402
+from pylib.transcript_fetcher import KALSHI_CODE_TO_SLUG, ticker_from_leg  # noqa: E402
+from pylib.word_presence import (  # noqa: E402
+    get_presence,
+    load_presence,
+    save_presence,
+)
 from scripts.fetch_earnings_mentions import api_get  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -104,7 +109,12 @@ def upcoming_markets() -> Dict[str, dict]:
 # ── Transcripts ─────────────────────────────────────────────────────────
 
 def load_transcripts() -> Dict[str, List[dict]]:
-    """Ticker → transcripts sorted by call date (oldest first)."""
+    """Ticker → transcripts sorted by call date (oldest first).
+
+    Transcripts are stored under the stockanalysis.com slug; Kalshi codes
+    that differ (KALSHI_CODE_TO_SLUG) are aliased to the same docs so
+    baseline lookups by market code resolve.
+    """
     out = {}
     if not TRANSCRIPTS_DIR.is_dir():
         return out
@@ -122,6 +132,9 @@ def load_transcripts() -> Dict[str, List[dict]]:
         docs.sort(key=lambda d: d["call_date"])
         if docs:
             out[tdir.name.upper()] = docs
+    for code, slug in KALSHI_CODE_TO_SLUG.items():
+        if slug in out and code not in out:
+            out[code] = out[slug]
     return out
 
 
@@ -130,13 +143,23 @@ def transcript_text(d: dict) -> str:
 
 
 def aggregate_transitions(docs_by_ticker: Dict[str, List[dict]],
-                          words_by_ticker: Dict[str, List[str]]) -> dict:
+                          words_by_ticker: Dict[str, List[str]],
+                          presence: Optional[dict] = None,
+                          full_docs_by_ticker: Optional[Dict[str, List[dict]]] = None) -> dict:
     """P(word in call N+1 | in call N) across all upcoming words and companies."""
     tot_yes = tot_no = yes_after_yes = yes_after_no = 0
+    use_cache = presence is not None and full_docs_by_ticker is not None
     for code, docs in docs_by_ticker.items():
-        texts = [transcript_text(d) for d in docs]
+        if use_cache:
+            full = full_docs_by_ticker.get(code, docs)
+            k = len(docs)
+        else:
+            texts = [transcript_text(d) for d in docs]
         for word in words_by_ticker.get(code, []):
-            present = [word_in_text(word, t) for t in texts]
+            if use_cache:
+                present = get_presence(presence, code, word, full)[:k]
+            else:
+                present = [word_in_text(word, t) for t in texts]
             for a, b in zip(present, present[1:]):
                 if a:
                     tot_yes += 1
@@ -230,24 +253,41 @@ def pre_event_docs(docs: List[dict], event_date: str) -> List[dict]:
     return [d for d in docs if (d.get("call_date") or "") < event_date]
 
 
-def word_baseline(word: str, docs: List[dict]):
-    """(present_in, n_prior, said_last, p) from transcript evidence, or Nones."""
+def word_baseline(word: str, docs: List[dict], code: Optional[str] = None,
+                  presence: Optional[dict] = None,
+                  full_docs: Optional[List[dict]] = None):
+    """(present_in, n_prior, said_last, p) from transcript evidence, or Nones.
+
+    `docs` is the pre-event prefix of `full_docs`. With `presence` + `code` +
+    `full_docs` given, the per-call presence vector is served from the disk
+    cache instead of rescanning transcript text."""
     if not docs:
         return None, None, None, None
-    n_prior = len(docs) - 1
-    earlier_texts = [transcript_text(d) for d in docs[:-1]]
-    present_in = word_in_calls(word, earlier_texts)
-    said_last = word_in_text(word, transcript_text(docs[-1]))
+    if presence is not None and code is not None and full_docs is not None:
+        vec = get_presence(presence, code, word, full_docs)
+        k = len(docs)
+        present_in = sum(1 for v in vec[:k - 1] if v)
+        said_last = bool(vec[k - 1]) if k else False
+        n_prior = k - 1
+    else:
+        n_prior = len(docs) - 1
+        earlier_texts = [transcript_text(d) for d in docs[:-1]]
+        present_in = word_in_calls(word, earlier_texts)
+        said_last = word_in_text(word, transcript_text(docs[-1]))
     p = baseline_probability(present_in, n_prior, said_last, YES_AFTER_YES, YES_AFTER_NO)
     return present_in, n_prior, said_last, p
 
 
 def render_opportunities(upcoming: Dict[str, dict], docs_by_ticker: Dict[str, List[dict]],
-                         live: Dict[str, Dict[str, tuple]]) -> List[str]:
+                         live: Dict[str, Dict[str, tuple]],
+                         presence: Optional[dict] = None,
+                         full_docs_by_ticker: Optional[Dict[str, List[dict]]] = None) -> List[str]:
     rows = []
     for code in sorted(upcoming):
         for word in upcoming[code]["words"]:
-            _, _, _, p = word_baseline(word, docs_by_ticker.get(code, []))
+            full = full_docs_by_ticker.get(code) if full_docs_by_ticker else None
+            _, _, _, p = word_baseline(word, docs_by_ticker.get(code, []),
+                                       code=code, presence=presence, full_docs=full)
             yes_px, _ = word_prices(word, live.get(code, {}))
             if p is not None and yes_px is not None:
                 rows.append((code, word, p, yes_px, p - yes_px))
@@ -270,7 +310,8 @@ def render_opportunities(upcoming: Dict[str, dict], docs_by_ticker: Dict[str, Li
 
 
 def render_company(code: str, entry: dict, docs: List[dict],
-                   prices: Dict[str, tuple]) -> List[str]:
+                   prices: Dict[str, tuple], presence: Optional[dict] = None,
+                   full_docs: Optional[List[dict]] = None) -> List[str]:
     lines = [f"## {company_name(code, entry, docs)} ({code})"]
     if entry.get("event_date"):
         lines.append(f"**Upcoming event:** {entry['event_date']}")
@@ -282,7 +323,8 @@ def render_company(code: str, entry: dict, docs: List[dict],
               "| Word | Prior calls | Baseline P | Last YES | Verdict |",
               "|---|---|---|---|---|"]
     for word in entry["words"]:
-        present_in, n_prior, _, p = word_baseline(word, docs)
+        present_in, n_prior, _, p = word_baseline(word, docs, code=code,
+                                                  presence=presence, full_docs=full_docs)
         prior_calls = f"{present_in}/{n_prior}" if n_prior else "-"
         yes_px, _ = word_prices(word, prices)
         pct = f"{100 * p:.0f}%" if p is not None else "-"
@@ -297,12 +339,16 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
     today = date.today().isoformat()
     upcoming = {code: e for code, e in upcoming.items()
                 if e["event_date"] and e["event_date"] >= today}
+    all_docs = load_transcripts()
+    presence = load_presence()
     docs_by_ticker = {code: pre_event_docs(docs, upcoming[code]["event_date"])
-                      for code, docs in load_transcripts().items()
+                      for code, docs in all_docs.items()
                       if code in upcoming}
+    full_docs_by_ticker = {code: all_docs[code] for code in docs_by_ticker}
     live = fetch_live_prices(sorted(upcoming))
     words_by_ticker = {code: e["words"] for code, e in upcoming.items()}
-    trans = aggregate_transitions(docs_by_ticker, words_by_ticker)
+    trans = aggregate_transitions(docs_by_ticker, words_by_ticker,
+                                  presence, full_docs_by_ticker)
 
     n_transcripts = sum(len(v) for v in docs_by_ticker.values())
     n_with_history = sum(1 for c in upcoming if c in docs_by_ticker)
@@ -353,12 +399,15 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
             "",
         ]
 
-    lines += render_opportunities(upcoming, docs_by_ticker, live)
+    lines += render_opportunities(upcoming, docs_by_ticker, live,
+                                  presence, full_docs_by_ticker)
 
     for code in sorted(upcoming):
         lines += render_company(code, upcoming[code], docs_by_ticker.get(code, []),
-                                live.get(code, {}))
+                                live.get(code, {}), presence=presence,
+                                full_docs=full_docs_by_ticker.get(code))
 
+    save_presence(presence)
     return "\n".join(lines).rstrip() + "\n", upcoming, docs_by_ticker, live
 
 

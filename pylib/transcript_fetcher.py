@@ -42,6 +42,25 @@ COOLDOWN_AFTER_RATE_LIMIT = 60  # pause after repeated 429s
 TRANSCRIPTS_DIR = Path(__file__).parent.parent / "transcripts"
 DEFAULT_DELAY_SECS = 1.5
 
+# Kalshi company codes that don't match the stockanalysis.com slug (real
+# US ticker). Transcripts are fetched via the slug and stored under it;
+# load_transcripts() adds code → slug aliases so baseline lookups by Kalshi
+# code keep working (e.g. market code "SYUM" resolves to transcripts/YUM/).
+KALSHI_CODE_TO_SLUG = {
+    "ADOBE": "ADBE",
+    "COINBASE": "COIN",
+    "DOCUSIGN": "DOCU",
+    "DOLLARGENERAL": "DG",
+    "LUCID": "LCID",
+    "SYUM": "YUM",   # Yum! Brands re-listed under a new series
+    "DEER": "DE",    # John Deere re-listed under a new series
+    "VSCO": "VSXY",  # Victoria's Secret re-tickered
+}
+
+# Kalshi codes with no transcript coverage on stockanalysis.com
+# (foreign-listed, no Quartr transcripts): AC, ALIBABA, ARITZIA, BB, NIO,
+# RACE, RY, TSMC.
+
 _r: Optional[redis.Redis] = None
 _http = requests.Session()
 _last_request_ts = 0.0
@@ -294,14 +313,21 @@ def fetch_ticker(
     quarters: int = 8,
     force: bool = False,
     delay: float = DEFAULT_DELAY_SECS,
+    slug: Optional[str] = None,
 ) -> dict:
     """Fetch the most recent N quarterly transcripts for a ticker.
+
+    `slug` overrides the stockanalysis.com path component when the Kalshi
+    code differs from the real ticker (see KALSHI_CODE_TO_SLUG). Registry
+    state and saved files are keyed by the slug so both the code and the
+    underlying ticker share one copy.
 
     Returns a summary dict with status:
       "done" | "no_coverage" | "error"
     """
     ticker = ticker.upper()
-    index_url = f"{BASE_URL}/stocks/{ticker.lower()}/transcripts/"
+    slug = (slug or ticker).lower()
+    index_url = f"{BASE_URL}/stocks/{slug}/transcripts/"
     summary = {
         "ticker": ticker,
         "status": "done",
@@ -324,7 +350,7 @@ def fetch_ticker(
         summary["errors"].append(f"index fetch failed (HTTP {resp.status_code})")
         return summary
 
-    entries = parse_index_html(resp.text, ticker)
+    entries = parse_index_html(resp.text, slug)
     summary["available"] = len(entries)
     if not entries:
         summary["status"] = "no_coverage"
@@ -337,7 +363,7 @@ def fetch_ticker(
     for entry in entries:
         url = entry["url"]
         if not force:
-            prev = registry_get(ticker, url)
+            prev = registry_get(slug, url)
             if prev and prev.get("status") == "done":
                 summary["skipped"] += 1
                 continue
@@ -349,12 +375,12 @@ def fetch_ticker(
         elif resp.status_code != 200:
             err = f"http_{resp.status_code}"
         else:
-            parsed = parse_transcript_html(resp.text, url, ticker)
+            parsed = parse_transcript_html(resp.text, url, slug)
 
         if err is not None:
             summary["failed"] += 1
             summary["errors"].append(f"{url}: {err}")
-            registry_set(ticker, url, {
+            registry_set(slug, url, {
                 "url": url,
                 "quarter": entry["quarter"],
                 "year": entry["year"],
@@ -364,10 +390,10 @@ def fetch_ticker(
             })
             continue
 
-        fname = save_transcript(parsed, ticker)
+        fname = save_transcript(parsed, slug)
         summary["fetched"] += 1
         summary["files"].append(fname)
-        registry_set(ticker, url, {
+        registry_set(slug, url, {
             "url": url,
             "quarter": entry["quarter"],
             "year": entry["year"],
@@ -420,3 +446,23 @@ def tickers_from_markets() -> List[str]:
                 if t and t not in tickers:
                     tickers.append(t)
     return tickers
+
+
+# ── Watchlist universe ───────────────────────────────────────────────────
+
+SP500_URL = BASE_URL + "/list/sp-500-stocks/"
+
+
+def sp500_tickers(delay: float = DEFAULT_DELAY_SECS) -> List[str]:
+    """S&P 500 constituent tickers from stockanalysis.com (broad universe to
+    scrape ahead of Kalshi listings)."""
+    resp = http_get(SP500_URL, delay=delay)
+    if resp.status_code != 200:
+        raise RuntimeError(f"S&P 500 list fetch failed (HTTP {resp.status_code})")
+    soup = BeautifulSoup(resp.text, "html.parser")
+    tickers = []
+    for a in soup.find_all("a", href=True):
+        m = re.match(r"/stocks/([a-z.\-]+)/$", a["href"])
+        if m:
+            tickers.append(m.group(1).upper())
+    return sorted(set(tickers))
