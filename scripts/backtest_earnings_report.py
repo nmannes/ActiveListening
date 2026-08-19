@@ -110,8 +110,10 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
         if _OLD_EVENT_RE.match(r.get("event_ticker") or ""):
             coverage["n_old_format"] += 1
 
-        _, _, _, p = word_baseline(r["word"], docs, code=r["code"],
-                                   presence=presence, full_docs=full_docs)
+        present_in, n_prior, said_last, p = word_baseline(r["word"], docs,
+                                                          code=r["code"],
+                                                          presence=presence,
+                                                          full_docs=full_docs)
         if p is None:
             continue
 
@@ -143,6 +145,8 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
             "cost": cost, "result": r["result"], "win": gross > 0,
             "pnl_gross": gross, "pnl_net": net,
             "net_yes": net_yes, "net_no": net_no,
+            "present_in": present_in, "n_prior": n_prior,
+            "said_last": said_last,
         })
     coverage["n_tradable"] = len(trades)
     return trades, coverage
@@ -238,16 +242,23 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
 
     lines += ["## Trades (min |gap| 0.10)",
               "",
-              "| Event | Company | Word | Baseline | Price | Gap | Side | Result | Gross | Net |",
-              "|---|---|---|---|---|---|---|---|---|---|"]
+              "| Event | Company | Word | Prior | Last | Baseline | Price | Gap | Side | Result | Gross | Net |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for x in sorted(trades, key=lambda t: (t["event_date"], t["code"])):
         if abs(x["gap"]) < 0.10:
             continue
+        last = "✅" if x["said_last"] else "❌"
         lines.append(f"| {x['event_date']} | {x['code']} | {x['word']} | "
+                     f"{x['present_in']}/{x['n_prior']} | {last} | "
                      f"{100 * x['baseline']:.0f}% | {x['price']:.2f} | "
                      f"{100 * x['gap']:+.0f} | {x['side']} | {x['result']} | "
                      f"{x['pnl_gross']:+.2f} | {x['pnl_net']:+.2f} |")
-    lines.append("")
+    lines += ["",
+              "*Prior = calls that said the word / prior calls on record. "
+              "Last = the most recent pre-event call said the word (✅) or "
+              "not (❌) — it drives the baseline's transition prior "
+              "(0.67 vs 0.243).*",
+              ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
