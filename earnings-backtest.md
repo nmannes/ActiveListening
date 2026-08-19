@@ -8,10 +8,10 @@ For each finalized word market: baseline P from transcripts of calls before the 
 
 ## Coverage
 
-- 5146 finalized markets with history fetched
-- 4825 with a price ~24h before resolution
-- 2515 with a transcript baseline (pre-event calls)
-- 2501 tradable (both price and baseline)
+- 5174 finalized markets with history fetched
+- 4853 with a price ~24h before resolution
+- 2543 with a transcript baseline (pre-event calls)
+- 2529 tradable (both price and baseline)
 - fee: 3% on profit
 
 ## Threshold sweep (min |gap|)
@@ -20,13 +20,13 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 
 | Min \|gap\| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
 |---|---|---|---|---|---|---|---|---|---|
-| 0.00 | 2501 | 1153 | 46% | +143.55 | +128.16 | 612 / 271 / +12.92 | 1889 / 882 / +115.24 | -122.01 | +95.54 |
-| 0.05 | 2083 | 954 | 46% | +149.27 | +135.60 | 430 / 189 / +16.20 | 1653 / 765 / +119.40 | -120.97 | +98.12 |
-| 0.10 | 1742 | 753 | 43% | +120.67 | +109.14 | 323 / 132 / +13.04 | 1419 / 621 / +96.10 | -98.60 | +79.15 |
-| 0.15 | 1463 | 575 | 39% | +87.14 | +77.64 | 250 / 97 / +9.72 | 1213 / 478 / +67.92 | -71.49 | +55.10 |
-| 0.20 | 1224 | 453 | 37% | +74.80 | +66.84 | 165 / 59 / +5.68 | 1059 / 394 / +61.16 | -67.12 | +53.44 |
-| 0.25 | 1027 | 356 | 35% | +62.49 | +55.92 | 114 / 39 / +4.25 | 913 / 317 / +51.67 | -57.36 | +46.09 |
-| 0.30 | 858 | 276 | 32% | +52.14 | +46.79 | 66 / 22 / +4.96 | 792 / 254 / +41.83 | -45.26 | +36.14 |
+| 0.00 | 2529 | 1159 | 46% | +141.62 | +126.15 | 621 / 273 / +11.30 | 1908 / 886 / +114.85 | -123.39 | +96.70 |
+| 0.05 | 2109 | 959 | 45% | +147.33 | +133.59 | 437 / 190 / +14.57 | 1672 / 769 / +119.02 | -122.35 | +99.29 |
+| 0.10 | 1761 | 756 | 43% | +118.85 | +107.27 | 327 / 132 / +11.88 | 1434 / 624 / +95.39 | -99.17 | +79.57 |
+| 0.15 | 1479 | 578 | 39% | +86.13 | +76.58 | 253 / 97 / +8.76 | 1226 / 481 / +67.82 | -72.45 | +55.94 |
+| 0.20 | 1236 | 456 | 37% | +74.88 | +66.87 | 166 / 59 / +5.43 | 1070 / 397 / +61.44 | -67.74 | +53.97 |
+| 0.25 | 1038 | 359 | 35% | +62.58 | +55.96 | 115 / 39 / +4.00 | 923 / 320 / +51.96 | -57.99 | +46.62 |
+| 0.30 | 866 | 278 | 32% | +52.13 | +46.75 | 67 / 22 / +4.71 | 799 / 256 / +42.04 | -45.78 | +36.59 |
 
 ## Per company (min |gap| 0.10)
 
@@ -131,9 +131,9 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | SPOT | 17 | 12 | +4.02 |
 | STZ | 20 | 12 | +3.60 |
 | TFC | 8 | 5 | +1.76 |
-| TGT | 8 | 5 | +1.51 |
+| TGT | 18 | 7 | +1.22 |
 | TLN | 9 | 3 | +1.26 |
-| TOL | 8 | 2 | -1.48 |
+| TOL | 17 | 3 | -3.06 |
 | TOST | 7 | 2 | -0.22 |
 | TSLA | 39 | 15 | +2.03 |
 | TTWO | 10 | 5 | +0.73 |
@@ -1900,5 +1900,24 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-18 | KLAR | PriceRunner | 0/3 | ❌ | 22% | 0.30 | +48 | NO | no | +0.70 | +0.68 |
 | 2026-08-18 | KLAR | Southwest Airlines | 0/3 | ❌ | 22% | 0.54 | +24 | NO | no | +0.46 | +0.45 |
 | 2026-08-18 | KLAR | Walmart | 3/3 | ✅ | 75% | 0.60 | +15 | YES | yes | +0.40 | +0.39 |
+| 2026-08-18 | TOL | Buffington / Arkansas | 0/25 | ✅ | 8% | 0.24 | +68 | NO | yes | -0.24 | -0.24 |
+| 2026-08-18 | TOL | Buyback | 15/25 | ❌ | 57% | 0.25 | +32 | YES | no | -0.25 | -0.25 |
+| 2026-08-18 | TOL | California | 20/25 | ❌ | 74% | 0.57 | +17 | YES | no | -0.57 | -0.57 |
+| 2026-08-18 | TOL | Cash Buyer / All Cash | 20/25 | ✅ | 77% | 0.08 | +15 | NO | yes | -0.08 | -0.08 |
+| 2026-08-18 | TOL | Customize / Customization | 9/25 | ✅ | 39% | 0.34 | +27 | NO | yes | -0.34 | -0.34 |
+| 2026-08-18 | TOL | Incentive | 20/25 | ✅ | 77% | 0.01 | +22 | NO | yes | -0.01 | -0.01 |
+| 2026-08-18 | TOL | Land Bank / Land Banking | 15/25 | ✅ | 60% | 0.26 | +14 | NO | yes | -0.26 | -0.26 |
+| 2026-08-18 | TOL | Lumber | 13/25 | ✅ | 53% | 0.35 | +12 | NO | yes | -0.35 | -0.35 |
+| 2026-08-18 | TOL | Tariff | 6/25 | ✅ | 29% | 0.46 | +25 | NO | no | +0.54 | +0.52 |
+| 2026-08-19 | TGT | Autonomous / Automation | 16/52 | ❌ | 31% | 0.14 | +17 | YES | no | -0.14 | -0.14 |
+| 2026-08-19 | TGT | Back to School | 33/52 | ✅ | 63% | 0.10 | +27 | NO | yes | -0.10 | -0.10 |
+| 2026-08-19 | TGT | Circle 360 | 9/52 | ❌ | 19% | 0.27 | +54 | NO | yes | -0.27 | -0.27 |
+| 2026-08-19 | TGT | Competition | 16/52 | ❌ | 31% | 0.20 | +11 | YES | no | -0.20 | -0.20 |
+| 2026-08-19 | TGT | Nintendo Switch | 7/52 | ✅ | 17% | 0.30 | +53 | NO | no | +0.70 | +0.68 |
+| 2026-08-19 | TGT | Target Plus | 12/52 | ✅ | 26% | 0.03 | +71 | NO | yes | -0.03 | -0.03 |
+| 2026-08-19 | TGT | Revenue | 26/52 | ✅ | 51% | 0.30 | +19 | NO | yes | -0.30 | -0.30 |
+| 2026-08-19 | TGT | Roundel | 16/52 | ✅ | 33% | 0.12 | +55 | NO | yes | -0.12 | -0.12 |
+| 2026-08-19 | TGT | Synthetic Color | 3/52 | ✅ | 10% | 0.59 | +31 | NO | no | +0.41 | +0.40 |
+| 2026-08-19 | TGT | Tariff | 11/52 | ✅ | 24% | 0.21 | +55 | NO | yes | -0.21 | -0.21 |
 
 *Prior = calls that said the word / prior calls on record. Last = the most recent pre-event call said the word (✅) or not (❌) — it drives the baseline's transition prior (0.67 vs 0.243).*

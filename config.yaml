@@ -30,7 +30,7 @@ worker:
   logSyncLockDurationMinutes: 10
   schedulingLoopLockDurationMinutes: 10
   transcriptRefreshLockDurationMinutes: 180
-  socialFetchLockDurationMinutes: 720
+  socialFetchLockDurationMinutes: 90
   runClientConcurrency: 5
   logSyncConcurrency: 1
   schedulingLoopConcurrency: 1

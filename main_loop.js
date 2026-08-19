@@ -85,10 +85,11 @@ async function start() {
     { repeat: { pattern: "23 * * * *" }, jobId: "transcript-refresh-hourly" },
   );
 
-  // 3c. Daily social post-history backfill: fetch X history for every figure
-  // in social/handles.json (resumable — re-runs only add new posts, so a
-  // daily tick slowly backfills full histories without hammering X)
-  console.log("Registering daily social fetch (:47)...");
+  // 3c. Hourly social post-history fetch: fetch X history for every figure
+  // in social/handles.json (resumable, per-handle caps; covered handles only
+  // refresh new posts, so an hourly tick keeps the dataset filling up
+  // without re-scraping full histories)
+  console.log("Registering hourly social fetch (:17)...");
   const socialRepeatables = await socialFetchQueue.getRepeatableJobs();
   for (const r of socialRepeatables) {
     if (r.name === "social-fetch") {
@@ -99,7 +100,7 @@ async function start() {
   await socialFetchQueue.add(
     "social-fetch",
     {},
-    { repeat: { pattern: "47 5 * * *" }, jobId: "social-fetch-daily" },
+    { repeat: { pattern: "17 * * * *" }, jobId: "social-fetch-hourly" },
   );
 
   // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop
