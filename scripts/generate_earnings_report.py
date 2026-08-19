@@ -76,6 +76,9 @@ def upcoming_markets() -> Dict[str, dict]:
 
     Only earnings-mention markets count (non-earnings "what will X say"
     markets, e.g. news hosts, are filtered by the leg ticker prefix).
+    The caches store one keyword entry per "/"-split piece of the market
+    word; aliases sharing a market slug (leg) are the same market, so each
+    leg becomes one "/"-joined row ("gas / gasoline / fuel").
     """
     out: Dict[str, dict] = {}
     for rel in _MARKET_CACHE_FILES:
@@ -96,13 +99,16 @@ def upcoming_markets() -> Dict[str, dict]:
                 continue
             entry = out.setdefault(code, {
                 "words": set(), "title": market.get("title"), "event_date": None})
-            entry["words"].update(keywords)
-            for leg in legs:
+            by_leg: Dict[str, List[str]] = {}
+            for word, leg in keywords.items():
+                by_leg.setdefault(leg, []).append(word)
+            for leg, aliases in by_leg.items():
+                entry["words"].add(" / ".join(aliases))
                 d = event_date_from_leg(leg)
                 if d and (not entry["event_date"] or d > entry["event_date"]):
                     entry["event_date"] = d
     for entry in out.values():
-        entry["words"] = sorted(entry["words"])
+        entry["words"] = sorted(entry["words"], key=normalize)
     return out
 
 
@@ -206,6 +212,9 @@ def fetch_live_prices(codes: List[str]) -> Dict[str, Dict[str, tuple]]:
             word = (m.get("custom_strike") or {}).get("Word")
             if not word:
                 continue
+            if not yes:
+                continue  # $0.00 is the listing default for never-traded markets
+                         # (Kalshi's minimum trade increment is $0.01)
             for v in word_variants(word):
                 out.setdefault(code, {})[normalize(v)] = (yes, round(1.0 - yes, 2))
     return out
@@ -234,10 +243,14 @@ def fmt_pct(p) -> str:
 
 
 def word_prices(word: str, prices: Dict[str, tuple]):
+    """Cheapest live YES among the word's variants — aliases of the same
+    market ("Gas / Gasoline / Fuel") are the same bet, so the best fill wins."""
+    best = None
     for v in word_variants(word):
-        if normalize(v) in prices:
-            return prices[normalize(v)]
-    return None, None
+        cand = prices.get(normalize(v))
+        if cand is not None and (best is None or cand[0] < best[0]):
+            best = cand
+    return best if best is not None else (None, None)
 
 
 def company_name(code: str, entry: dict, docs: List[dict]) -> str:
@@ -365,7 +378,10 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
              "",
              "Targets are the words in currently open Kalshi earnings-mention "
              "markets (from the market caches). Word matching follows Kalshi's "
-             "resolution rules (word boundaries, plural/possessive forms).",
+             "resolution rules (word boundaries, plural/possessive forms). "
+             "Aliases that share a market slug are the same market (the cache "
+             "splits a market word like \"Gas / Gasoline / Fuel\" into its "
+             "pieces), so they render as one joined row.",
              ""]
     if trans["tot_yes"] or trans["tot_no"]:
         lines += [
@@ -386,7 +402,10 @@ def build_report() -> Tuple[str, Dict[str, dict], Dict[str, List[dict]], Dict[st
         "event means the market is resolved-by-information, not an opportunity",
         "- Last YES: last traded price for the word's currently open market "
         "(Kalshi API, active markets only; the NO side is the pair complement "
-        "and always sums to $1.00). '-' = no open market or fetch failed",
+        "and always sums to $1.00). A $0.00 last price is the listing default "
+        "for markets with no trades at all (Kalshi's minimum trade is $0.01), "
+        "so those count as unpriced ('-') and never appear as opportunities. "
+        "'-' = no open market, no trades, or fetch failed",
         "- Verdict tiers: Strong YES (P ≥ 60%), Likely YES (45–60%), "
         "Coin flip (30–45%), Unlikely (<30%)",
         "",

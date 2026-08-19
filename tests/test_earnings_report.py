@@ -60,6 +60,8 @@ def test_fetch_live_prices(monkeypatch):
              "custom_strike": {"Word": "Churn"}},
             {"status": "active", "last_price_dollars": "0.30",
              "custom_strike": {"Word": "Retain / Retention"}},
+            {"status": "active", "last_price_dollars": "0.00",
+             "custom_strike": {"Word": "Ghost"}},
             {"status": "finalized", "last_price_dollars": "0.99",
              "custom_strike": {"Word": "Old"}},
         ]}
@@ -69,7 +71,16 @@ def test_fetch_live_prices(monkeypatch):
     assert out["SPOT"]["churn"] == (0.71, 0.29)          # NO = 1.00 − YES
     assert out["SPOT"]["retain"] == (0.30, 0.70)         # variant splitting
     assert out["SPOT"]["retention"] == (0.30, 0.70)
+    assert "ghost" not in out["SPOT"]                     # $0.00 = never traded
     assert "old" not in out["SPOT"]                       # settled markets excluded
+
+
+def test_word_prices_picks_cheapest_variant():
+    # variants of a merged word are the same bet — the best fill wins
+    prices = {"message": (0.60, 0.40), "messages": (0.55, 0.45)}
+    assert report.word_prices("Message / Messages", prices) == (0.55, 0.45)
+    assert report.word_prices("Message", prices) == (0.60, 0.40)
+    assert report.word_prices("Ghost", prices) == (None, None)
 
 
 def test_fetch_live_prices_api_error(monkeypatch):
@@ -152,6 +163,31 @@ def test_report_structure(tmp_path, monkeypatch):
 
     # undated market dropped entirely
     assert "## Toast (TOST)" not in text
+
+
+def test_report_merges_market_slug_aliases(tmp_path, monkeypatch):
+    """Aliases sharing a market slug (one Kalshi market whose word was split
+    on "/" when the cache was built) render as one joined row."""
+    tdir = tmp_path / "transcripts"
+    write_transcripts(tdir, {"SPOT": SPOT_CALLS})
+    cache = tmp_path / "markets.json"
+    cache.write_text(json.dumps([{
+        "title": "What will Spotify say during their next earnings call?",
+        "keywords": {"autonomous": "KXEARNINGSMENTIONSPOT-26SEP01-AUTO",
+                     "automation": "KXEARNINGSMENTIONSPOT-26SEP01-AUTO",
+                     "churn": "KXEARNINGSMENTIONSPOT-26SEP01-CHUR"},
+    }]))
+    monkeypatch.setattr(report, "TRANSCRIPTS_DIR", tdir)
+    monkeypatch.setattr(report, "_MARKET_CACHE_FILES", [str(cache)])
+    monkeypatch.setattr(report, "fetch_live_prices", lambda codes: {})
+
+    text, upcoming, _, _ = report.build_report()
+
+    assert upcoming["SPOT"]["words"] == ["autonomous / automation", "churn"]
+    company = text.split("## Spotify (SPOT)")[1]
+    assert "| autonomous / automation |" in company
+    assert "| autonomous |" not in company
+    assert "| automation |" not in company
 
 
 def test_event_call_transcript_cannot_leak_into_baseline(tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 # Earnings Backtest
 
-Generated 2026-08-18
+Generated 2026-08-19
 
 ## Strategy
 
@@ -8,10 +8,10 @@ For each finalized word market: baseline P from transcripts of calls before the 
 
 ## Coverage
 
-- 5089 finalized markets with history fetched
-- 4768 with a price ~24h before resolution
-- 2458 with a transcript baseline (pre-event calls)
-- 2444 tradable (both price and baseline)
+- 5146 finalized markets with history fetched
+- 4825 with a price ~24h before resolution
+- 2515 with a transcript baseline (pre-event calls)
+- 2501 tradable (both price and baseline)
 - fee: 3% on profit
 
 ## Threshold sweep (min |gap|)
@@ -20,13 +20,13 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 
 | Min \|gap\| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
 |---|---|---|---|---|---|---|---|---|---|
-| 0.00 | 2444 | 1124 | 46% | +136.71 | +121.77 | 598 / 263 / +10.43 | 1846 / 861 / +111.34 | -120.09 | +94.31 |
-| 0.05 | 2034 | 929 | 46% | +142.43 | +129.18 | 419 / 183 / +14.00 | 1615 / 746 / +115.18 | -118.49 | +96.26 |
-| 0.10 | 1702 | 733 | 43% | +115.72 | +104.51 | 315 / 127 / +11.11 | 1387 / 606 / +93.41 | -97.45 | +78.51 |
-| 0.15 | 1428 | 559 | 39% | +83.75 | +74.52 | 243 / 93 / +8.18 | 1185 / 466 / +66.34 | -71.12 | +55.18 |
-| 0.20 | 1198 | 441 | 37% | +71.57 | +63.81 | 160 / 56 / +4.58 | 1038 / 385 / +59.23 | -66.07 | +52.70 |
-| 0.25 | 1008 | 347 | 34% | +59.29 | +52.88 | 112 / 37 / +2.67 | 896 / 310 / +50.21 | -57.30 | +46.26 |
-| 0.30 | 843 | 270 | 32% | +50.44 | +45.21 | 65 / 21 / +4.11 | 778 / 249 / +41.11 | -45.23 | +36.29 |
+| 0.00 | 2501 | 1153 | 46% | +143.55 | +128.16 | 612 / 271 / +12.92 | 1889 / 882 / +115.24 | -122.01 | +95.54 |
+| 0.05 | 2083 | 954 | 46% | +149.27 | +135.60 | 430 / 189 / +16.20 | 1653 / 765 / +119.40 | -120.97 | +98.12 |
+| 0.10 | 1742 | 753 | 43% | +120.67 | +109.14 | 323 / 132 / +13.04 | 1419 / 621 / +96.10 | -98.60 | +79.15 |
+| 0.15 | 1463 | 575 | 39% | +87.14 | +77.64 | 250 / 97 / +9.72 | 1213 / 478 / +67.92 | -71.49 | +55.10 |
+| 0.20 | 1224 | 453 | 37% | +74.80 | +66.84 | 165 / 59 / +5.68 | 1059 / 394 / +61.16 | -67.12 | +53.44 |
+| 0.25 | 1027 | 356 | 35% | +62.49 | +55.92 | 114 / 39 / +4.25 | 913 / 317 / +51.67 | -57.36 | +46.09 |
+| 0.30 | 858 | 276 | 32% | +52.14 | +46.79 | 66 / 22 / +4.96 | 792 / 254 / +41.83 | -45.26 | +36.14 |
 
 ## Per company (min |gap| 0.10)
 
@@ -40,8 +40,10 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | ADBE | 7 | 3 | +1.66 |
 | ALK | 13 | 8 | +2.02 |
 | ALLY | 12 | 7 | +1.68 |
+| AMAT | 12 | 4 | -0.12 |
 | AMD | 14 | 0 | -3.24 |
 | AMZN | 38 | 9 | -3.06 |
+| AS | 11 | 5 | +1.27 |
 | AVAV | 9 | 4 | -0.20 |
 | AVGO | 10 | 5 | +0.68 |
 | AXP | 11 | 2 | -1.98 |
@@ -82,14 +84,14 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | GOOGL | 36 | 17 | +4.04 |
 | GRAB | 13 | 4 | -0.99 |
 | GS | 21 | 11 | +3.07 |
-| HD | 6 | 4 | +1.59 |
+| HD | 13 | 7 | +1.01 |
 | HIMS | 29 | 11 | +2.24 |
 | HOOD | 25 | 4 | -4.68 |
 | HPE | 9 | 2 | -2.10 |
 | INTC | 22 | 10 | +4.20 |
 | JNJ | 30 | 10 | +0.88 |
 | JPM | 30 | 13 | +3.15 |
-| KLAR | 10 | 6 | +4.63 |
+| KLAR | 20 | 14 | +8.68 |
 | KO | 6 | 4 | +1.47 |
 | KR | 8 | 4 | +1.19 |
 | LEVI | 21 | 10 | +0.86 |
@@ -1841,6 +1843,18 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-12 | COHR | Sherman | 4/7 | ✅ | 58% | 0.11 | +31 | NO | yes | -0.11 | -0.11 |
 | 2026-08-12 | COHR | Thermadite | 0/7 | ✅ | 24% | 0.51 | +25 | NO | yes | -0.51 | -0.51 |
 | 2026-08-12 | COHR | Zurich | 0/7 | ✅ | 24% | 0.54 | +22 | NO | yes | -0.54 | -0.54 |
+| 2026-08-13 | AMAT | Agent / Agentic | 0/45 | ✅ | 5% | 0.32 | +63 | NO | yes | -0.32 | -0.32 |
+| 2026-08-13 | AMAT | Broadcom | 1/45 | ❌ | 5% | 0.36 | +59 | NO | yes | -0.36 | -0.36 |
+| 2026-08-13 | AMAT | Chiplet | 11/45 | ✅ | 27% | 0.55 | +18 | NO | yes | -0.55 | -0.55 |
+| 2026-08-13 | AMAT | EPIC Center | 9/45 | ✅ | 23% | 0.04 | +73 | NO | yes | -0.04 | -0.04 |
+| 2026-08-13 | AMAT | Epitaxy | 6/45 | ✅ | 17% | 0.50 | +33 | NO | yes | -0.50 | -0.50 |
+| 2026-08-13 | AMAT | EssilorLuxottica | 0/45 | ❌ | 3% | 0.51 | +46 | NO | no | +0.49 | +0.48 |
+| 2026-08-13 | AMAT | Hybrid Bonding | 14/45 | ✅ | 33% | 0.24 | +43 | NO | yes | -0.24 | -0.24 |
+| 2026-08-13 | AMAT | SCREEN | 25/45 | ❌ | 54% | 0.37 | +17 | YES | yes | +0.63 | +0.61 |
+| 2026-08-13 | AMAT | SENZ | 0/45 | ❌ | 3% | 0.43 | +54 | NO | no | +0.57 | +0.55 |
+| 2026-08-13 | AMAT | Singapore | 10/45 | ✅ | 25% | 0.23 | +52 | NO | yes | -0.23 | -0.23 |
+| 2026-08-13 | AMAT | Smart Glasses | 0/45 | ❌ | 3% | 0.46 | +51 | NO | no | +0.54 | +0.52 |
+| 2026-08-13 | AMAT | Supply Chain | 34/45 | ✅ | 74% | 0.04 | +22 | NO | yes | -0.04 | -0.04 |
 | 2026-08-13 | LUNR | AI / Artificial Intelligence | 2/11 | ❌ | 23% | 0.32 | +45 | NO | no | +0.68 | +0.66 |
 | 2026-08-13 | LUNR | Artemis III | 1/11 | ✅ | 23% | 0.63 | +14 | NO | no | +0.37 | +0.36 |
 | 2026-08-13 | LUNR | Artemis IV | 0/11 | ✅ | 17% | 0.64 | +19 | NO | yes | -0.64 | -0.64 |
@@ -1858,5 +1872,33 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-13 | YETI | Ranger | 3/28 | ✅ | 17% | 0.32 | +51 | NO | yes | -0.32 | -0.32 |
 | 2026-08-13 | YETI | Tailwind | 10/28 | ✅ | 39% | 0.15 | +24 | YES | yes | +0.85 | +0.82 |
 | 2026-08-13 | YETI | TikTok | 4/28 | ✅ | 20% | 0.56 | +24 | NO | no | +0.44 | +0.43 |
+| 2026-08-18 | AS | Foot Locker | 1/9 | ✅ | 27% | 0.16 | +57 | NO | yes | -0.16 | -0.16 |
+| 2026-08-18 | AS | Norvan | 3/9 | ✅ | 42% | 0.24 | +34 | NO | yes | -0.24 | -0.24 |
+| 2026-08-18 | AS | Oil | 0/9 | ✅ | 20% | 0.66 | +14 | NO | no | +0.34 | +0.33 |
+| 2026-08-18 | AS | Olympic / Olympics | 7/9 | ❌ | 64% | 0.12 | +52 | YES | yes | +0.88 | +0.85 |
+| 2026-08-18 | AS | Pickleball | 4/9 | ❌ | 42% | 0.17 | +25 | YES | no | -0.17 | -0.17 |
+| 2026-08-18 | AS | REI | 5/9 | ✅ | 57% | 0.27 | +16 | NO | no | +0.73 | +0.71 |
+| 2026-08-18 | AS | Section 122 | 0/9 | ✅ | 20% | 0.55 | +25 | NO | no | +0.45 | +0.44 |
+| 2026-08-18 | AS | Supreme Court | 1/9 | ✅ | 27% | 0.55 | +18 | NO | no | +0.45 | +0.44 |
+| 2026-08-18 | AS | Tariff | 6/9 | ✅ | 64% | 0.06 | +30 | NO | yes | -0.06 | -0.06 |
+| 2026-08-18 | AS | Waterproof | 3/9 | ❌ | 34% | 0.17 | +17 | YES | no | -0.17 | -0.17 |
+| 2026-08-18 | AS | Wimbledon | 0/9 | ❌ | 12% | 0.69 | +19 | NO | yes | -0.69 | -0.69 |
+| 2026-08-18 | HD | Competition | 13/63 | ✅ | 23% | 0.65 | +12 | NO | no | +0.35 | +0.34 |
+| 2026-08-18 | HD | Inflation | 54/63 | ❌ | 83% | 0.61 | +22 | YES | no | -0.61 | -0.61 |
+| 2026-08-18 | HD | Lumber | 59/63 | ❌ | 90% | 0.69 | +21 | YES | yes | +0.31 | +0.30 |
+| 2026-08-18 | HD | Storm | 38/63 | ✅ | 60% | 0.25 | +15 | NO | yes | -0.25 | -0.25 |
+| 2026-08-18 | HD | Synergy | 4/63 | ❌ | 8% | 0.64 | +28 | NO | no | +0.36 | +0.35 |
+| 2026-08-18 | HD | Tariff | 15/63 | ✅ | 26% | 0.11 | +63 | NO | yes | -0.11 | -0.11 |
+| 2026-08-18 | HD | Volatility | 12/63 | ❌ | 20% | 0.60 | +20 | NO | yes | -0.60 | -0.60 |
+| 2026-08-18 | KLAR | AI / Artificial Intelligence | 3/3 | ❌ | 58% | 0.28 | +14 | NO | no | +0.72 | +0.70 |
+| 2026-08-18 | KLAR | Banking License | 0/3 | ❌ | 22% | 0.28 | +50 | NO | no | +0.72 | +0.70 |
+| 2026-08-18 | KLAR | Delinquency | 2/3 | ✅ | 63% | 0.20 | +17 | NO | yes | -0.20 | -0.20 |
+| 2026-08-18 | KLAR | Gemini | 0/3 | ✅ | 39% | 0.44 | +17 | NO | no | +0.56 | +0.54 |
+| 2026-08-18 | KLAR | Headwind | 1/3 | ✅ | 51% | 0.25 | +26 | YES | yes | +0.75 | +0.73 |
+| 2026-08-18 | KLAR | Inflation | 0/3 | ❌ | 22% | 0.55 | +23 | NO | no | +0.45 | +0.44 |
+| 2026-08-18 | KLAR | JP Morgan Payment | 0/3 | ✅ | 39% | 0.37 | +24 | NO | yes | -0.37 | -0.37 |
+| 2026-08-18 | KLAR | PriceRunner | 0/3 | ❌ | 22% | 0.30 | +48 | NO | no | +0.70 | +0.68 |
+| 2026-08-18 | KLAR | Southwest Airlines | 0/3 | ❌ | 22% | 0.54 | +24 | NO | no | +0.46 | +0.45 |
+| 2026-08-18 | KLAR | Walmart | 3/3 | ✅ | 75% | 0.60 | +15 | YES | yes | +0.40 | +0.39 |
 
 *Prior = calls that said the word / prior calls on record. Last = the most recent pre-event call said the word (✅) or not (❌) — it drives the baseline's transition prior (0.67 vs 0.243).*
