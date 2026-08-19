@@ -278,4 +278,25 @@ const transcriptRefreshWorker = new Worker(
   { connection, concurrency: workerConfig.transcriptRefreshConcurrency, lockDuration: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000 },
 );
 
-console.log("[worker] BullMQ worker started — listening on run-client, log-sync, scheduling-loop, transcript-refresh");
+// Daily social post-history backfill (scripts/fetch_social_all.py): fetch X
+// history for every figure in social/handles.json. Resumable and error-tolerant
+// per handle, so long runs can be retried. Long lock: full backfills for
+// prolific accounts take hours.
+const socialFetchWorker = new Worker(
+  "social-fetch",
+  async (job) => {
+    const usage = cpuUsage();
+    if (usage > CPU_THRESHOLD) {
+      const delayMin = RESCHEDULE_DELAY_MS / 60000;
+      const msg = `Rescheduling social fetch in ${delayMin}m: CPU load ${(usage * 100).toFixed(0)}% > ${(CPU_THRESHOLD * 100).toFixed(0)}%`;
+      console.log(`[worker] ${msg}`);
+      job.log(msg);
+      await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
+      return;
+    }
+    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_social_all.py`, job);
+  },
+  { connection, concurrency: workerConfig.socialFetchConcurrency, lockDuration: workerConfig.socialFetchLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.socialFetchLockDurationMinutes * 60 * 1000 },
+);
+
+console.log("[worker] BullMQ worker started — listening on run-client, log-sync, scheduling-loop, transcript-refresh, social-fetch");

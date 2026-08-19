@@ -10,7 +10,7 @@ for (const line of bashrcEnv.split("\n")) {
   if (eq > 0) process.env[line.slice(0, eq)] = line.slice(eq + 1);
 }
 
-const { connection, schedulingLoopQueue, transcriptRefreshQueue } = require("./lib/queues");
+const { connection, schedulingLoopQueue, transcriptRefreshQueue, socialFetchQueue } = require("./lib/queues");
 const { sendTelegram } = require("./lib/telegram");
 
 const PYTHON = "/home/nathan/.pyenv/shims/python";
@@ -83,6 +83,23 @@ async function start() {
     "transcript-refresh",
     {},
     { repeat: { pattern: "23 * * * *" }, jobId: "transcript-refresh-hourly" },
+  );
+
+  // 3c. Daily social post-history backfill: fetch X history for every figure
+  // in social/handles.json (resumable — re-runs only add new posts, so a
+  // daily tick slowly backfills full histories without hammering X)
+  console.log("Registering daily social fetch (:47)...");
+  const socialRepeatables = await socialFetchQueue.getRepeatableJobs();
+  for (const r of socialRepeatables) {
+    if (r.name === "social-fetch") {
+      console.log(`Removing stale social-fetch repeatable: ${r.key}`);
+      await socialFetchQueue.removeRepeatableByKey(r.key);
+    }
+  }
+  await socialFetchQueue.add(
+    "social-fetch",
+    {},
+    { repeat: { pattern: "47 5 * * *" }, jobId: "social-fetch-daily" },
   );
 
   // 4. Set initial next-scrape time in Redis and begin the Redis-driven loop

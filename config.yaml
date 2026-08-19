@@ -30,10 +30,12 @@ worker:
   logSyncLockDurationMinutes: 10
   schedulingLoopLockDurationMinutes: 10
   transcriptRefreshLockDurationMinutes: 180
+  socialFetchLockDurationMinutes: 720
   runClientConcurrency: 5
   logSyncConcurrency: 1
   schedulingLoopConcurrency: 1
   transcriptRefreshConcurrency: 1
+  socialFetchConcurrency: 1
 
 # ── Child process supervision ────────────────────────────────────────────
 supervisor:

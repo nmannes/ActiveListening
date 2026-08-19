@@ -131,7 +131,7 @@ def register_x_account(cookies, username: str) -> None:
     from twscrape import API
 
     api = API()
-    if isinstance(cookies, dict):
+    if isinstance(cookies, (dict, list)):
         cookies = json.dumps(cookies)
 
     async def run():
@@ -144,8 +144,12 @@ def x_accounts() -> List[Dict]:
     from twscrape import API
 
     api = API()
-    return [{"username": a.username, "active": a.active,
-             "error_msg": a.error_msg} for a in api.pool.get_all()]
+
+    async def run():
+        return [{"username": a.username, "active": a.active,
+                 "error_msg": a.error_msg} for a in await api.pool.get_all()]
+
+    return asyncio.run(run())
 
 
 def x_status(handle: str) -> Dict:
