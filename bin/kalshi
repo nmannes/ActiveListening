@@ -46,7 +46,9 @@ def node(script, *args):
 
 
 def python(script, *args):
-    return run([sys.executable, str(ROOT / script)] + list(args))
+    if not script.startswith("-"):  # "-m module" style invocations are not scripts
+        script = str(ROOT / script)
+    return run([sys.executable, script] + list(args))
 
 
 def bash(script, *args):
