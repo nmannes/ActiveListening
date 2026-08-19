@@ -21,6 +21,9 @@ lookahead:
 
 # ── BullMQ worker ────────────────────────────────────────────────────────
 worker:
+  # Pause run-client jobs live (no restart needed):
+  #   redis-cli SET kalshi:run_client_paused 1   # pause — record matches only
+  #   redis-cli DEL kalshi:run_client_paused     # resume normal EC2 listening
   cpuThreshold: 0.5
   rescheduleDelayMinutes: 30
   runClientLockDurationHours: 3.5

@@ -59,6 +59,30 @@ function parseDeployResult(stdout) {
 const runClientWorker = new Worker(
   "run-client",
   async (job) => {
+    // Pause switch: when set (redis-cli SET kalshi:run_client_paused 1), record
+    // the match instead of launching an EC2 instance and listening.
+    if (await connection.get("kalshi:run_client_paused")) {
+      const { marketFile, duration, browser, slug } = job.data;
+      let market = {};
+      try {
+        market = JSON.parse(fs.readFileSync(marketFile, "utf8"));
+      } catch (e) { /* market file may be stale/missing — record what we have */ }
+      const line = JSON.stringify({
+        ts: new Date().toISOString(),
+        slug,
+        marketFile,
+        duration,
+        browser,
+        title: market.title || "",
+        eventStartTime: market.eventStartTime || "",
+      }) + "\n";
+      fs.appendFileSync(path.join(SCRIPT_DIR, "data", "skipped_run_client.jsonl"), line);
+      const msg = `[paused] Match recorded, client run skipped: ${slug}`;
+      console.log(`[worker] ${msg}`);
+      job.log(msg);
+      return;
+    }
+
     const { marketFile, duration, browser, slug, shutdownMinutes } = job.data;
 
     // Verify the event date matches today's date in Eastern time
