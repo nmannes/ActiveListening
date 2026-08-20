@@ -1,4 +1,5 @@
 const fs = require("fs");
+const path = require("path");
 const os = require("os");
 const { Worker } = require("bullmq");
 const { exec } = require("child_process");
