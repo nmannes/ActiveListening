@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { Worker } = require("bullmq");
-const { exec } = require("child_process");
+const { exec, spawn: spawnProcess } = require("child_process");
 const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { connection } = require("./lib/queues");
@@ -24,6 +24,53 @@ async function spawn(command, job) {
     console.error(`[worker] [${jobId}] Command failed: ${msg}`);
     throw e;
   }
+}
+
+// Stream a child process's output into the BullMQ job log so the Bull Board
+// shows live progress, and parse marker lines into job.updateProgress().
+async function spawnWithLogs(command, job, { progressRe, totalRe } = {}) {
+  const jobId = job.id || "unknown";
+  console.log(`[worker] [${jobId}] Executing: ${command}`);
+  return new Promise((resolve, reject) => {
+    const child = spawnProcess(command, { cwd: SCRIPT_DIR, shell: true });
+    let buf = "";
+    let total = null;
+    const recent = [];
+    const onData = (chunk) => {
+      buf += chunk;
+      const lines = buf.split("\n");
+      buf = lines.pop();
+      for (const raw of lines) {
+        const line = raw.replace(/\r$/, "");
+        if (!line.trim()) continue;
+        recent.push(line);
+        if (recent.length > 50) recent.shift();
+        job.log(line).catch(() => {});
+        if (totalRe) {
+          const m = line.match(totalRe);
+          if (m) total = parseInt(m[1]);
+        }
+        if (progressRe) {
+          const m = line.match(progressRe);
+          if (m && total) {
+            job.updateProgress(Math.min(parseInt(m[1]) / total, 1)).catch(() => {});
+          }
+        }
+      }
+    };
+    child.stdout.on("data", onData);
+    child.stderr.on("data", onData);
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(
+          `Command failed (exit ${code}${signal ? `, signal ${signal}` : ""}): ${command}\n--- last output ---\n${recent.join("\n")}`
+        ));
+      }
+    });
+  });
 }
 
 async function spawnCapture(command) {
@@ -295,7 +342,23 @@ const socialFetchWorker = new Worker(
       await job.moveToDelayed(Date.now() + RESCHEDULE_DELAY_MS);
       return;
     }
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/fetch_social_all.py`, job);
+    const d = job.data || {};
+    const opts = [
+      d.handle ? `--handle ${d.handle}` : null,
+      d.maxSeconds ? `--max-seconds ${d.maxSeconds}` : null,
+      d.minDate ? `--min-date ${d.minDate}` : null,
+      d.maxPosts ? `--max-posts ${d.maxPosts}` : null,
+    ].filter(Boolean).join(" ");
+    const command = `PYTHONPATH=. ${PYTHON} scripts/fetch_social_all.py${opts ? " " + opts : ""}`;
+    job.log(`Running: ${command}`);
+    await spawnWithLogs(
+      command,
+      job,
+      {
+        totalRe: /^\[social-fetch\] total_handles=(\d+)/,
+        progressRe: /^\[social-fetch\] \[(\d+)\/(\d+)\]/,
+      },
+    );
   },
   { connection, concurrency: workerConfig.socialFetchConcurrency, lockDuration: workerConfig.socialFetchLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.socialFetchLockDurationMinutes * 60 * 1000 },
 );

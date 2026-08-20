@@ -44,10 +44,22 @@ def main():
     ap.add_argument("--max-posts", type=int, default=1000,
                     help="Stop each handle once this many of its most recent "
                          "posts are on disk")
+    ap.add_argument("--handle", default=None,
+                    help="Fetch only this person (X username or name from "
+                         "social/handles.json)")
     args = ap.parse_args()
     handles = json.loads(HANDLES_FILE.read_text())
-    for name, handle in handles.items():
-        print(f"[social-fetch] {name} ({handle})", flush=True)
+    if args.handle:
+        want = args.handle.lower()
+        handles = {name: h for name, h in handles.items()
+                   if h.lower() == want or name.lower() == want}
+        if not handles:
+            print(f"[social-fetch] no handle matching '{args.handle}' "
+                  f"in {HANDLES_FILE}", flush=True)
+            sys.exit(1)
+    print(f"[social-fetch] total_handles={len(handles)}", flush=True)
+    for i, (name, handle) in enumerate(handles.items(), 1):
+        print(f"[social-fetch] [{i}/{len(handles)}] {name} ({handle})", flush=True)
         try:
             s = fetch_x_history(handle, max_seconds=args.max_seconds,
                                 min_date=args.min_date, max_posts=args.max_posts)
