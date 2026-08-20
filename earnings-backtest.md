@@ -1,6 +1,6 @@
 # Earnings Backtest
 
-Generated 2026-08-19
+Generated 2026-08-20
 
 ## Strategy
 
@@ -8,10 +8,10 @@ For each finalized word market: baseline P from transcripts of calls before the 
 
 ## Coverage
 
-- 5174 finalized markets with history fetched
-- 4853 with a price ~24h before resolution
-- 2543 with a transcript baseline (pre-event calls)
-- 2529 tradable (both price and baseline)
+- 5205 finalized markets with history fetched
+- 4884 with a price ~24h before resolution
+- 2574 with a transcript baseline (pre-event calls)
+- 2560 tradable (both price and baseline)
 - fee: 3% on profit
 
 ## Threshold sweep (min |gap|)
@@ -20,13 +20,13 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 
 | Min \|gap\| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
 |---|---|---|---|---|---|---|---|---|---|
-| 0.00 | 2529 | 1159 | 46% | +141.62 | +126.15 | 621 / 273 / +11.30 | 1908 / 886 / +114.85 | -123.39 | +96.70 |
-| 0.05 | 2109 | 959 | 45% | +147.33 | +133.59 | 437 / 190 / +14.57 | 1672 / 769 / +119.02 | -122.35 | +99.29 |
-| 0.10 | 1761 | 756 | 43% | +118.85 | +107.27 | 327 / 132 / +11.88 | 1434 / 624 / +95.39 | -99.17 | +79.57 |
-| 0.15 | 1479 | 578 | 39% | +86.13 | +76.58 | 253 / 97 / +8.76 | 1226 / 481 / +67.82 | -72.45 | +55.94 |
-| 0.20 | 1236 | 456 | 37% | +74.88 | +66.87 | 166 / 59 / +5.43 | 1070 / 397 / +61.44 | -67.74 | +53.97 |
-| 0.25 | 1038 | 359 | 35% | +62.58 | +55.96 | 115 / 39 / +4.00 | 923 / 320 / +51.96 | -57.99 | +46.62 |
-| 0.30 | 866 | 278 | 32% | +52.13 | +46.75 | 67 / 22 / +4.71 | 799 / 256 / +42.04 | -45.78 | +36.59 |
+| 0.00 | 2560 | 1170 | 46% | +141.43 | +125.79 | 633 / 278 / +12.11 | 1927 / 892 / +113.68 | -121.56 | +94.53 |
+| 0.05 | 2133 | 968 | 45% | +148.27 | +134.39 | 446 / 194 / +15.74 | 1687 / 774 / +118.65 | -120.94 | +97.63 |
+| 0.10 | 1783 | 765 | 43% | +120.56 | +108.84 | 334 / 136 / +13.81 | 1449 / 629 / +95.03 | -96.99 | +77.16 |
+| 0.15 | 1499 | 586 | 39% | +87.15 | +77.49 | 258 / 100 / +10.03 | 1241 / 486 / +67.46 | -70.93 | +54.22 |
+| 0.20 | 1252 | 460 | 37% | +74.10 | +66.03 | 169 / 60 / +5.37 | 1083 / 400 / +60.66 | -67.12 | +53.20 |
+| 0.25 | 1050 | 362 | 34% | +62.44 | +55.78 | 115 / 39 / +4.00 | 935 / 323 / +51.78 | -57.89 | +46.44 |
+| 0.30 | 874 | 278 | 32% | +50.71 | +45.33 | 67 / 22 / +4.71 | 807 / 256 / +40.62 | -44.40 | +35.17 |
 
 ## Per company (min |gap| 0.10)
 
@@ -50,7 +50,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | BA | 14 | 9 | +2.73 |
 | BAC | 27 | 9 | +0.77 |
 | BLK | 5 | 4 | +2.58 |
-| BULL | 9 | 3 | +0.01 |
+| BULL | 20 | 9 | +1.85 |
 | C | 16 | 4 | -0.64 |
 | CAR | 6 | 3 | +0.02 |
 | CAVA | 19 | 3 | -2.90 |
@@ -148,7 +148,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | WEN | 11 | 7 | +1.15 |
 | WFC | 31 | 10 | +0.74 |
 | WING | 14 | 7 | +1.08 |
-| WMT | 10 | 6 | +3.06 |
+| WMT | 21 | 9 | +2.79 |
 | YETI | 8 | 5 | +2.18 |
 | YOU | 12 | 7 | +1.56 |
 | YUM | 12 | 5 | +0.13 |
@@ -1353,6 +1353,17 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-07-24 | AXP | Regulation / Regulatory | 43/58 | ✅ | 73% | 0.28 | +45 | YES | no | -0.28 | -0.28 |
 | 2026-07-24 | AXP | Spending Trend | 24/58 | ❌ | 41% | 0.15 | +26 | YES | no | -0.15 | -0.15 |
 | 2026-07-24 | AXP | Millennial | 27/58 | ✅ | 47% | 0.12 | +41 | NO | yes | -0.12 | -0.12 |
+| 2026-07-24 | BULL | BlackRock | 3/4 | ❌ | 53% | 0.31 | +22 | YES | no | -0.31 | -0.31 |
+| 2026-07-24 | BULL | Kalshi | 3/4 | ❌ | 53% | 0.28 | +25 | YES | yes | +0.72 | +0.70 |
+| 2026-07-24 | BULL | MCP | 0/4 | ✅ | 33% | 0.27 | +40 | NO | yes | -0.27 | -0.27 |
+| 2026-07-24 | BULL | MiCAR | 0/4 | ❌ | 19% | 0.52 | +29 | NO | no | +0.48 | +0.47 |
+| 2026-07-24 | BULL | PDT / Pattern Day Trader | 0/4 | ✅ | 33% | 0.29 | +38 | NO | yes | -0.29 | -0.29 |
+| 2026-07-24 | BULL | Self Clearing | 0/4 | ❌ | 19% | 0.55 | +26 | NO | no | +0.45 | +0.44 |
+| 2026-07-24 | BULL | Tailwind | 2/4 | ✅ | 56% | 0.39 | +17 | YES | yes | +0.61 | +0.59 |
+| 2026-07-24 | BULL | Tampa Bay | 0/4 | ✅ | 33% | 0.21 | +12 | YES | yes | +0.79 | +0.77 |
+| 2026-07-24 | BULL | Thailand | 1/4 | ❌ | 30% | 0.39 | +31 | NO | yes | -0.39 | -0.39 |
+| 2026-07-24 | BULL | Token / Tokenized | 2/4 | ❌ | 41% | 0.24 | +17 | YES | yes | +0.76 | +0.74 |
+| 2026-07-24 | BULL | Vega (5+ times) | 0/4 | ❌ | 19% | 0.60 | +21 | NO | yes | -0.60 | -0.60 |
 | 2026-07-24 | VZ | 5G | 27/28 | ✅ | 92% | 0.71 | +21 | YES | no | -0.71 | -0.71 |
 | 2026-07-24 | VZ | C-Band | 23/28 | ❌ | 76% | 0.60 | +16 | YES | no | -0.60 | -0.60 |
 | 2026-07-24 | VZ | Home / MyHome | 26/28 | ✅ | 88% | 0.62 | +26 | YES | yes | +0.38 | +0.37 |
@@ -1919,5 +1930,16 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-19 | TGT | Roundel | 16/52 | ✅ | 33% | 0.12 | +55 | NO | yes | -0.12 | -0.12 |
 | 2026-08-19 | TGT | Synthetic Color | 3/52 | ✅ | 10% | 0.59 | +31 | NO | no | +0.41 | +0.40 |
 | 2026-08-19 | TGT | Tariff | 11/52 | ✅ | 24% | 0.21 | +55 | NO | yes | -0.21 | -0.21 |
+| 2026-08-20 | WMT | Automation | 26/59 | ✅ | 45% | 0.10 | +45 | NO | yes | -0.10 | -0.10 |
+| 2026-08-20 | WMT | Brick and Mortar | 2/59 | ❌ | 6% | 0.79 | +15 | NO | no | +0.21 | +0.20 |
+| 2026-08-20 | WMT | Competition / Competitor | 39/59 | ✅ | 66% | 0.45 | +21 | YES | no | -0.45 | -0.45 |
+| 2026-08-20 | WMT | Drone | 3/59 | ✅ | 9% | 0.63 | +28 | NO | no | +0.37 | +0.36 |
+| 2026-08-20 | WMT | Marketplace / Market Place | 43/59 | ✅ | 72% | 0.02 | +26 | NO | yes | -0.02 | -0.02 |
+| 2026-08-20 | WMT | Omnichannel | 25/59 | ✅ | 43% | 0.09 | +48 | NO | yes | -0.09 | -0.09 |
+| 2026-08-20 | WMT | Rollback / Roll Back | 24/59 | ✅ | 42% | 0.11 | +47 | NO | yes | -0.11 | -0.11 |
+| 2026-08-20 | WMT | SNAP / Food Stamp | 12/59 | ❌ | 21% | 0.10 | +11 | YES | no | -0.10 | -0.10 |
+| 2026-08-20 | WMT | Sparky | 3/59 | ✅ | 9% | 0.11 | +80 | NO | yes | -0.11 | -0.11 |
+| 2026-08-20 | WMT | Tariff | 33/59 | ✅ | 56% | 0.06 | +38 | NO | yes | -0.06 | -0.06 |
+| 2026-08-20 | WMT | Upper Income | 1/59 | ❌ | 4% | 0.78 | +18 | NO | no | +0.22 | +0.21 |
 
 *Prior = calls that said the word / prior calls on record. Last = the most recent pre-event call said the word (✅) or not (❌) — it drives the baseline's transition prior (0.67 vs 0.243).*
