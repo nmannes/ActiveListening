@@ -243,7 +243,11 @@ def fetch_x_history(handle: str, limit: int = 100_000, delay: float = 0.0,
                 newest = new_rows[0]["created_at"]
                 oldest = new_rows[-1]["created_at"]
         elif complete:
-            Path(str(path) + ".complete").touch()
+            # Only mark complete if posts are actually on disk; a rate-limited
+            # search returning nothing would otherwise poison the handle into
+            # permanent refresh mode with nothing to refresh.
+            if path.exists() and path.stat().st_size > 0:
+                Path(str(path) + ".complete").touch()
         return fetched, skipped, newest, oldest, capped, time.monotonic() - start
 
     fetched, skipped, newest, oldest, capped, elapsed = asyncio.run(run())

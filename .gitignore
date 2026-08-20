@@ -28,6 +28,7 @@ cache/
 
 all_historic_mentions.jsonl
 *.jsonl
+*.jsonl.complete
 backtest_data/
 
 market_tracking/
