@@ -44,7 +44,8 @@ STEPS = {
                      "--quarters", "100"],
     "watchlist": ["scripts/fetch_transcripts.py", "--watchlist",
                   "--quarters", "8"],
-    "history": ["scripts/fetch_market_history.py"],
+    "history": ["scripts/fetch_market_history.py", "--out",
+                "data/market_history_leads.jsonl"],
     "report": ["scripts/generate_earnings_report.py"],
     "backtest": ["scripts/backtest_earnings_report.py"],
 }

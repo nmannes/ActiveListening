@@ -3,16 +3,22 @@
 fetch_earnings_mentions.py — Collect Kalshi earnings-mention markets
 (word → yes/no ground truth for past earnings calls).
 
-Three sources, merged by event_ticker:
+Sources, merged by event_ticker:
   1. /series          — enumerate all KXEARNINGSMENTION* series (157 companies)
   2. /markets?series_ticker=...         — live markets (active + recently settled)
   3. /historical/markets?series_ticker= — settled markets older than the ~3-month
-     cutoff (2026-06-05). THIS is where pre-cutoff markets live — the live
-     endpoints return old events with empty markets (e.g. DIS-26MAY06). Old
-     events also use a day-less ticker format (KXEARNINGSMENTIONAAPL-25MAY),
-     so the historical markets are the ONLY source for 2025+ events.
-  4. /events (status=settled + archived=true, nested markets) — event metadata
-     (sub_title call dates, settlement_sources) for events in the live feed.
+     cutoff. THIS is where pre-cutoff markets live — the live endpoints
+     return old events with empty markets (e.g. DIS-26MAY06). Old events also
+     use a day-less ticker format (KXEARNINGSMENTIONAAPL-25MAY), so the
+     historical markets are the ONLY source for 2025+ events.
+  4. /events/{event_ticker} — per-event metadata (sub_title call dates,
+     settlement_sources). The paginated /events feed (status=settled /
+     archived=true) does NOT return earnings-mention events, so metadata is
+     fetched directly for each event ticker the market walks produced.
+
+The call date is parsed from sub_title ("On Oct 23, 2025") — authoritative;
+falling back to the event ticker suffix (-25OCT24 / day-less -25MAY → 1st of
+month) only when the event has no metadata.
 
 Output: data/earnings_mentions.jsonl — one event per line:
 {
@@ -42,9 +48,14 @@ PAGE_LIMIT = 1500
 API_PACE = 0.25  # seconds between requests
 RETRY_BACKOFF = [2, 5, 10]  # seconds between retries on 429/5xx/empty responses
 
-_SUB_TITLE_DATE_RE = re.compile(r"On ([A-Z][a-z]{2} \d{1,2}, \d{4})")
+# "On Oct 23, 2025" (abbreviated month) or "On October 23, 2025"
+_SUB_TITLE_DATE_RE = re.compile(r"On ([A-Z][a-z]{2,9} \d{1,2}, \d{4})")
 # new format: KXEARNINGSMENTIONDIS-26MAY06 ; old format: KXEARNINGSMENTIONAAPL-25MAY
-_TICKER_DATE_RE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})?-")
+# End-anchored: the date suffix is the last thing in the event ticker (an
+# earlier version required a trailing "-" that no real ticker has, which made
+# the ticker fallback dead code and silently nulled call dates whenever the
+# events feed had no metadata).
+_TICKER_DATE_RE = re.compile(r"-(\d{2})([A-Z]{3})(\d{2})?$")
 
 _MONTHS = {m: i + 1 for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"])}
@@ -103,7 +114,11 @@ def is_earnings(event: dict) -> bool:
 def parse_call_date(event: dict):
     m = _SUB_TITLE_DATE_RE.search(event.get("sub_title") or "")
     if m:
-        return datetime.strptime(m.group(1), "%b %d, %Y").date()
+        for fmt in ("%b %d, %Y", "%B %d, %Y"):
+            try:
+                return datetime.strptime(m.group(1), fmt).date()
+            except ValueError:
+                continue
     tm = _TICKER_DATE_RE.search(event.get("event_ticker") or "")
     if tm:
         yy = int(tm.group(1)) + 2000
@@ -177,23 +192,25 @@ def main():
                 if ev:
                     markets_by_event.setdefault(ev, []).append(m)
 
-    # 2. event metadata from the settled + archived event walks (bounded to
-    # the lookback window so the walk stops once events are older than it).
-    # min_close_ts is epoch seconds, not ISO — ISO strings get a 400.
+    # 2. per-event metadata. The paginated settled/archived /events feeds do
+    # not include earnings-mention events (verified: 0 across the feed), so
+    # fetch each market-derived event ticker directly — one paced GET each.
     min_close = (datetime.now() - timedelta(days=args.max_age_days)).date()
-    min_close_ts = int(datetime.combine(min_close, datetime.min.time())
-                       .replace(tzinfo=timezone.utc).timestamp())
-    events = []
-    for path, label in ((f"events?status=settled&min_close_ts={min_close_ts}", "settled"),
-                        (f"events?archived=true&min_close_ts={min_close_ts}", "archived")):
-        try:
-            events += walk_paged(path, label)
-        except Exception as e:
-            print(f"{label}: FAILED {e}")
+    tickers = sorted(markets_by_event)
     meta = {}
-    for e in events:
-        if is_earnings(e):
-            meta.setdefault(e.get("event_ticker"), e)
+    n_fail = 0
+    for i, t in enumerate(tickers, 1):
+        try:
+            e = (api_get(f"events/{t}") or {}).get("event") or {}
+        except Exception:
+            e = {}
+        if e.get("event_ticker"):
+            meta[t] = e
+        elif not e:
+            n_fail += 1
+        if i % 50 == 0 or i == len(tickers):
+            print(f"metadata: {i}/{len(tickers)} events "
+                  f"({len(meta)} with data, {n_fail} 404/empty)", flush=True)
 
     cutoff = datetime.now().date() - timedelta(days=args.max_age_days)
     n_markets = n_results = 0

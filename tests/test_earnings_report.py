@@ -134,7 +134,7 @@ def test_report_structure(tmp_path, monkeypatch):
     monkeypatch.setattr(report, "upcoming_markets", lambda: {
         "SPOT": {"words": ["Churn", "Margin"],
                  "title": "What will Spotify say during their next earnings call?",
-                 "event_date": "2026-09-01"},
+                 "event_date": "2027-01-15"},
         "TOST": {"words": ["Restaurants"],
                  "title": "What will Toast say during their next earnings call?",
                  "event_date": None},
@@ -157,7 +157,7 @@ def test_report_structure(tmp_path, monkeypatch):
 
     # company with transcripts: full table
     assert "## Spotify (SPOT)" in text
-    assert "**Upcoming event:** 2026-09-01" in text
+    assert "**Upcoming event:** 2027-01-15" in text
     assert "| Churn | 2/2 | 71% | $0.60 | **Strong YES** |" in text
     assert "| Margin | 0/2 | 25% | - | **Unlikely** |" in text
 
@@ -173,9 +173,9 @@ def test_report_merges_market_slug_aliases(tmp_path, monkeypatch):
     cache = tmp_path / "markets.json"
     cache.write_text(json.dumps([{
         "title": "What will Spotify say during their next earnings call?",
-        "keywords": {"autonomous": "KXEARNINGSMENTIONSPOT-26SEP01-AUTO",
-                     "automation": "KXEARNINGSMENTIONSPOT-26SEP01-AUTO",
-                     "churn": "KXEARNINGSMENTIONSPOT-26SEP01-CHUR"},
+        "keywords": {"autonomous": "KXEARNINGSMENTIONSPOT-27JAN15-AUTO",
+                     "automation": "KXEARNINGSMENTIONSPOT-27JAN15-AUTO",
+                     "churn": "KXEARNINGSMENTIONSPOT-27JAN15-CHUR"},
     }]))
     monkeypatch.setattr(report, "TRANSCRIPTS_DIR", tdir)
     monkeypatch.setattr(report, "_MARKET_CACHE_FILES", [str(cache)])
@@ -195,12 +195,12 @@ def test_event_call_transcript_cannot_leak_into_baseline(tmp_path, monkeypatch):
     baseline — it would mean predicting the call from the call itself."""
     tdir = tmp_path / "transcripts"
     calls = SPOT_CALLS + [make_transcript(
-        "SPOT", "Spotify", "2026-09-01", 3, 2026,
+        "SPOT", "Spotify", "2027-01-15", 3, 2026,
         [("Alex Norström", "the answer is churn and nothing else")])]
     write_transcripts(tdir, {"SPOT": calls})
     monkeypatch.setattr(report, "TRANSCRIPTS_DIR", tdir)
     monkeypatch.setattr(report, "upcoming_markets", lambda: {
-        "SPOT": {"words": ["Churn"], "title": "t", "event_date": "2026-09-01"}})
+        "SPOT": {"words": ["Churn"], "title": "t", "event_date": "2027-01-15"}})
     monkeypatch.setattr(report, "fetch_live_prices", lambda codes: {})
 
     text, _, _, _ = report.build_report()

@@ -3,10 +3,11 @@
 fetch_market_history.py — Historical prices for finalized earnings-mention markets.
 
 For every finalized market in data/earnings_mentions.jsonl, fetch hourly
-candlesticks over the 30 days before its close_time and record the last
-traded YES price ~24h before resolution (close_time − 86400s). That is the
-entry price a backtest would trade at — the last price before the earnings
-call made trading impractical.
+candlesticks over the days before its close_time and record the last traded
+YES price at each entry lead in LEAD_HOURS (default: 96h, 72h, 48h, 36h,
+24h, 18h, 12h, 6h, 3h, 1h before resolution). A backtest can then evaluate
+the same strategy at any entry time; the 24h lead is the historical default
+(the last price before the earnings call made trading impractical).
 
 Candlesticks come from two endpoints split at /historical/cutoff
 (market_settled_ts): markets closed before the cutoff live on
@@ -23,19 +24,23 @@ latency — and the retry backoff absorbs the residual 429s.
 Output: data/market_history.jsonl — one market per line:
 {ticker, event_ticker, series_ticker, code, word, result, close_time_iso,
  target_ts, price_24h, price_ts, fallback, yes_ask_24h, yes_bid_24h,
- n_candles, endpoint}
+ n_candles, endpoint, plus for every lead L: price_<L>h, ts_<L>h,
+ yes_ask_<L>h, yes_bid_<L>h, fallback_<L>h}
 
 Resumable: markets already present in the output file are skipped (each
 line is written immediately after its fetch, so a crash loses at most the
-in-flight batch).
+in-flight batch). Use a fresh --out path (or truncate) to re-sample more
+leads — existing rows are never rewritten.
 
 Usage:
     PYTHONPATH=. python scripts/fetch_market_history.py
     PYTHONPATH=. python scripts/fetch_market_history.py --limit 5 --workers 4
+    PYTHONPATH=. python scripts/fetch_market_history.py --out data/market_history_leads.jsonl
 """
 
 import argparse
 import json
+import math
 import sys
 import threading
 import time
@@ -54,11 +59,16 @@ ROOT = Path(__file__).resolve().parent.parent
 MENTIONS = ROOT / "data" / "earnings_mentions.jsonl"
 OUT_FILE = ROOT / "data" / "market_history.jsonl"
 
-WINDOW_DAYS = 3         # candle window before close_time; the staleness guard
-                        # discards candles older than target − 36h anyway, so
-                        # 3 days covers everything pick_price_24h can use
-TARGET_LEAD_H = 24      # price 24h before resolution
+# Entry leads sampled per market: the price of the last hourly candle at or
+# before close_time − LEAD_HOURS[i] (staleness guard below). 24h is the
+# historical default entry the backtests trade at; the others exist so the
+# edge can be measured at any time before resolution.
+LEAD_HOURS = [96, 72, 48, 36, 24, 18, 12, 6, 3, 1]
+TARGET_LEAD_H = 24      # price 24h before resolution (legacy default lead)
 MAX_STALE_H = 36        # discard prices whose trade is > 36h older than the target
+WINDOW_DAYS = max(3, math.ceil((max(LEAD_HOURS) + MAX_STALE_H) / 24))
+                        # candle window before close_time; covers the deepest
+                        # lead plus its staleness allowance
 RETRY_BACKOFF = [2, 5, 10]
 PACE = 0.25             # minimum seconds between request starts, globally
                         # (measured: the endpoint sustains ~4-5 req/s; faster
@@ -202,11 +212,13 @@ def _to_float(v) -> Optional[float]:
         return None
 
 
-def pick_price_24h(candles: List[dict], target_ts: int, dollars: bool) -> dict:
+def pick_price_at(candles: List[dict], target_ts: int, dollars: bool) -> dict:
     """Last traded close at or before target_ts (defaulting to the previous
     close when a candle has no trades), with a staleness guard.
 
-    Returns {price_24h, price_ts, fallback, yes_ask_24h, yes_bid_24h, n_candles}.
+    Generic over the entry lead: target_ts = close_time − lead, so the same
+    candle window yields the price at any horizon. Returns {price, ts, ask,
+    bid, fallback, n_candles}.
     """
     chosen_ts = chosen_close = chosen_prev = chosen_ask = chosen_bid = None
     n_candles = 0
@@ -223,17 +235,26 @@ def pick_price_24h(candles: List[dict], target_ts: int, dollars: bool) -> dict:
             chosen_bid = _to_float(bid)
 
     if chosen_ts is None:
-        return {"price_24h": None, "price_ts": None, "fallback": False,
-                "yes_ask_24h": None, "yes_bid_24h": None, "n_candles": 0}
+        return {"price": None, "ts": None, "fallback": False,
+                "ask": None, "bid": None, "n_candles": 0}
 
     price, fallback = chosen_close, False
     if price is None:
         price, fallback = chosen_prev, True
     if price is None or chosen_ts < target_ts - MAX_STALE_H * 3600:
         price = None
-    return {"price_24h": price, "price_ts": chosen_ts, "fallback": fallback,
-            "yes_ask_24h": chosen_ask, "yes_bid_24h": chosen_bid,
+    return {"price": price, "ts": chosen_ts, "fallback": fallback,
+            "ask": chosen_ask, "bid": chosen_bid,
             "n_candles": n_candles}
+
+
+def pick_price_24h(candles: List[dict], target_ts: int, dollars: bool) -> dict:
+    """Legacy wrapper around pick_price_at with the 24h-lead field names
+    (kept for the tests and any consumer of the original schema)."""
+    o = pick_price_at(candles, target_ts, dollars)
+    return {"price_24h": o["price"], "price_ts": o["ts"],
+            "fallback": o["fallback"], "yes_ask_24h": o["ask"],
+            "yes_bid_24h": o["bid"], "n_candles": o["n_candles"]}
 
 
 def load_mentions(path: Path) -> tuple:
@@ -270,12 +291,18 @@ def existing_tickers(path: Path) -> set:
 
 
 def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dict:
-    """Candlesticks + 24h-before price for one market (no I/O side effects)."""
+    """Candlesticks + per-lead prices for one market (no I/O side effects)."""
     code = (m["series_ticker"] or "").replace("KXEARNINGSMENTION", "")
     record = {**m, "code": code, "close_time_iso": None, "target_ts": None,
               "price_24h": None, "price_ts": None, "fallback": False,
               "yes_ask_24h": None, "yes_bid_24h": None, "n_candles": 0,
               "endpoint": None}
+    for lead in LEAD_HOURS:
+        record[f"price_{lead}h"] = None
+        record[f"ts_{lead}h"] = None
+        record[f"yes_ask_{lead}h"] = None
+        record[f"yes_bid_{lead}h"] = None
+        record[f"fallback_{lead}h"] = False
     meta_row = meta.get(m["ticker"])
     close_iso = meta_row.get("close_time") if meta_row else None
     if not close_iso:
@@ -291,7 +318,21 @@ def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dic
                 f"&end_ts={int(close_ts)}&period_interval=60"
         data = _fetch(query)
         candles = (data or {}).get("candlesticks") or []
-        record.update(pick_price_24h(candles, record["target_ts"], not historical))
+        n_24 = 0
+        for lead in LEAD_HOURS:
+            target = int(close_ts - lead * 3600)
+            o = pick_price_at(candles, target, not historical)
+            record[f"price_{lead}h"] = o["price"]
+            record[f"ts_{lead}h"] = o["ts"]
+            record[f"yes_ask_{lead}h"] = o["ask"]
+            record[f"yes_bid_{lead}h"] = o["bid"]
+            record[f"fallback_{lead}h"] = o["fallback"]
+            if lead == 24:
+                n_24 = o["n_candles"]
+        # legacy 24h aliases (price/ask/bid already set by the loop above)
+        record["price_ts"] = record["ts_24h"]
+        record["fallback"] = record["fallback_24h"]
+        record["n_candles"] = n_24
     except Exception:
         pass  # leave the record with null price fields; resume will skip it
     return record

@@ -3,11 +3,12 @@
 backtest_earnings_report.py — Backtest the earnings-report gap strategy.
 
 For every finalized earnings-mention market with (a) a transcript baseline
-computed from calls BEFORE the event and (b) a last traded price ~24h before
-resolution (data/market_history.jsonl): bet the side that is undervalued
-relative to the baseline — YES when baseline > YES price, NO when
-1 − baseline > NO price — and settle at the actual resolution result.
-Markets where neither side is undervalued are skipped.
+computed from calls BEFORE the event and (b) an entry price sampled at a
+lead of L hours before resolution (default L=24; data/market_history_leads.
+jsonl holds price_<L>h at leads 96/72/48/36/24/18/12/6/3/1): bet the side
+that is undervalued relative to the baseline — YES when baseline > YES
+price, NO when 1 − baseline > NO price — and settle at the actual
+resolution result. Markets where neither side is undervalued are skipped.
 
 The baseline uses only transcripts dated before the event's call date (no
 lookahead); the latest pre-event call counts as "said last call".
@@ -48,7 +49,12 @@ from pylib.word_presence import load_presence, save_presence  # noqa: E402
 from scripts.fetch_market_history import MENTIONS, OUT_FILE  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-HISTORY_FILE = OUT_FILE
+# Enriched per-lead history (data/market_history_leads.jsonl) supersedes the
+# legacy single-lead file when it exists; the refresh pipeline fetches into
+# the leads file, so the default tracks it and falls back to the old file.
+HISTORY_FILE = ROOT / "data" / "market_history_leads.jsonl"
+if not HISTORY_FILE.exists():
+    HISTORY_FILE = OUT_FILE
 OUT_REPORT = ROOT / "earnings-backtest.md"
 
 SWEEP_THRESHOLDS = [0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
@@ -120,24 +126,27 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
              call_dates: Dict[str, str], fee_rate: float,
              use_ask: bool, max_price: Optional[float] = None,
              presence: Optional[dict] = None,
-             calibrator=None, collect: bool = False) -> tuple:
+             calibrator=None, collect: bool = False,
+             lead: int = 24) -> tuple:
     """Tradable candidates + coverage counts. Side = the one whose edge
     (calibrated baseline vs its executable price: YES ask for YES, NO ask =
     1 − YES bid for NO) is positive and larger; trades with no positive edge
     on either side are skipped, and trades whose chosen side costs more than
     max_price are excluded. Threshold filtering happens in the sweep so one
-    pass covers all thresholds. `calibrator` maps the raw baseline to a
-    recalibrated probability before edges are computed. With `collect=True`
-    the raw (p, result, close date) of every baselined market is returned as
-    a third element so a calibrator can be fit on a date slice. `presence`
-    serves word-presence vectors from the disk cache (pylib/word_presence)
-    instead of rescanning transcript text."""
+    pass covers all thresholds. `lead` is the entry horizon: the price field
+    used is price_{lead}h / yes_ask_{lead}h / yes_bid_{lead}h — the last
+    traded hourly candle at or before close − lead. `calibrator` maps the
+    raw baseline to a recalibrated probability before edges are computed.
+    With `collect=True` the raw (p, result, close date) of every baselined
+    market is returned as a third element so a calibrator can be fit on a
+    date slice. `presence` serves word-presence vectors from the disk cache
+    (pylib/word_presence) instead of rescanning transcript text."""
     trades: List[dict] = []
     candidates: List[tuple] = []
     coverage = {"n_history": len(history), "n_price": 0, "n_baseline": 0,
                 "n_tradable": 0, "n_old_format": 0, "n_capped": 0}
     for r in history:
-        price = r.get("price_24h")
+        price = r.get(f"price_{lead}h")
         if price is None:
             continue
         coverage["n_price"] += 1
@@ -168,10 +177,12 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
         yes_cost = price
         no_cost = round(1.0 - price, 2)
         if use_ask:
-            if r.get("yes_ask_24h") is not None:
-                yes_cost = r["yes_ask_24h"]
-            if r.get("yes_bid_24h") is not None:
-                no_cost = round(1.0 - r["yes_bid_24h"], 2)
+            ask = r.get(f"yes_ask_{lead}h")
+            bid = r.get(f"yes_bid_{lead}h")
+            if ask is not None:
+                yes_cost = ask
+            if bid is not None:
+                no_cost = round(1.0 - bid, 2)
 
         edge_yes = p - yes_cost          # P − YES price
         edge_no = (1.0 - p) - no_cost    # (1−P) − NO price
@@ -228,7 +239,9 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
            cutoff_iso: str = DEFAULT_CUTOFF, cal_rows: Optional[List[dict]] = None,
            holdout: Optional[List[dict]] = None,
            split_cov: Optional[dict] = None,
-           calibrate: bool = False) -> str:
+           calibrate: bool = False,
+           lead: int = 24,
+           lead_rows: Optional[List[dict]] = None) -> str:
     cal_note = (" then recalibrated by an isotonic fit of P(word said) vs "
                 "realized outcomes on markets closing before the holdout "
                 "cutoff (no lookahead past it). The "
@@ -244,17 +257,19 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
              "",
              f"For each finalized word market: a transcript baseline P is "
              f"computed from calls before the event{cal_note}"
-             "baseline is compared to the executable price ~24h before the "
-             "market resolved (the YES ask, or last trade without orderbook "
-             "data). Bet the undervalued side: YES when baseline > YES price, "
-             "NO when 1 − baseline > NO price; skip when neither side is "
-             "undervalued; settle at the actual resolution. Gap = edge on the "
-             "chosen side.",
+             f"baseline is compared to the executable price at the "
+             f"{lead}h-before-close lead (the last traded hourly candle at or "
+             f"before close − {lead}h; the YES ask/bid where orderbook data "
+             f"exists). Bet the undervalued side: YES when baseline > YES "
+             "price, NO when 1 − baseline > NO price; skip when neither side "
+             "is undervalued; settle at the actual resolution. Gap = edge on "
+             "the chosen side.",
              "",
              "## Coverage",
              "",
              f"- {coverage['n_history']} finalized markets with history fetched",
-             f"- {coverage['n_price']} with a price ~24h before resolution",
+             f"- {coverage['n_price']} with a price at the {lead}h lead "
+             "(close − {lead}h)",
              f"- {coverage['n_baseline']} with a transcript baseline (pre-event calls)",
              f"- {coverage['n_tradable']} tradable (both price and baseline)"]
     if max_price is not None:
@@ -332,6 +347,29 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
                          f"{r['wins']} | {wr} | {r['net']:+.2f} |")
         lines.append("")
 
+    if lead_rows:
+        lines += ["## Edge by entry time (raw baseline, min |gap| 0.10)",
+                  "",
+                  f"Same strategy entered at different horizons: at each lead "
+                  f"the entry price is the last traded hourly candle at or "
+                  f"before close − lead hours (markets that were not live or "
+                  f"untraded that far out have no price and drop out — see "
+                  f"With price). Train/test are the temporal split above "
+                  f"(closing before/after {cutoff_iso}); test is "
+                  "out-of-sample. The headline rows are lead 24h.",
+                  "",
+                  "| Lead (h) | With price | Tradable | Train trades | Train net | "
+                  "Test trades | Test wins | Win rate | Test net |",
+                  "|---|---|---|---|---|---|---|---|---|"]
+        for r in lead_rows:
+            star = "**" if r["lead"] == lead else ""
+            wr = f"{100 * r['test_wins'] / r['test_n']:.0f}%" if r["test_n"] else "-"
+            lines.append(f"| {star}{r['lead']}{star} | {r['n_price']} | "
+                         f"{r['n_tradable']} | {r['train_n']} | "
+                         f"{r['train_net']:+.2f} | {r['test_n']} | "
+                         f"{r['test_wins']} | {wr} | {r['test_net']:+.2f} |")
+        lines.append("")
+
     lines += ["## Per company (min |gap| 0.10)",
               "",
               "| Company | Trades | Wins | Net |",
@@ -378,7 +416,10 @@ def main():
     ap.add_argument("--fee-rate", type=float, default=0.03,
                     help="Fee as a share of profit (default 0.03)")
     ap.add_argument("--use-ask", action="store_true",
-                    help="Trade at the 24h-before ask/bid instead of last trade")
+                    help="Trade at the ask/bid at the entry lead instead of last trade")
+    ap.add_argument("--lead", type=int, default=24,
+                    help="Entry horizon in hours before close (uses the "
+                         "price_{lead}h fields from the history file)")
     ap.add_argument("--max-price", type=float, default=None,
                     help="Only take bets whose chosen side costs at most this "
                          "much (e.g. 0.30 = 30¢ contracts only)")
@@ -401,7 +442,8 @@ def main():
     # the calibrator can be fit on the pre-cutoff slice only.
     _, _, candidates = simulate(history, docs_by_ticker, call_dates,
                                 args.fee_rate, args.use_ask, args.max_price,
-                                presence=presence, collect=True)
+                                presence=presence, collect=True,
+                                lead=args.lead)
     train_cand = [c for c in candidates if c[2] and c[2] < args.cutoff]
     calibrator = fit_isotonic([c[0] for c in train_cand],
                               [1 if c[1] == "yes" else 0 for c in train_cand])
@@ -409,7 +451,8 @@ def main():
     trades, coverage = simulate(history, docs_by_ticker, call_dates,
                                 args.fee_rate, args.use_ask, args.max_price,
                                 presence=presence,
-                                calibrator=calibrator if args.calibrate else None)
+                                calibrator=calibrator if args.calibrate else None,
+                                lead=args.lead)
     save_presence(presence)
     rows = sweep(trades, SWEEP_THRESHOLDS)
 
@@ -422,10 +465,11 @@ def main():
     split_cov = {}
     for name, h in (("train", hist_train), ("test", hist_test)):
         tr_raw, cov_raw = simulate(h, docs_by_ticker, call_dates, args.fee_rate,
-                                   args.use_ask, args.max_price, presence=presence)
+                                   args.use_ask, args.max_price, presence=presence,
+                                   lead=args.lead)
         tr_cal, cov_cal = simulate(h, docs_by_ticker, call_dates, args.fee_rate,
                                    args.use_ask, args.max_price, presence=presence,
-                                   calibrator=calibrator)
+                                   calibrator=calibrator, lead=args.lead)
         split_cov[name] = (cov_raw, cov_cal)
         for cal_on, tr in ((False, tr_raw), (True, tr_cal)):
             for th in SWEEP_THRESHOLDS:
@@ -434,6 +478,34 @@ def main():
                                 "calibrated": cal_on, "n": len(sub),
                                 "wins": sum(1 for x in sub if x["win"]),
                                 "net": sum(x["pnl_net"] for x in sub)})
+
+    # Edge-by-entry-time sweep: same raw strategy at every lead present in
+    # the history file, so the report shows where in time the edge lives.
+    lead_rows = []
+    leads = sorted({int(k[len("price_"):-1]) for r in history
+                    for k in r if k.startswith("price_") and k.endswith("h")})
+    for ld in leads:
+        tr_all, cov_all = simulate(history, docs_by_ticker, call_dates,
+                                   args.fee_rate, args.use_ask, args.max_price,
+                                   presence=presence, lead=ld)
+        tr_tr, _ = simulate(hist_train, docs_by_ticker, call_dates,
+                            args.fee_rate, args.use_ask, args.max_price,
+                            presence=presence, lead=ld)
+        tr_te, _ = simulate(hist_test, docs_by_ticker, call_dates,
+                            args.fee_rate, args.use_ask, args.max_price,
+                            presence=presence, lead=ld)
+
+        def agg(t):
+            s = [x for x in t if abs(x["gap"]) >= 0.10]
+            return (len(s), sum(1 for x in s if x["win"]),
+                    sum(x["pnl_net"] for x in s))
+
+        tn, tw, tnet = agg(tr_tr)
+        en, ew, enet = agg(tr_te)
+        lead_rows.append({"lead": ld, "n_price": cov_all["n_price"],
+                          "n_tradable": cov_all["n_tradable"],
+                          "train_n": tn, "train_net": tnet,
+                          "test_n": en, "test_wins": ew, "test_net": enet})
 
     # Calibration summary (train only): realized vs fitted rate per decile.
     cal_rows = None
@@ -453,7 +525,8 @@ def main():
     text = render(trades, coverage, rows, args.fee_rate, args.max_price,
                   cutoff_iso=args.cutoff, cal_rows=cal_rows,
                   holdout=holdout, split_cov=split_cov,
-                  calibrate=args.calibrate)
+                  calibrate=args.calibrate, lead=args.lead,
+                  lead_rows=lead_rows)
     args.out.write_text(text)
 
     print(f"Wrote {args.out}")

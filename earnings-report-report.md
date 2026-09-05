@@ -1,6 +1,6 @@
 # Earnings Report
 
-Generated 2026-09-04 · 5 companies with upcoming word markets · 72 words
+Generated 2026-09-05 · 5 companies with upcoming word markets · 72 words
 
 ## Method
 
@@ -34,8 +34,8 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 | DPZ | india | 56% | $0.44 | +12 |
 | DPZ | insurance | 40% | $0.28 | +12 |
 | CCL | tailwind | 51% | $0.42 | +9 |
-| UAL | weather | 60% | $0.52 | +8 |
 | UAL | atc / air traffic control | 43% | $0.35 | +8 |
+| UAL | weather | 60% | $0.54 | +6 |
 | CCL | oil | 17% | $0.13 | +4 |
 | UAL | american airlines | 16% | $0.13 | +3 |
 | STZ | inflation | 57% | $0.56 | +1 |
@@ -48,10 +48,10 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 | DPZ | inflation | 47% | $0.54 | -7 |
 | DPZ | tailwind | 41% | $0.49 | -8 |
 | STZ | oil / gas / gasoline | 30% | $0.41 | -11 |
+| CCL | dividend | 45% | $0.56 | -11 |
 | DPZ | tariff | 5% | $0.17 | -12 |
 | UAL | holiday | 40% | $0.55 | -15 |
 | DPZ | signature | 7% | $0.23 | -16 |
-| CCL | dividend | 45% | $0.64 | -19 |
 | UAL | chase | 43% | $0.62 | -19 |
 | DPZ | andrew gregory | 7% | $0.26 | -19 |
 | DPZ | world cup | 10% | $0.29 | -19 |
@@ -64,17 +64,17 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 | UAL | middle east | 36% | $0.66 | -30 |
 | STZ | victoria | 18% | $0.49 | -31 |
 | DPZ | parmesan | 21% | $0.53 | -32 |
+| DPZ | ai / artificial intelligence | 14% | $0.46 | -32 |
 | CCL | propel | 26% | $0.60 | -34 |
 | UAL | crj450 | 5% | $0.39 | -34 |
 | CCL | middle east | 20% | $0.56 | -36 |
+| DPZ | doordash | 14% | $0.53 | -39 |
 | DPZ | stuffed crust | 11% | $0.51 | -40 |
-| DPZ | doordash | 14% | $0.55 | -41 |
 | UAL | a321xlr | 19% | $0.60 | -41 |
 | STZ | mi campo | 24% | $0.66 | -42 |
 | CCL | modernization | 17% | $0.60 | -43 |
 | UAL | relax row | 12% | $0.56 | -44 |
 | UAL | coastliner | 12% | $0.61 | -49 |
-| DPZ | ai / artificial intelligence | 14% | $0.65 | -51 |
 | UAL | oil | 22% | $0.77 | -55 |
 | UAL | starlink | 32% | $0.89 | -57 |
 | DPZ | joe jordan | 5% | $0.68 | -63 |
@@ -110,7 +110,7 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 |---|---|---|---|---|
 | ai / artificial intelligence | 2/28 | 14% | $0.35 | **Unlikely** |
 | consumer sentiment | 4/28 | 20% | $0.45 | **Unlikely** |
-| dividend | 12/28 | 45% | $0.64 | **Coin flip** |
+| dividend | 12/28 | 45% | $0.56 | **Coin flip** |
 | dry dock | 24/28 | 79% | $0.80 | **Strong YES** |
 | headwind | 16/28 | 57% | $0.81 | **Likely YES** |
 | holland america | 16/28 | 57% | $0.87 | **Likely YES** |
@@ -131,10 +131,10 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Word | Prior calls | Baseline P | Last YES | Verdict |
 |---|---|---|---|---|
-| ai / artificial intelligence | 8/63 | 14% | $0.65 | **Unlikely** |
+| ai / artificial intelligence | 8/63 | 14% | $0.46 | **Unlikely** |
 | andrew gregory | 2/63 | 7% | $0.26 | **Unlikely** |
 | closure | 55/63 | 84% | $0.58 | **Strong YES** |
-| doordash | 7/63 | 14% | $0.55 | **Unlikely** |
+| doordash | 7/63 | 14% | $0.53 | **Unlikely** |
 | india | 35/63 | 56% | $0.44 | **Likely YES** |
 | inflation | 30/63 | 47% | $0.54 | **Likely YES** |
 | insurance | 25/63 | 40% | $0.28 | **Coin flip** |
@@ -189,6 +189,6 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 | relax row | 1/25 | 12% | $0.56 | **Unlikely** |
 | starlink | 7/25 | 32% | $0.89 | **Coin flip** |
 | tariff | 3/25 | 19% | $0.19 | **Unlikely** |
-| weather | 16/25 | 60% | $0.52 | **Strong YES** |
+| weather | 16/25 | 60% | $0.54 | **Strong YES** |
 
 ---
