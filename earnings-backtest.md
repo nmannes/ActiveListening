@@ -1,32 +1,70 @@
 # Earnings Backtest
 
-Generated 2026-08-20
+Generated 2026-09-04
 
 ## Strategy
 
-For each finalized word market: baseline P from transcripts of calls before the event vs the executable price ~24h before the market resolved (the YES ask, or last trade without orderbook data). Bet the undervalued side: YES when baseline > YES price, NO when 1 − baseline > NO price; skip when neither side is undervalued; settle at the actual resolution. Gap = edge on the chosen side.
+For each finalized word market: a transcript baseline P is computed from calls before the event; an isotonic recalibration of P(word said) (fit on train markets only) is also evaluated as an experiment — see the Temporal holdout table for the verdict. The baseline is compared to the executable price ~24h before the market resolved (the YES ask, or last trade without orderbook data). Bet the undervalued side: YES when baseline > YES price, NO when 1 − baseline > NO price; skip when neither side is undervalued; settle at the actual resolution. Gap = edge on the chosen side.
 
 ## Coverage
 
-- 5205 finalized markets with history fetched
-- 4884 with a price ~24h before resolution
-- 2574 with a transcript baseline (pre-event calls)
-- 2560 tradable (both price and baseline)
+- 5533 finalized markets with history fetched
+- 5211 with a price ~24h before resolution
+- 2876 with a transcript baseline (pre-event calls)
+- 2862 tradable (both price and baseline)
 - fee: 3% on profit
 
-## Threshold sweep (min |gap|)
+- 1325 train markets with a baseline (train = closing before 2026-07-01)
+- 1551 test markets with a baseline (test = closing on/after 2026-07-01)
 
-Net if always YES / always NO shows the same candidates traded on one fixed side — the benchmark the side selection must beat.
+## Threshold sweep (min |gap|, raw baseline)
+
+Net if always YES / always NO shows the same candidates traded on one fixed side — the benchmark the side selection must beat. See Temporal holdout for the out-of-sample view.
 
 | Min \|gap\| | Trades | Wins | Win rate | Gross | Net | YES (n/wins/net) | NO (n/wins/net) | Always YES | Always NO |
 |---|---|---|---|---|---|---|---|---|---|
-| 0.00 | 2560 | 1170 | 46% | +141.43 | +125.79 | 633 / 278 / +12.11 | 1927 / 892 / +113.68 | -121.56 | +94.53 |
-| 0.05 | 2133 | 968 | 45% | +148.27 | +134.39 | 446 / 194 / +15.74 | 1687 / 774 / +118.65 | -120.94 | +97.63 |
-| 0.10 | 1783 | 765 | 43% | +120.56 | +108.84 | 334 / 136 / +13.81 | 1449 / 629 / +95.03 | -96.99 | +77.16 |
-| 0.15 | 1499 | 586 | 39% | +87.15 | +77.49 | 258 / 100 / +10.03 | 1241 / 486 / +67.46 | -70.93 | +54.22 |
-| 0.20 | 1252 | 460 | 37% | +74.10 | +66.03 | 169 / 60 / +5.37 | 1083 / 400 / +60.66 | -67.12 | +53.20 |
-| 0.25 | 1050 | 362 | 34% | +62.44 | +55.78 | 115 / 39 / +4.00 | 935 / 323 / +51.78 | -57.89 | +46.44 |
-| 0.30 | 874 | 278 | 32% | +50.71 | +45.33 | 67 / 22 / +4.71 | 807 / 256 / +40.62 | -44.40 | +35.17 |
+| 0.00 | 2862 | 1304 | 46% | +154.77 | +137.50 | 704 / 312 / +13.40 | 2158 / 992 / +124.10 | -132.79 | +102.88 |
+| 0.05 | 2389 | 1069 | 45% | +155.27 | +140.00 | 497 / 212 / +13.35 | 1892 / 857 / +126.65 | -133.25 | +107.38 |
+| 0.10 | 1993 | 841 | 42% | +128.74 | +115.81 | 370 / 150 / +15.22 | 1623 / 691 / +100.59 | -102.90 | +80.90 |
+| 0.15 | 1686 | 653 | 39% | +96.62 | +85.86 | 284 / 110 / +11.44 | 1402 / 543 / +74.42 | -78.11 | +59.48 |
+| 0.20 | 1413 | 510 | 36% | +80.06 | +71.07 | 189 / 66 / +5.89 | 1224 / 444 / +65.18 | -72.54 | +56.97 |
+| 0.25 | 1187 | 402 | 34% | +69.07 | +61.63 | 131 / 44 / +4.91 | 1056 / 358 / +56.72 | -63.09 | +50.28 |
+| 0.30 | 995 | 313 | 31% | +57.23 | +51.16 | 79 / 25 / +4.61 | 916 / 288 / +46.56 | -51.49 | +41.08 |
+
+## Temporal holdout
+
+Same strategy evaluated on each side of the cutoff (2026-07-01), with and without calibration. The calibration is always fit on train only, so the test rows are fully out-of-sample.
+
+| Min \|gap\| | Split | Calibrated | Trades | Wins | Win rate | Net |
+|---|---|---|---|---|---|---|
+| 0.00 | train | no | 1325 | 602 | 45% | +85.21 |
+| 0.05 | train | no | 1109 | 505 | 46% | +88.07 |
+| 0.10 | train | no | 938 | 409 | 44% | +75.63 |
+| 0.15 | train | no | 784 | 316 | 40% | +63.25 |
+| 0.20 | train | no | 661 | 253 | 38% | +55.60 |
+| 0.25 | train | no | 562 | 201 | 36% | +46.54 |
+| 0.30 | train | no | 478 | 159 | 33% | +38.27 |
+| 0.00 | train | yes | 1325 | 467 | 35% | +56.83 |
+| 0.05 | train | yes | 1122 | 356 | 32% | +41.70 |
+| 0.10 | train | yes | 912 | 271 | 30% | +42.62 |
+| 0.15 | train | yes | 705 | 193 | 27% | +35.82 |
+| 0.20 | train | yes | 567 | 146 | 26% | +31.71 |
+| 0.25 | train | yes | 434 | 97 | 22% | +19.12 |
+| 0.30 | train | yes | 303 | 60 | 20% | +13.56 |
+| 0.00 | test | no | 1537 | 702 | 46% | +52.28 |
+| 0.05 | test | no | 1280 | 564 | 44% | +51.93 |
+| 0.10 | test | no | 1055 | 432 | 41% | +40.18 |
+| 0.15 | test | no | 902 | 337 | 37% | +22.61 |
+| 0.20 | test | no | 752 | 257 | 34% | +15.47 |
+| 0.25 | test | no | 625 | 201 | 32% | +15.09 |
+| 0.30 | test | no | 517 | 154 | 30% | +12.90 |
+| 0.00 | test | yes | 1537 | 466 | 30% | -3.21 |
+| 0.05 | test | yes | 1328 | 368 | 28% | -1.08 |
+| 0.10 | test | yes | 1117 | 280 | 25% | -0.91 |
+| 0.15 | test | yes | 924 | 219 | 24% | +1.54 |
+| 0.20 | test | yes | 747 | 170 | 23% | +9.46 |
+| 0.25 | test | yes | 549 | 120 | 22% | +12.95 |
+| 0.30 | test | yes | 385 | 74 | 19% | +4.30 |
 
 ## Per company (min |gap| 0.10)
 
@@ -34,6 +72,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 |---|---|---|---|
 | AAL | 10 | 4 | +0.72 |
 | AAOI | 10 | 1 | -2.81 |
+| AAP | 11 | 4 | -0.84 |
 | AAPL | 25 | 12 | +1.83 |
 | ABNB | 15 | 7 | +2.38 |
 | ACI | 8 | 3 | +0.06 |
@@ -45,10 +84,11 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | AMZN | 38 | 9 | -3.06 |
 | AS | 11 | 5 | +1.27 |
 | AVAV | 9 | 4 | -0.20 |
-| AVGO | 10 | 5 | +0.68 |
+| AVGO | 22 | 7 | -0.40 |
 | AXP | 11 | 2 | -1.98 |
 | BA | 14 | 9 | +2.73 |
 | BAC | 27 | 9 | +0.77 |
+| BJ | 4 | 2 | +0.07 |
 | BLK | 5 | 4 | +2.58 |
 | BULL | 20 | 9 | +1.85 |
 | C | 16 | 4 | -0.64 |
@@ -58,27 +98,30 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | CCL | 6 | 0 | -1.58 |
 | CELH | 6 | 1 | -0.74 |
 | CHWY | 8 | 3 | +1.18 |
+| CIEN | 7 | 2 | +0.57 |
 | CMG | 20 | 10 | +2.94 |
 | COHR | 10 | 1 | -2.36 |
 | COINBASE | 4 | 0 | -0.57 |
 | COST | 10 | 3 | -0.82 |
 | CRCL | 9 | 3 | +0.93 |
-| CRM | 8 | 3 | +0.64 |
-| CRWD | 10 | 3 | -0.44 |
+| CRM | 22 | 7 | +2.35 |
+| CRWD | 21 | 7 | -0.01 |
 | CRWV | 7 | 4 | +1.66 |
 | CVNA | 16 | 9 | +0.57 |
 | DAL | 15 | 6 | +1.10 |
 | DASH | 11 | 6 | +1.06 |
-| DE | 10 | 4 | +0.94 |
-| DELL | 9 | 4 | +0.00 |
+| DE | 20 | 7 | +0.19 |
+| DELL | 18 | 6 | -1.36 |
 | DIS | 29 | 13 | +0.70 |
 | DKNG | 12 | 6 | +0.39 |
+| DKS | 9 | 2 | +0.45 |
 | DPZ | 23 | 14 | +2.91 |
 | DUOL | 6 | 4 | +0.48 |
 | EBAY | 12 | 3 | -1.80 |
 | F | 11 | 4 | -0.79 |
 | FDX | 7 | 3 | +0.13 |
 | FIG | 8 | 2 | -0.28 |
+| FUTU | 11 | 9 | +3.26 |
 | GEV | 20 | 6 | +2.43 |
 | GIS | 8 | 4 | +1.59 |
 | GOOGL | 36 | 17 | +4.04 |
@@ -87,8 +130,9 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | HD | 13 | 7 | +1.01 |
 | HIMS | 29 | 11 | +2.24 |
 | HOOD | 25 | 4 | -4.68 |
-| HPE | 9 | 2 | -2.10 |
+| HPE | 19 | 7 | -0.09 |
 | INTC | 22 | 10 | +4.20 |
+| INTU | 10 | 3 | +1.22 |
 | JNJ | 30 | 10 | +0.88 |
 | JPM | 30 | 13 | +3.15 |
 | KLAR | 20 | 14 | +8.68 |
@@ -98,14 +142,15 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | LLY | 24 | 13 | +3.56 |
 | LMT | 2 | 1 | +0.84 |
 | LOW | 6 | 3 | +0.97 |
-| LULU | 10 | 6 | +2.30 |
+| LULU | 17 | 8 | +1.84 |
 | LUNR | 9 | 4 | +0.39 |
 | LYFT | 18 | 9 | +1.82 |
 | M | 8 | 4 | +0.72 |
 | MCD | 28 | 16 | +3.45 |
+| MDT | 7 | 1 | -0.49 |
 | MELI | 10 | 7 | +2.14 |
 | META | 23 | 14 | +4.77 |
-| MRVL | 9 | 4 | +0.67 |
+| MRVL | 19 | 7 | +0.01 |
 | MS | 19 | 11 | +2.51 |
 | MSFT | 22 | 6 | -2.08 |
 | MTN | 4 | 3 | +1.18 |
@@ -113,10 +158,11 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | NBIS | 24 | 9 | +2.76 |
 | NFLX | 39 | 18 | +4.50 |
 | NKE | 9 | 4 | +0.48 |
-| NVDA | 16 | 12 | +5.15 |
+| NVDA | 26 | 17 | +5.13 |
 | OKLO | 4 | 1 | +0.14 |
 | ON | 7 | 3 | -0.03 |
 | ORCL | 17 | 9 | +3.29 |
+| PANW | 9 | 1 | -1.03 |
 | PEP | 23 | 13 | +2.05 |
 | PG | 7 | 3 | +0.23 |
 | PGR | 16 | 9 | +3.65 |
@@ -124,10 +170,11 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | PYPL | 34 | 23 | +6.81 |
 | RDDT | 12 | 4 | +0.23 |
 | RIVN | 7 | 2 | -0.40 |
+| ROST | 8 | 5 | +1.34 |
 | SBUX | 22 | 11 | +1.38 |
 | SHOP | 16 | 8 | +2.11 |
 | SNAP | 7 | 2 | -0.18 |
-| SNOW | 8 | 5 | +0.96 |
+| SNOW | 15 | 8 | +1.16 |
 | SPOT | 17 | 12 | +4.02 |
 | STZ | 20 | 12 | +3.60 |
 | TFC | 8 | 5 | +1.76 |
@@ -139,8 +186,8 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | TTWO | 10 | 5 | +0.73 |
 | UAL | 34 | 10 | -1.18 |
 | UBER | 28 | 13 | +3.03 |
-| ULTA | 12 | 3 | -1.34 |
-| URBN | 5 | 1 | -0.75 |
+| ULTA | 25 | 8 | -0.79 |
+| URBN | 18 | 8 | +0.72 |
 | V | 10 | 5 | +1.18 |
 | VSCO | 12 | 0 | -4.10 |
 | VST | 12 | 2 | -1.65 |
@@ -153,6 +200,7 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | YOU | 12 | 7 | +1.56 |
 | YUM | 12 | 5 | +0.13 |
 | ZETA | 10 | 4 | -0.36 |
+| ZM | 8 | 2 | +0.38 |
 
 ## Trades (min |gap| 0.10)
 
@@ -1930,6 +1978,46 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-19 | TGT | Roundel | 16/52 | ✅ | 33% | 0.12 | +55 | NO | yes | -0.12 | -0.12 |
 | 2026-08-19 | TGT | Synthetic Color | 3/52 | ✅ | 10% | 0.59 | +31 | NO | no | +0.41 | +0.40 |
 | 2026-08-19 | TGT | Tariff | 11/52 | ✅ | 24% | 0.21 | +55 | NO | yes | -0.21 | -0.21 |
+| 2026-08-20 | AAP | Advance Reward | 1/63 | ✅ | 5% | 0.20 | +75 | NO | yes | -0.20 | -0.20 |
+| 2026-08-20 | AAP | ARGOS | 1/63 | ✅ | 5% | 0.20 | +75 | NO | yes | -0.20 | -0.20 |
+| 2026-08-20 | AAP | Good Part | 3/63 | ✅ | 8% | 0.26 | +66 | NO | yes | -0.26 | -0.26 |
+| 2026-08-20 | AAP | LIFO | 26/63 | ✅ | 42% | 0.39 | +19 | NO | yes | -0.39 | -0.39 |
+| 2026-08-20 | AAP | Net Promoter | 10/63 | ✅ | 18% | 0.42 | +40 | NO | yes | -0.42 | -0.42 |
+| 2026-08-20 | AAP | Palantir | 1/63 | ❌ | 4% | 0.81 | +15 | NO | no | +0.19 | +0.18 |
+| 2026-08-20 | AAP | Peak Driving | 0/63 | ✅ | 4% | 0.65 | +31 | NO | no | +0.35 | +0.34 |
+| 2026-08-20 | AAP | Ron | 1/63 | ✅ | 5% | 0.21 | +74 | NO | yes | -0.21 | -0.21 |
+| 2026-08-20 | AAP | Same Store | 4/63 | ❌ | 8% | 0.81 | +11 | NO | no | +0.19 | +0.18 |
+| 2026-08-20 | AAP | Tariff | 17/63 | ✅ | 29% | 0.35 | +36 | NO | yes | -0.35 | -0.35 |
+| 2026-08-20 | AAP | Zebra | 2/63 | ✅ | 7% | 0.50 | +43 | NO | no | +0.50 | +0.48 |
+| 2026-08-20 | DE | AI / Artificial Intelligence | 5/64 | ❌ | 10% | 0.51 | +39 | NO | yes | -0.51 | -0.51 |
+| 2026-08-20 | DE | Automation | 21/64 | ✅ | 34% | 0.19 | +47 | NO | no | +0.81 | +0.79 |
+| 2026-08-20 | DE | Efficiency | 31/64 | ❌ | 48% | 0.41 | +11 | NO | yes | -0.41 | -0.41 |
+| 2026-08-20 | DE | Excavator | 15/64 | ✅ | 26% | 0.49 | +25 | NO | yes | -0.49 | -0.49 |
+| 2026-08-20 | DE | Fertilizer | 14/64 | ✅ | 24% | 0.35 | +41 | NO | yes | -0.35 | -0.35 |
+| 2026-08-20 | DE | Manufacturing | 26/64 | ✅ | 42% | 0.35 | +23 | NO | no | +0.65 | +0.63 |
+| 2026-08-20 | DE | Repair | 5/64 | ❌ | 10% | 0.78 | +12 | NO | yes | -0.78 | -0.78 |
+| 2026-08-20 | DE | Tailwind | 36/64 | ✅ | 56% | 0.24 | +20 | NO | yes | -0.24 | -0.24 |
+| 2026-08-20 | DE | Tariff | 17/64 | ✅ | 28% | 0.03 | +69 | NO | yes | -0.03 | -0.03 |
+| 2026-08-20 | DE | Warranty | 20/64 | ❌ | 32% | 0.34 | +34 | NO | no | +0.66 | +0.64 |
+| 2026-08-20 | FUTU | Agentic | 0/24 | ❌ | 5% | 0.46 | +49 | NO | no | +0.54 | +0.52 |
+| 2026-08-20 | FUTU | Australia | 13/24 | ✅ | 55% | 0.23 | +22 | NO | yes | -0.23 | -0.23 |
+| 2026-08-20 | FUTU | CFTC | 0/24 | ❌ | 5% | 0.71 | +24 | NO | yes | -0.71 | -0.71 |
+| 2026-08-20 | FUTU | Expert | 0/24 | ❌ | 5% | 0.59 | +36 | NO | no | +0.41 | +0.40 |
+| 2026-08-20 | FUTU | Fraud | 1/24 | ✅ | 12% | 0.68 | +20 | NO | no | +0.32 | +0.31 |
+| 2026-08-20 | FUTU | Headwind | 1/24 | ❌ | 9% | 0.70 | +21 | NO | no | +0.30 | +0.29 |
+| 2026-08-20 | FUTU | Kalshi | 0/24 | ✅ | 9% | 0.51 | +40 | NO | no | +0.49 | +0.48 |
+| 2026-08-20 | FUTU | PantherTrade | 0/24 | ✅ | 9% | 0.25 | +66 | NO | no | +0.75 | +0.73 |
+| 2026-08-20 | FUTU | Perp / Perpetual | 0/24 | ✅ | 9% | 0.58 | +33 | NO | no | +0.42 | +0.41 |
+| 2026-08-20 | FUTU | Staking | 3/24 | ✅ | 19% | 0.36 | +45 | NO | no | +0.64 | +0.62 |
+| 2026-08-20 | FUTU | Tokenized / Tokenization | 2/24 | ✅ | 16% | 0.54 | +30 | NO | no | +0.46 | +0.45 |
+| 2026-08-20 | ROST | Bankruptcy | 2/20 | ✅ | 18% | 0.66 | +16 | NO | no | +0.34 | +0.33 |
+| 2026-08-20 | ROST | Dress for Less | 5/20 | ❌ | 27% | 0.47 | +26 | NO | no | +0.53 | +0.51 |
+| 2026-08-20 | ROST | Flywheel | 1/20 | ✅ | 14% | 0.53 | +33 | NO | yes | -0.53 | -0.53 |
+| 2026-08-20 | ROST | Home | 18/20 | ✅ | 85% | 0.68 | +17 | YES | yes | +0.32 | +0.31 |
+| 2026-08-20 | ROST | New York | 4/20 | ✅ | 27% | 0.23 | +50 | NO | no | +0.77 | +0.75 |
+| 2026-08-20 | ROST | Northeast | 6/20 | ✅ | 35% | 0.22 | +43 | NO | yes | -0.22 | -0.22 |
+| 2026-08-20 | ROST | Self-Checkout | 7/20 | ❌ | 35% | 0.40 | +25 | NO | no | +0.60 | +0.58 |
+| 2026-08-20 | ROST | Texas | 16/20 | ❌ | 72% | 0.39 | +33 | YES | no | -0.39 | -0.39 |
 | 2026-08-20 | WMT | Automation | 26/59 | ✅ | 45% | 0.10 | +45 | NO | yes | -0.10 | -0.10 |
 | 2026-08-20 | WMT | Brick and Mortar | 2/59 | ❌ | 6% | 0.79 | +15 | NO | no | +0.21 | +0.20 |
 | 2026-08-20 | WMT | Competition / Competitor | 39/59 | ✅ | 66% | 0.45 | +21 | YES | no | -0.45 | -0.45 |
@@ -1941,5 +2029,175 @@ Net if always YES / always NO shows the same candidates traded on one fixed side
 | 2026-08-20 | WMT | Sparky | 3/59 | ✅ | 9% | 0.11 | +80 | NO | yes | -0.11 | -0.11 |
 | 2026-08-20 | WMT | Tariff | 33/59 | ✅ | 56% | 0.06 | +38 | NO | yes | -0.06 | -0.06 |
 | 2026-08-20 | WMT | Upper Income | 1/59 | ❌ | 4% | 0.78 | +18 | NO | no | +0.22 | +0.21 |
+| 2026-08-21 | BJ | Ask Bev | 1/30 | ❌ | 7% | 0.73 | +20 | NO | no | +0.27 | +0.26 |
+| 2026-08-21 | BJ | ExpressPay | 8/30 | ✅ | 31% | 0.17 | +52 | NO | yes | -0.17 | -0.17 |
+| 2026-08-21 | BJ | Rotterdam | 2/30 | ✅ | 13% | 0.26 | +61 | NO | yes | -0.26 | -0.26 |
+| 2026-08-21 | BJ | Tally | 1/30 | ❌ | 7% | 0.75 | +18 | NO | no | +0.25 | +0.24 |
+| 2026-08-25 | DKS | Fast Break | 1/55 | ✅ | 6% | 0.08 | +86 | NO | yes | -0.08 | -0.08 |
+| 2026-08-25 | DKS | Foot Locker | 5/55 | ✅ | 13% | 0.03 | +84 | NO | yes | -0.03 | -0.03 |
+| 2026-08-25 | DKS | Going Going Gone | 0/55 | ❌ | 3% | 0.75 | +22 | NO | no | +0.25 | +0.24 |
+| 2026-08-25 | DKS | House of Sport | 21/55 | ✅ | 40% | 0.04 | +56 | NO | yes | -0.04 | -0.04 |
+| 2026-08-25 | DKS | Omnichannel | 30/55 | ✅ | 55% | 0.12 | +33 | NO | yes | -0.12 | -0.12 |
+| 2026-08-25 | DKS | Public Land | 15/55 | ❌ | 28% | 0.16 | +12 | YES | no | -0.16 | -0.16 |
+| 2026-08-25 | DKS | Sport and Culture | 5/55 | ✅ | 13% | 0.20 | +67 | NO | yes | -0.20 | -0.20 |
+| 2026-08-25 | DKS | Vertical Brand | 22/55 | ✅ | 41% | 0.09 | +50 | NO | no | +0.91 | +0.88 |
+| 2026-08-25 | DKS | World Cup | 11/55 | ✅ | 23% | 0.05 | +72 | NO | yes | -0.05 | -0.05 |
+| 2026-08-25 | INTU | Agentic | 5/50 | ❌ | 12% | 0.50 | +38 | NO | yes | -0.50 | -0.50 |
+| 2026-08-25 | INTU | ARPU | 19/50 | ✅ | 40% | 0.34 | +26 | NO | no | +0.66 | +0.64 |
+| 2026-08-25 | INTU | DIY | 36/50 | ✅ | 71% | 0.17 | +12 | NO | yes | -0.17 | -0.17 |
+| 2026-08-25 | INTU | Intuit Enterprise Suite | 6/50 | ✅ | 16% | 0.07 | +77 | NO | yes | -0.07 | -0.07 |
+| 2026-08-25 | INTU | Investor Day | 42/50 | ❌ | 80% | 0.09 | +11 | NO | yes | -0.09 | -0.09 |
+| 2026-08-25 | INTU | Mailchimp | 18/50 | ✅ | 38% | 0.02 | +60 | NO | yes | -0.02 | -0.02 |
+| 2026-08-25 | INTU | Online Payment | 29/50 | ✅ | 58% | 0.08 | +34 | NO | yes | -0.08 | -0.08 |
+| 2026-08-25 | INTU | Pro Tax | 12/50 | ✅ | 27% | 0.13 | +60 | NO | no | +0.87 | +0.84 |
+| 2026-08-25 | INTU | Restructuring | 5/50 | ✅ | 14% | 0.19 | +67 | NO | no | +0.81 | +0.79 |
+| 2026-08-25 | INTU | TurboTax Live | 32/50 | ✅ | 64% | 0.12 | +24 | NO | yes | -0.12 | -0.12 |
+| 2026-08-25 | ZM | Agentic | 5/28 | ✅ | 23% | 0.11 | +66 | NO | yes | -0.11 | -0.11 |
+| 2026-08-25 | ZM | AI Companion | 10/28 | ✅ | 39% | 0.07 | +54 | NO | no | +0.93 | +0.90 |
+| 2026-08-25 | ZM | Contact Center | 24/28 | ✅ | 82% | 0.04 | +14 | NO | yes | -0.04 | -0.04 |
+| 2026-08-25 | ZM | Federal | 13/28 | ❌ | 45% | 0.20 | +25 | YES | no | -0.20 | -0.20 |
+| 2026-08-25 | ZM | My Note | 0/28 | ✅ | 8% | 0.21 | +71 | NO | yes | -0.21 | -0.21 |
+| 2026-08-25 | ZM | Scribe | 0/28 | ✅ | 8% | 0.68 | +24 | NO | no | +0.32 | +0.31 |
+| 2026-08-25 | ZM | System of Action | 3/28 | ✅ | 17% | 0.14 | +69 | NO | yes | -0.14 | -0.14 |
+| 2026-08-25 | ZM | Workvivo | 12/28 | ✅ | 45% | 0.13 | +42 | NO | yes | -0.13 | -0.13 |
+| 2026-08-26 | CRM | Agentic Enterprise | 3/63 | ✅ | 8% | 0.08 | +84 | NO | no | +0.92 | +0.89 |
+| 2026-08-26 | CRM | Anthropic | 9/63 | ✅ | 17% | 0.16 | +67 | NO | yes | -0.16 | -0.16 |
+| 2026-08-26 | CRM | Commerce | 43/63 | ✅ | 68% | 0.07 | +25 | NO | yes | -0.07 | -0.07 |
+| 2026-08-26 | CRM | Coworker | 0/63 | ✅ | 4% | 0.21 | +75 | NO | yes | -0.21 | -0.21 |
+| 2026-08-26 | CRM | Customer Zero | 7/63 | ✅ | 14% | 0.24 | +62 | NO | yes | -0.24 | -0.24 |
+| 2026-08-26 | CRM | Data 360 | 2/63 | ✅ | 7% | 0.10 | +83 | NO | yes | -0.10 | -0.10 |
+| 2026-08-26 | CRM | Headless 360 | 0/63 | ✅ | 4% | 0.18 | +78 | NO | no | +0.82 | +0.80 |
+| 2026-08-26 | CRM | Informatica | 4/63 | ✅ | 10% | 0.11 | +79 | NO | yes | -0.11 | -0.11 |
+| 2026-08-26 | CRM | MCP | 1/63 | ✅ | 5% | 0.15 | +80 | NO | yes | -0.15 | -0.15 |
+| 2026-08-26 | CRM | MuleSoft | 32/63 | ✅ | 51% | 0.11 | +38 | NO | yes | -0.11 | -0.11 |
+| 2026-08-26 | CRM | OpenAI | 8/63 | ✅ | 15% | 0.30 | +55 | NO | yes | -0.30 | -0.30 |
+| 2026-08-26 | CRM | Slackbot | 2/63 | ✅ | 7% | 0.16 | +77 | NO | yes | -0.16 | -0.16 |
+| 2026-08-26 | CRM | Tableau | 27/63 | ✅ | 44% | 0.11 | +45 | NO | no | +0.89 | +0.86 |
+| 2026-08-26 | CRM | Token | 2/63 | ✅ | 7% | 0.21 | +72 | NO | no | +0.79 | +0.77 |
+| 2026-08-26 | CRWD | AI Detection | 2/28 | ✅ | 14% | 0.44 | +42 | NO | no | +0.56 | +0.54 |
+| 2026-08-26 | CRWD | Cerebras | 0/28 | ❌ | 5% | 0.48 | +47 | NO | no | +0.52 | +0.50 |
+| 2026-08-26 | CRWD | Claude | 2/28 | ✅ | 14% | 0.35 | +51 | NO | yes | -0.35 | -0.35 |
+| 2026-08-26 | CRWD | Continuous Identity | 0/28 | ❌ | 5% | 0.50 | +45 | NO | no | +0.50 | +0.48 |
+| 2026-08-26 | CRWD | Falcon Flex | 10/28 | ✅ | 39% | 0.02 | +59 | NO | yes | -0.02 | -0.02 |
+| 2026-08-26 | CRWD | Mythos | 0/28 | ✅ | 8% | 0.22 | +70 | NO | yes | -0.22 | -0.22 |
+| 2026-08-26 | CRWD | Nvidia | 5/28 | ✅ | 23% | 0.29 | +48 | NO | yes | -0.29 | -0.29 |
+| 2026-08-26 | CRWD | OpenAI | 1/28 | ✅ | 11% | 0.23 | +66 | NO | no | +0.77 | +0.75 |
+| 2026-08-26 | CRWD | Shadow | 3/28 | ✅ | 17% | 0.33 | +50 | NO | yes | -0.33 | -0.33 |
+| 2026-08-26 | CRWD | Tailwind | 12/28 | ✅ | 45% | 0.26 | +29 | NO | yes | -0.26 | -0.26 |
+| 2026-08-26 | CRWD | XM Cyber | 0/28 | ❌ | 5% | 0.37 | +58 | NO | yes | -0.37 | -0.37 |
+| 2026-08-26 | NVDA | Automation | 14/62 | ❌ | 23% | 0.66 | +11 | NO | no | +0.34 | +0.33 |
+| 2026-08-26 | NVDA | Cosmos | 5/62 | ❌ | 10% | 0.30 | +60 | NO | yes | -0.30 | -0.30 |
+| 2026-08-26 | NVDA | Dividend (2+ times) | 0/62 | ❌ | 2% | 0.74 | +24 | NO | no | +0.26 | +0.25 |
+| 2026-08-26 | NVDA | Gaming | 57/62 | ✅ | 90% | 0.67 | +23 | YES | no | -0.67 | -0.67 |
+| 2026-08-26 | NVDA | Humanoid | 4/62 | ✅ | 10% | 0.37 | +53 | NO | no | +0.63 | +0.61 |
+| 2026-08-26 | NVDA | Hyperscaler | 26/62 | ✅ | 43% | 0.01 | +56 | NO | yes | -0.01 | -0.01 |
+| 2026-08-26 | NVDA | Omniverse | 21/62 | ❌ | 34% | 0.37 | +29 | NO | yes | -0.37 | -0.37 |
+| 2026-08-26 | NVDA | Rent | 4/62 | ✅ | 10% | 0.77 | +13 | NO | yes | -0.77 | -0.77 |
+| 2026-08-26 | NVDA | Self Driving | 0/62 | ❌ | 2% | 0.33 | +65 | NO | no | +0.67 | +0.65 |
+| 2026-08-26 | NVDA | Talent | 5/62 | ❌ | 10% | 0.74 | +16 | NO | no | +0.26 | +0.25 |
+| 2026-08-26 | URBN | Back to School | 16/57 | ❌ | 29% | 0.26 | +45 | NO | yes | -0.26 | -0.26 |
+| 2026-08-26 | URBN | Beauty | 32/57 | ✅ | 56% | 0.37 | +19 | YES | yes | +0.63 | +0.61 |
+| 2026-08-26 | URBN | Claude | 0/57 | ✅ | 4% | 0.82 | +14 | NO | no | +0.18 | +0.17 |
+| 2026-08-26 | URBN | Gemini | 0/57 | ✅ | 4% | 0.81 | +15 | NO | no | +0.19 | +0.18 |
+| 2026-08-26 | URBN | Headwind | 22/57 | ✅ | 40% | 0.35 | +25 | NO | yes | -0.35 | -0.35 |
+| 2026-08-26 | URBN | Holiday | 45/57 | ❌ | 76% | 0.62 | +14 | YES | yes | +0.38 | +0.37 |
+| 2026-08-26 | URBN | IEEPA | 0/57 | ❌ | 2% | 0.19 | +79 | NO | yes | -0.19 | -0.19 |
+| 2026-08-26 | URBN | International / Internationally | 41/57 | ✅ | 71% | 0.59 | +12 | YES | yes | +0.41 | +0.40 |
+| 2026-08-26 | URBN | Middle East | 5/57 | ✅ | 12% | 0.64 | +24 | NO | yes | -0.64 | -0.64 |
+| 2026-08-26 | URBN | Refund | 0/57 | ✅ | 4% | 0.06 | +90 | NO | yes | -0.06 | -0.06 |
+| 2026-08-26 | URBN | Store Opening | 26/57 | ✅ | 46% | 0.36 | +18 | NO | no | +0.64 | +0.62 |
+| 2026-08-26 | URBN | Supply Chain | 31/57 | ❌ | 53% | 0.29 | +24 | YES | yes | +0.71 | +0.69 |
+| 2026-08-26 | URBN | Tariff | 9/57 | ✅ | 19% | 0.07 | +74 | NO | yes | -0.07 | -0.07 |
+| 2026-08-27 | MRVL | Celestial | 1/45 | ✅ | 7% | 0.14 | +79 | NO | yes | -0.14 | -0.14 |
+| 2026-08-27 | MRVL | Inference | 10/45 | ✅ | 25% | 0.26 | +49 | NO | yes | -0.26 | -0.26 |
+| 2026-08-27 | MRVL | Nvidia | 8/45 | ✅ | 21% | 0.18 | +61 | NO | yes | -0.18 | -0.18 |
+| 2026-08-27 | MRVL | Photonic Fabric | 1/45 | ✅ | 7% | 0.23 | +70 | NO | yes | -0.23 | -0.23 |
+| 2026-08-27 | MRVL | Polariton | 0/45 | ✅ | 5% | 0.62 | +33 | NO | no | +0.38 | +0.37 |
+| 2026-08-27 | MRVL | Prepayment | 1/45 | ✅ | 7% | 0.31 | +62 | NO | yes | -0.31 | -0.31 |
+| 2026-08-27 | MRVL | Scale Across | 3/45 | ❌ | 9% | 0.15 | +76 | NO | yes | -0.15 | -0.15 |
+| 2026-08-27 | MRVL | Storage | 42/45 | ❌ | 89% | 0.72 | +17 | YES | yes | +0.28 | +0.27 |
+| 2026-08-27 | MRVL | Teralynx | 9/45 | ❌ | 21% | 0.68 | +11 | NO | yes | -0.68 | -0.68 |
+| 2026-08-27 | MRVL | Xconn | 1/45 | ✅ | 7% | 0.33 | +60 | NO | no | +0.67 | +0.65 |
+| 2026-08-27 | ULTA | AI / Artificial Intelligence | 6/20 | ✅ | 35% | 0.10 | +55 | NO | yes | -0.10 | -0.10 |
+| 2026-08-27 | ULTA | Diamond | 9/20 | ❌ | 44% | 0.25 | +19 | YES | no | -0.25 | -0.25 |
+| 2026-08-27 | ULTA | Google / Gemini | 2/20 | ✅ | 18% | 0.66 | +16 | NO | yes | -0.66 | -0.66 |
+| 2026-08-27 | ULTA | Headwind | 16/20 | ❌ | 72% | 0.29 | +43 | YES | yes | +0.71 | +0.69 |
+| 2026-08-27 | ULTA | Iran / Middle East | 4/20 | ✅ | 27% | 0.22 | +51 | NO | yes | -0.22 | -0.22 |
+| 2026-08-27 | ULTA | Rare Beauty | 1/20 | ✅ | 14% | 0.24 | +62 | NO | yes | -0.24 | -0.24 |
+| 2026-08-27 | ULTA | Store Opening | 8/20 | ❌ | 39% | 0.27 | +12 | YES | yes | +0.73 | +0.71 |
+| 2026-08-27 | ULTA | Tailwind | 8/20 | ✅ | 43% | 0.12 | +31 | YES | no | -0.12 | -0.12 |
+| 2026-08-27 | ULTA | Tariff | 4/20 | ❌ | 23% | 0.63 | +14 | NO | no | +0.37 | +0.36 |
+| 2026-08-27 | ULTA | TikTok | 10/20 | ✅ | 52% | 0.20 | +28 | NO | yes | -0.20 | -0.20 |
+| 2026-08-27 | ULTA | Times Square | 0/20 | ✅ | 10% | 0.72 | +18 | NO | no | +0.28 | +0.27 |
+| 2026-08-27 | ULTA | Traffic | 17/20 | ✅ | 80% | 0.62 | +18 | YES | yes | +0.38 | +0.37 |
+| 2026-08-27 | ULTA | Uncertainty | 11/20 | ✅ | 56% | 0.06 | +38 | NO | yes | -0.06 | -0.06 |
+| 2026-09-01 | MDT | Abbott | 5/7 | ❌ | 57% | 0.13 | +44 | YES | no | -0.13 | -0.13 |
+| 2026-09-01 | MDT | China | 6/7 | ✅ | 75% | 0.62 | +13 | YES | no | -0.62 | -0.62 |
+| 2026-09-01 | MDT | MiniMed | 6/7 | ✅ | 75% | 0.09 | +16 | NO | yes | -0.09 | -0.09 |
+| 2026-09-01 | MDT | PulseSelect | 5/7 | ❌ | 57% | 0.26 | +31 | YES | yes | +0.74 | +0.72 |
+| 2026-09-01 | MDT | Simplera | 7/7 | ❌ | 75% | 0.23 | +52 | YES | no | -0.23 | -0.23 |
+| 2026-09-01 | MDT | Sphere-9 | 6/7 | ✅ | 75% | 0.08 | +17 | NO | yes | -0.08 | -0.08 |
+| 2026-09-01 | MDT | Tariff | 5/7 | ✅ | 67% | 0.06 | +27 | NO | yes | -0.06 | -0.06 |
+| 2026-09-01 | PANW | Cortex Cloud | 4/7 | ✅ | 58% | 0.21 | +21 | NO | no | +0.79 | +0.77 |
+| 2026-09-01 | PANW | Frontier | 2/7 | ✅ | 41% | 0.05 | +54 | NO | yes | -0.05 | -0.05 |
+| 2026-09-01 | PANW | Mythos | 0/7 | ✅ | 24% | 0.38 | +38 | NO | yes | -0.38 | -0.38 |
+| 2026-09-01 | PANW | Open Source | 2/7 | ✅ | 41% | 0.44 | +15 | NO | yes | -0.44 | -0.44 |
+| 2026-09-01 | PANW | Protect AI | 4/7 | ❌ | 49% | 0.25 | +24 | YES | no | -0.25 | -0.25 |
+| 2026-09-01 | PANW | QRadar | 5/7 | ❌ | 57% | 0.15 | +42 | YES | no | -0.15 | -0.15 |
+| 2026-09-01 | PANW | Tailwind | 2/7 | ✅ | 41% | 0.38 | +21 | NO | yes | -0.38 | -0.38 |
+| 2026-09-01 | PANW | Tariff | 3/7 | ❌ | 40% | 0.13 | +27 | YES | no | -0.13 | -0.13 |
+| 2026-09-01 | PANW | XSIAM | 6/7 | ✅ | 75% | 0.02 | +23 | NO | yes | -0.02 | -0.02 |
+| 2026-09-02 | AVGO | Acquisition | 37/44 | ❌ | 80% | 0.16 | +64 | YES | no | -0.16 | -0.16 |
+| 2026-09-02 | AVGO | Anthropic | 2/44 | ✅ | 9% | 0.08 | +83 | NO | yes | -0.08 | -0.08 |
+| 2026-09-02 | AVGO | Ethernet | 23/44 | ✅ | 53% | 0.21 | +26 | NO | yes | -0.21 | -0.21 |
+| 2026-09-02 | AVGO | Google | 6/44 | ✅ | 17% | 0.17 | +66 | NO | yes | -0.17 | -0.17 |
+| 2026-09-02 | AVGO | Hyperscaler | 18/44 | ✅ | 42% | 0.16 | +42 | NO | yes | -0.16 | -0.16 |
+| 2026-09-02 | AVGO | Jericho 4 | 1/44 | ✅ | 7% | 0.55 | +38 | NO | no | +0.45 | +0.44 |
+| 2026-09-02 | AVGO | Meta | 2/44 | ✅ | 9% | 0.22 | +69 | NO | yes | -0.22 | -0.22 |
+| 2026-09-02 | AVGO | Open Source | 2/44 | ❌ | 7% | 0.75 | +18 | NO | no | +0.25 | +0.24 |
+| 2026-09-02 | AVGO | OpenAI | 2/44 | ✅ | 9% | 0.05 | +86 | NO | yes | -0.05 | -0.05 |
+| 2026-09-02 | AVGO | Optic | 23/44 | ✅ | 53% | 0.39 | +14 | YES | no | -0.39 | -0.39 |
+| 2026-09-02 | AVGO | Tomahawk 6 | 7/44 | ✅ | 20% | 0.25 | +55 | NO | yes | -0.25 | -0.25 |
+| 2026-09-02 | AVGO | VMware | 16/44 | ✅ | 38% | 0.07 | +55 | NO | yes | -0.07 | -0.07 |
+| 2026-09-02 | HPE | Alletra | 17/20 | ✅ | 80% | 0.04 | +16 | NO | yes | -0.04 | -0.04 |
+| 2026-09-02 | HPE | Automation | 10/20 | ✅ | 52% | 0.30 | +18 | NO | no | +0.70 | +0.68 |
+| 2026-09-02 | HPE | Department of Energy | 8/20 | ❌ | 39% | 0.16 | +23 | YES | no | -0.16 | -0.16 |
+| 2026-09-02 | HPE | Government | 7/20 | ✅ | 39% | 0.41 | +20 | NO | no | +0.59 | +0.57 |
+| 2026-09-02 | HPE | Headwind | 19/20 | ❌ | 85% | 0.53 | +32 | YES | no | -0.53 | -0.53 |
+| 2026-09-02 | HPE | Morpheus | 5/20 | ✅ | 31% | 0.22 | +47 | NO | no | +0.78 | +0.76 |
+| 2026-09-02 | HPE | Private Cloud AI | 7/20 | ✅ | 39% | 0.11 | +50 | NO | yes | -0.11 | -0.11 |
+| 2026-09-02 | HPE | Quantum | 3/20 | ❌ | 19% | 0.55 | +26 | NO | no | +0.45 | +0.44 |
+| 2026-09-02 | HPE | Self Driving | 0/20 | ❌ | 6% | 0.11 | +83 | NO | yes | -0.11 | -0.11 |
+| 2026-09-02 | HPE | Tailwind | 7/20 | ✅ | 39% | 0.47 | +14 | NO | no | +0.53 | +0.51 |
+| 2026-09-02 | SNOW | Azure | 14/22 | ✅ | 63% | 0.33 | +30 | YES | yes | +0.67 | +0.65 |
+| 2026-09-02 | SNOW | Claude | 2/22 | ✅ | 17% | 0.62 | +21 | NO | no | +0.38 | +0.37 |
+| 2026-09-02 | SNOW | Competition | 6/22 | ✅ | 32% | 0.20 | +12 | YES | no | -0.20 | -0.20 |
+| 2026-09-02 | SNOW | Europe | 14/22 | ❌ | 59% | 0.43 | +16 | YES | no | -0.43 | -0.43 |
+| 2026-09-02 | SNOW | OpenAI | 5/22 | ✅ | 28% | 0.20 | +52 | NO | yes | -0.20 | -0.20 |
+| 2026-09-02 | SNOW | Open Source | 3/22 | ✅ | 21% | 0.56 | +23 | NO | yes | -0.56 | -0.56 |
+| 2026-09-02 | SNOW | Snowflake Intelligence | 5/22 | ✅ | 28% | 0.41 | +31 | NO | no | +0.59 | +0.57 |
+| 2026-09-03 | CIEN | Headwind | 5/7 | ❌ | 57% | 0.47 | +10 | YES | no | -0.47 | -0.47 |
+| 2026-09-03 | CIEN | Hyperscaler | 5/7 | ✅ | 67% | 0.09 | +24 | NO | yes | -0.09 | -0.09 |
+| 2026-09-03 | CIEN | Multi-Rail / Hyper Rail | 1/7 | ✅ | 32% | 0.04 | +64 | NO | yes | -0.04 | -0.04 |
+| 2026-09-03 | CIEN | Neoscaler | 3/7 | ✅ | 49% | 0.16 | +35 | NO | yes | -0.16 | -0.16 |
+| 2026-09-03 | CIEN | RLS | 7/7 | ✅ | 84% | 0.02 | +14 | NO | yes | -0.02 | -0.02 |
+| 2026-09-03 | CIEN | Subsea | 5/7 | ❌ | 57% | 0.28 | +29 | YES | yes | +0.72 | +0.70 |
+| 2026-09-03 | CIEN | Tariff | 6/7 | ❌ | 66% | 0.33 | +33 | YES | yes | +0.67 | +0.65 |
+| 2026-09-03 | DELL | Agentic | 4/21 | ✅ | 26% | 0.16 | +58 | NO | yes | -0.16 | -0.16 |
+| 2026-09-03 | DELL | AI Factory | 5/21 | ✅ | 30% | 0.19 | +51 | NO | yes | -0.19 | -0.19 |
+| 2026-09-03 | DELL | China | 6/21 | ❌ | 30% | 0.15 | +15 | YES | no | -0.15 | -0.15 |
+| 2026-09-03 | DELL | Dividend (3+ times) | 0/21 | ❌ | 6% | 0.72 | +22 | NO | yes | -0.72 | -0.72 |
+| 2026-09-03 | DELL | Headwind | 16/21 | ❌ | 70% | 0.24 | +46 | YES | no | -0.24 | -0.24 |
+| 2026-09-03 | DELL | Lightning | 6/21 | ✅ | 34% | 0.45 | +21 | NO | yes | -0.45 | -0.45 |
+| 2026-09-03 | DELL | Nvidia | 10/21 | ✅ | 49% | 0.20 | +31 | NO | yes | -0.20 | -0.20 |
+| 2026-09-03 | DELL | Secure AI Alliance | 0/21 | ❌ | 6% | 0.76 | +18 | NO | no | +0.24 | +0.23 |
+| 2026-09-03 | DELL | Tailwind | 13/21 | ✅ | 61% | 0.47 | +14 | YES | yes | +0.53 | +0.51 |
+| 2026-09-03 | LULU | Daydrift | 4/56 | ✅ | 11% | 0.43 | +46 | NO | no | +0.57 | +0.55 |
+| 2026-09-03 | LULU | Headwind | 30/56 | ✅ | 54% | 0.22 | +24 | NO | yes | -0.22 | -0.22 |
+| 2026-09-03 | LULU | Holiday | 44/56 | ❌ | 76% | 0.21 | +55 | YES | no | -0.21 | -0.21 |
+| 2026-09-03 | LULU | Iran / Middle East | 5/56 | ✅ | 12% | 0.58 | +30 | NO | yes | -0.58 | -0.58 |
+| 2026-09-03 | LULU | Marathon | 14/56 | ✅ | 27% | 0.24 | +49 | NO | yes | -0.24 | -0.24 |
+| 2026-09-03 | LULU | ShowZero | 3/56 | ❌ | 7% | 0.71 | +22 | NO | no | +0.29 | +0.28 |
+| 2026-09-03 | LULU | Tariff | 10/56 | ✅ | 21% | 0.04 | +75 | NO | yes | -0.04 | -0.04 |
 
 *Prior = calls that said the word / prior calls on record. Last = the most recent pre-event call said the word (✅) or not (❌) — it drives the baseline's transition prior (0.67 vs 0.243).*
