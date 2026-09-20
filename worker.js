@@ -321,7 +321,17 @@ const transcriptRefreshWorker = new Worker(
       return;
     }
     const full = job.data && job.data.full ? " --full" : "";
-    await spawn(`PYTHONPATH=. ${PYTHON} scripts/refresh_dataset.py${full}`, job);
+    // Streamed rather than inherited so Bull Board shows the chain's live
+    // output and a bar that spans the whole ~25min refresh (see the
+    // [refresh] beat markers in scripts/refresh_dataset.py).
+    await spawnWithLogs(
+      `PYTHONPATH=. ${PYTHON} -u scripts/refresh_dataset.py${full}`,
+      job,
+      {
+        totalRe: /^\[refresh\] total_beats=(\d+)/,
+        progressRe: /^\[refresh\] \[(\d+)\/(\d+)\]/,
+      },
+    );
   },
   { connection, concurrency: workerConfig.transcriptRefreshConcurrency, lockDuration: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000, stalledInterval: workerConfig.transcriptRefreshLockDurationMinutes * 60 * 1000 },
 );

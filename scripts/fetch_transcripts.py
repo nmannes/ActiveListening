@@ -62,12 +62,20 @@ def main():
     if not tickers:
         ap.error("no tickers given — pass tickers or use --from-markets")
 
+    # [transcripts] markers: refresh_dataset.py parses [i/n] to advance its own
+    # beat budget (and the BullMQ worker mirrors it into the job progress bar),
+    # so the per-ticker loop below must keep emitting one flushed line per
+    # ticker — it is the only sign of life during a full watchlist sweep.
+    print(f"[transcripts] total_tickers={len(tickers)}", flush=True)
     results = []
-    for t in tickers:
+    for i, t in enumerate(tickers, 1):
         slug = KALSHI_CODE_TO_SLUG.get(t.upper())
         summary = fetch_ticker(t, quarters=args.quarters, force=args.force,
                                delay=args.delay, slug=slug)
         results.append(summary)
+        print(f"[transcripts] [{i}/{len(tickers)}] {t}: {summary['status']} "
+              f"avail={summary['available']} new={summary['fetched']} "
+              f"failed={summary['failed']}", flush=True)
 
     print()
     print(f"{'TICKER':<8} {'STATUS':<13} {'AVAIL':<6} {'FETCHED':<8} {'SKIPPED':<8} {'FAILED':<7} DETAIL")
