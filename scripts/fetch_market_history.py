@@ -41,6 +41,7 @@ Usage:
 import argparse
 import json
 import math
+import os
 import sys
 import threading
 import time
@@ -190,8 +191,23 @@ def candle_path(series: str, ticker: str, historical: bool) -> str:
     return f"series/{series}/markets/{ticker}/candlesticks"
 
 
+def _count_field(c: dict, base: str):
+    """Raw value of a candle count field, tolerating both endpoint spellings.
+
+    The live series endpoint returns fixed-point strings under ``volume_fp`` /
+    ``open_interest_fp``; the historical endpoint returns ``volume`` /
+    ``open_interest``. Reading only one spelling would silently score the
+    historical markets (~70% of the corpus) as zero-volume.
+    """
+    for key in (f"{base}_fp", base):
+        if c.get(key) is not None:
+            return c[key]
+    return None
+
+
 def _candle_fields(c: dict, dollars: bool) -> tuple:
-    """(end_period_ts, trade_close, previous_close, yes_ask_close, yes_bid_close)."""
+    """(end_period_ts, trade_close, previous_close, yes_ask_close,
+    yes_bid_close, volume, open_interest)."""
     suffix = "_dollars" if dollars else ""
     price = c.get("price") or {}
     ask = c.get("yes_ask") or {}
@@ -202,7 +218,29 @@ def _candle_fields(c: dict, dollars: bool) -> tuple:
         price.get(f"previous{suffix}"),
         ask.get(f"close{suffix}"),
         bid.get(f"close{suffix}"),
+        _count_field(c, "volume"),
+        _count_field(c, "open_interest"),
     )
+
+
+def _cum_volume(candles: List[dict], entry_ts, dollars: bool) -> Optional[float]:
+    """Contracts traded after the entry candle through close.
+
+    The fill budget for a resting order: the strategy enters `lead` hours before
+    close, so any flow arriving before resolution can fill it. Candles at or
+    before the entry candle are excluded because that volume is already gone.
+    """
+    if not isinstance(entry_ts, (int, float)):
+        return None
+    total = 0.0
+    for c in candles:
+        ts, _c, _p, _a, _b, vol, _oi = _candle_fields(c, dollars)
+        if not isinstance(ts, (int, float)) or ts <= entry_ts:
+            continue
+        v = _to_float(vol)
+        if v:
+            total += v
+    return total
 
 
 def _to_float(v) -> Optional[float]:
@@ -220,31 +258,33 @@ def pick_price_at(candles: List[dict], target_ts: int, dollars: bool) -> dict:
     candle window yields the price at any horizon. Returns {price, ts, ask,
     bid, fallback, n_candles}.
     """
-    chosen_ts = chosen_close = chosen_prev = chosen_ask = chosen_bid = None
+    chosen = {"ts": None, "close": None, "prev": None, "ask": None,
+              "bid": None, "vol": None, "oi": None}
     n_candles = 0
     for c in candles:
-        ts, close, prev, ask, bid = _candle_fields(c, dollars)
+        ts, close, prev, ask, bid, vol, oi = _candle_fields(c, dollars)
         if not isinstance(ts, (int, float)) or ts > target_ts:
             continue
         n_candles += 1
-        if chosen_ts is None or ts > chosen_ts:
-            chosen_ts = ts
-            chosen_close = _to_float(close)
-            chosen_prev = _to_float(prev)
-            chosen_ask = _to_float(ask)
-            chosen_bid = _to_float(bid)
+        if chosen["ts"] is None or ts > chosen["ts"]:
+            chosen = {"ts": ts, "close": _to_float(close),
+                      "prev": _to_float(prev), "ask": _to_float(ask),
+                      "bid": _to_float(bid), "vol": _to_float(vol),
+                      "oi": _to_float(oi)}
 
-    if chosen_ts is None:
+    if chosen["ts"] is None:
         return {"price": None, "ts": None, "fallback": False,
-                "ask": None, "bid": None, "n_candles": 0}
+                "ask": None, "bid": None, "volume": None, "oi": None,
+                "n_candles": 0}
 
-    price, fallback = chosen_close, False
+    price, fallback = chosen["close"], False
     if price is None:
-        price, fallback = chosen_prev, True
-    if price is None or chosen_ts < target_ts - MAX_STALE_H * 3600:
+        price, fallback = chosen["prev"], True
+    if price is None or chosen["ts"] < target_ts - MAX_STALE_H * 3600:
         price = None
-    return {"price": price, "ts": chosen_ts, "fallback": fallback,
-            "ask": chosen_ask, "bid": chosen_bid,
+    return {"price": price, "ts": chosen["ts"], "fallback": fallback,
+            "ask": chosen["ask"], "bid": chosen["bid"],
+            "volume": chosen["vol"], "oi": chosen["oi"],
             "n_candles": n_candles}
 
 
@@ -278,16 +318,38 @@ def load_mentions(path: Path) -> tuple:
     return rows, call_dates
 
 
-def existing_tickers(path: Path) -> set:
-    done = set()
+# Marks a row as written by a schema that records liquidity, even when the
+# endpoint returned no volume fields for it. Without a terminal marker a
+# genuinely volume-less market would be re-fetched on every run forever.
+MARKER_FIELD = "vol_ok"
+
+
+def existing_rows(path: Path) -> Dict[str, dict]:
+    """{ticker: row} for everything already fetched. Last occurrence wins."""
+    rows: Dict[str, dict] = {}
     if not path.exists():
-        return done
+        return rows
     for line in path.open():
         try:
-            done.add(json.loads(line)["ticker"])
-        except (json.JSONDecodeError, KeyError):
+            row = json.loads(line)
+        except json.JSONDecodeError:
             continue
-    return done
+        if row.get("ticker"):
+            rows[row["ticker"]] = row
+    return rows
+
+
+def has_volume(row: dict) -> bool:
+    """True if `row` was fetched under the current schema.
+
+    Keyed on the presence of every per-lead volume key, not truthiness: a
+    market that genuinely never traded still carries the keys and must not be
+    re-fetched forever. Rows written before the liquidity fields existed lack
+    them, so they are re-fetched — which is what backfills the file in place.
+    """
+    if row.get(MARKER_FIELD) is False:
+        return True                      # terminally volume-less; don't retry
+    return all(f"vol_{lead}h" in row for lead in LEAD_HOURS)
 
 
 def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dict:
@@ -296,13 +358,16 @@ def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dic
     record = {**m, "code": code, "close_time_iso": None, "target_ts": None,
               "price_24h": None, "price_ts": None, "fallback": False,
               "yes_ask_24h": None, "yes_bid_24h": None, "n_candles": 0,
-              "endpoint": None}
+              "endpoint": None, "vol_ok": False}
     for lead in LEAD_HOURS:
         record[f"price_{lead}h"] = None
         record[f"ts_{lead}h"] = None
         record[f"yes_ask_{lead}h"] = None
         record[f"yes_bid_{lead}h"] = None
         record[f"fallback_{lead}h"] = False
+        record[f"vol_{lead}h"] = None
+        record[f"oi_{lead}h"] = None
+        record[f"volcum_{lead}h"] = None
     meta_row = meta.get(m["ticker"])
     close_iso = meta_row.get("close_time") if meta_row else None
     if not close_iso:
@@ -318,6 +383,10 @@ def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dic
                 f"&end_ts={int(close_ts)}&period_interval=60"
         data = _fetch(query)
         candles = (data or {}).get("candlesticks") or []
+        # Terminal: the endpoint returned no volume field at all for this
+        # market, so a re-fetch would return the same nothing.
+        record["vol_ok"] = any(_count_field(c, "volume") is not None
+                               for c in candles)
         n_24 = 0
         for lead in LEAD_HOURS:
             target = int(close_ts - lead * 3600)
@@ -327,6 +396,10 @@ def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dic
             record[f"yes_ask_{lead}h"] = o["ask"]
             record[f"yes_bid_{lead}h"] = o["bid"]
             record[f"fallback_{lead}h"] = o["fallback"]
+            record[f"vol_{lead}h"] = o["volume"]
+            record[f"oi_{lead}h"] = o["oi"]
+            record[f"volcum_{lead}h"] = _cum_volume(candles, o["ts"],
+                                                    not historical)
             if lead == 24:
                 n_24 = o["n_candles"]
         # legacy 24h aliases (price/ask/bid already set by the loop above)
@@ -338,6 +411,14 @@ def fetch_one(m: dict, meta: Dict[str, dict], cutoff: Optional[datetime]) -> dic
     return record
 
 
+def _write_rows(path: Path, rows: Dict[str, dict]) -> None:
+    """Write the full row set. Callers swap the result in with os.replace so
+    a reader never observes a half-written file."""
+    with path.open("w") as f:
+        for r in rows.values():
+            f.write(json.dumps(r) + "\n")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Fetch historical prices for finalized earnings-mention markets")
     ap.add_argument("--out", type=Path, default=OUT_FILE)
@@ -345,41 +426,55 @@ def main():
     ap.add_argument("--workers", type=int, default=8, help="Parallel fetches")
     args = ap.parse_args()
 
-    cutoff = fetch_cutoff()
-    print(f"historical cutoff: {cutoff}")
-
     markets, _ = load_mentions(MENTIONS)
-    print(f"{len(markets)} finalized markets in {MENTIONS.name}")
+    print(f"{len(markets)} finalized markets in {MENTIONS.name}", flush=True)
 
-    series = sorted({m["series_ticker"] for m in markets if m["series_ticker"]})
-    meta = walk_market_meta(series, args.workers)
-    print(f"metadata for {len(meta)} markets")
-
-    done = existing_tickers(args.out)
-    todo = [m for m in markets if m["ticker"] not in done]
-    print(f"resume: {len(done)} already fetched, {len(todo)} to go")
+    rows = existing_rows(args.out)
+    todo = [m for m in markets if not has_volume(rows.get(m["ticker"]) or {})]
+    print(f"resume: {len(rows)} rows on disk, {len(todo)} to fetch", flush=True)
     if args.limit:
         todo = todo[:args.limit]
+    if not todo:
+        print("nothing to do")
+        return
+
+    # A close time already on disk stands in for the metadata walk, so
+    # re-fetching a market costs one candlestick call instead of also
+    # re-walking every series it belongs to.
+    meta = {t: {"close_time": r.get("close_time_iso"), "result": r.get("result"),
+                "status": "finalized"}
+            for t, r in rows.items() if r.get("close_time_iso")}
+    need_meta = sorted({m["series_ticker"] for m in todo
+                        if m["ticker"] not in meta and m["series_ticker"]})
+    if need_meta:
+        print(f"walking metadata for {len(need_meta)} new series", flush=True)
+        meta.update(walk_market_meta(need_meta, args.workers))
+    print(f"close time known for {len(meta)} markets", flush=True)
+
+    cutoff = fetch_cutoff()
+    print(f"historical cutoff: {cutoff}", flush=True)
 
     n_price = n_error = 0
-    lock = threading.Lock()
-    with args.out.open("a") as f:
-        with ThreadPoolExecutor(max_workers=args.workers) as ex:
-            futures = {ex.submit(fetch_one, m, meta, cutoff): m for m in todo}
-            for i, fut in enumerate(as_completed(futures), 1):
-                record = fut.result()
-                with lock:
-                    if record["price_24h"] is not None:
-                        n_price += 1
-                    elif record["close_time_iso"]:
-                        n_error += 1
-                    f.write(json.dumps(record) + "\n")
-                    f.flush()
-                if i % 100 == 0 or i == len(todo):
-                    print(f"  {i}/{len(todo)} ({n_price} with price, {n_error} without)")
+    tmp = args.out.with_name(args.out.name + ".tmp")
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        futures = {ex.submit(fetch_one, m, meta, cutoff): m for m in todo}
+        for i, fut in enumerate(as_completed(futures), 1):
+            record = fut.result()
+            rows[record["ticker"]] = record
+            if record["price_24h"] is not None:
+                n_price += 1
+            elif record["close_time_iso"]:
+                n_error += 1
+            if i % 100 == 0 or i == len(todo):
+                _write_rows(tmp, rows)       # checkpoint: a crash loses nothing
+                print(f"  {i}/{len(todo)} ({n_price} with price, "
+                      f"{n_error} without)", flush=True)
+    _write_rows(tmp, rows)
+    os.replace(tmp, args.out)
 
-    print(f"Wrote {len(todo)} markets to {args.out}: {n_price} with a 24h-before price, "
-          f"{n_error} without (never traded / fetch failed)")
+    print(f"Wrote {len(rows)} markets to {args.out} ({len(todo)} fetched): "
+          f"{n_price} with a 24h-before price, {n_error} without "
+          f"(never traded / fetch failed)")
 
 
 if __name__ == "__main__":
