@@ -1,6 +1,6 @@
 # Earnings Report
 
-Generated 2026-09-05 · 5 companies with upcoming word markets · 72 words
+Generated 2026-09-19 · 5 companies with upcoming word markets · 72 words
 
 ## Method
 
@@ -21,64 +21,64 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Company | Word | Baseline P | Market YES | Gap |
 |---|---|---|---|---|
-| CCL | princess | 79% | $0.39 | +40 |
-| STZ | dividend | 80% | $0.44 | +36 |
-| STZ | wine | 92% | $0.64 | +28 |
-| DPZ | closure | 84% | $0.58 | +26 |
-| STZ | pacifico | 84% | $0.59 | +25 |
+| STZ | dividend | 80% | $0.36 | +44 |
+| CCL | princess | 79% | $0.45 | +34 |
+| STZ | especial | 90% | $0.64 | +26 |
+| STZ | inventory | 84% | $0.62 | +22 |
+| STZ | wine | 92% | $0.71 | +21 |
+| DPZ | closure | 84% | $0.63 | +21 |
+| CCL | inflation | 51% | $0.31 | +20 |
 | STZ | depletion / depletions | 96% | $0.78 | +18 |
-| STZ | especial | 90% | $0.72 | +18 |
-| CCL | inflation | 51% | $0.36 | +15 |
-| STZ | inventory | 84% | $0.71 | +13 |
-| UAL | nonstop / non stop | 36% | $0.24 | +12 |
-| DPZ | india | 56% | $0.44 | +12 |
 | DPZ | insurance | 40% | $0.28 | +12 |
-| CCL | tailwind | 51% | $0.42 | +9 |
+| DPZ | india | 56% | $0.45 | +11 |
 | UAL | atc / air traffic control | 43% | $0.35 | +8 |
+| CCL | dry dock | 79% | $0.73 | +6 |
 | UAL | weather | 60% | $0.54 | +6 |
+| CCL | tailwind | 51% | $0.46 | +5 |
+| UAL | nonstop / non stop | 36% | $0.31 | +5 |
+| STZ | pacifico | 84% | $0.79 | +5 |
+| STZ | inflation | 57% | $0.52 | +5 |
+| CCL | iran | 11% | $0.06 | +5 |
+| STZ | ice | 5% | $0.01 | +4 |
 | CCL | oil | 17% | $0.13 | +4 |
+| UAL | tariff | 19% | $0.15 | +4 |
 | UAL | american airlines | 16% | $0.13 | +3 |
-| STZ | inflation | 57% | $0.56 | +1 |
-| UAL | newark | 74% | $0.73 | +1 |
-| CCL | iran | 11% | $0.11 | -0 |
-| UAL | tariff | 19% | $0.19 | -0 |
-| CCL | dry dock | 79% | $0.80 | -1 |
-| STZ | ice | 5% | $0.06 | -1 |
-| CCL | tariff | 14% | $0.17 | -3 |
-| DPZ | inflation | 47% | $0.54 | -7 |
+| UAL | newark | 74% | $0.75 | -1 |
+| DPZ | inflation | 47% | $0.49 | -2 |
+| CCL | tariff | 14% | $0.19 | -5 |
 | DPZ | tailwind | 41% | $0.49 | -8 |
-| STZ | oil / gas / gasoline | 30% | $0.41 | -11 |
-| CCL | dividend | 45% | $0.56 | -11 |
-| DPZ | tariff | 5% | $0.17 | -12 |
-| UAL | holiday | 40% | $0.55 | -15 |
-| DPZ | signature | 7% | $0.23 | -16 |
-| UAL | chase | 43% | $0.62 | -19 |
-| DPZ | andrew gregory | 7% | $0.26 | -19 |
-| DPZ | world cup | 10% | $0.29 | -19 |
-| CCL | ai / artificial intelligence | 14% | $0.35 | -21 |
-| STZ | aluminum | 30% | $0.53 | -23 |
-| STZ | tariff | 24% | $0.47 | -23 |
-| CCL | headwind | 57% | $0.81 | -24 |
-| CCL | consumer sentiment | 20% | $0.45 | -25 |
-| CCL | holland america | 57% | $0.87 | -30 |
-| UAL | middle east | 36% | $0.66 | -30 |
-| STZ | victoria | 18% | $0.49 | -31 |
-| DPZ | parmesan | 21% | $0.53 | -32 |
-| DPZ | ai / artificial intelligence | 14% | $0.46 | -32 |
-| CCL | propel | 26% | $0.60 | -34 |
-| UAL | crj450 | 5% | $0.39 | -34 |
-| CCL | middle east | 20% | $0.56 | -36 |
-| DPZ | doordash | 14% | $0.53 | -39 |
-| DPZ | stuffed crust | 11% | $0.51 | -40 |
-| UAL | a321xlr | 19% | $0.60 | -41 |
-| STZ | mi campo | 24% | $0.66 | -42 |
-| CCL | modernization | 17% | $0.60 | -43 |
-| UAL | relax row | 12% | $0.56 | -44 |
-| UAL | coastliner | 12% | $0.61 | -49 |
-| UAL | oil | 22% | $0.77 | -55 |
-| UAL | starlink | 32% | $0.89 | -57 |
-| DPZ | joe jordan | 5% | $0.68 | -63 |
-| DPZ | same store | 13% | $0.95 | -82 |
+| CCL | headwind | 57% | $0.66 | -9 |
+| STZ | aluminum | 30% | $0.39 | -9 |
+| UAL | holiday | 40% | $0.53 | -13 |
+| DPZ | tariff | 5% | $0.19 | -14 |
+| DPZ | ai / artificial intelligence | 14% | $0.29 | -15 |
+| UAL | chase | 43% | $0.60 | -17 |
+| CCL | consumer sentiment | 20% | $0.39 | -19 |
+| DPZ | signature | 7% | $0.26 | -19 |
+| CCL | holland america | 57% | $0.77 | -20 |
+| STZ | tariff | 24% | $0.44 | -20 |
+| STZ | mi campo | 24% | $0.46 | -22 |
+| DPZ | andrew gregory | 7% | $0.31 | -24 |
+| CCL | middle east | 20% | $0.47 | -27 |
+| CCL | dividend | 45% | $0.74 | -29 |
+| DPZ | parmesan | 21% | $0.51 | -30 |
+| STZ | oil / gas / gasoline | 30% | $0.61 | -31 |
+| DPZ | world cup | 10% | $0.43 | -33 |
+| UAL | crj450 | 5% | $0.41 | -36 |
+| UAL | middle east | 36% | $0.72 | -36 |
+| DPZ | doordash | 14% | $0.51 | -37 |
+| STZ | victoria | 18% | $0.57 | -39 |
+| CCL | propel | 26% | $0.66 | -40 |
+| UAL | a321xlr | 19% | $0.61 | -42 |
+| UAL | relax row | 12% | $0.55 | -43 |
+| CCL | ai / artificial intelligence | 14% | $0.58 | -44 |
+| CCL | modernization | 17% | $0.62 | -45 |
+| DPZ | stuffed crust | 11% | $0.65 | -54 |
+| UAL | starlink | 32% | $0.88 | -56 |
+| UAL | coastliner | 12% | $0.70 | -58 |
+| UAL | oil | 22% | $0.86 | -64 |
+| DPZ | same store | 13% | $0.98 | -85 |
+| DPZ | joe jordan | 5% | $0.95 | -90 |
 
 ## Aritzia (ARITZIA)
 **Upcoming event:** 2026-10-14
@@ -89,17 +89,17 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 | ai | - | - | $0.76 | **-** |
 | cashmere | - | - | $0.35 | **-** |
 | china | - | - | $0.33 | **-** |
-| conversion | - | - | $0.45 | **-** |
+| conversion | - | - | $0.54 | **-** |
 | flagship | - | - | $0.70 | **-** |
-| franchise | - | - | $0.57 | **-** |
+| franchise | - | - | $0.51 | **-** |
 | influencer | - | - | $0.30 | **-** |
 | new orleans | - | - | $0.26 | **-** |
-| payback | - | - | $0.39 | **-** |
-| personalization | - | - | $0.41 | **-** |
+| payback | - | - | $0.46 | **-** |
+| personalization | - | - | $0.38 | **-** |
 | runway | - | - | $0.67 | **-** |
 | super puff | - | - | $0.30 | **-** |
-| tariff | - | - | $0.90 | **-** |
-| top of mind | - | - | $0.50 | **-** |
+| tariff | - | - | $0.91 | **-** |
+| top of mind | - | - | $0.41 | **-** |
 
 ---
 
@@ -108,21 +108,21 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Word | Prior calls | Baseline P | Last YES | Verdict |
 |---|---|---|---|---|
-| ai / artificial intelligence | 2/28 | 14% | $0.35 | **Unlikely** |
-| consumer sentiment | 4/28 | 20% | $0.45 | **Unlikely** |
-| dividend | 12/28 | 45% | $0.56 | **Coin flip** |
-| dry dock | 24/28 | 79% | $0.80 | **Strong YES** |
-| headwind | 16/28 | 57% | $0.81 | **Likely YES** |
-| holland america | 16/28 | 57% | $0.87 | **Likely YES** |
-| inflation | 15/28 | 51% | $0.36 | **Likely YES** |
-| iran | 2/28 | 11% | $0.11 | **Unlikely** |
-| middle east | 4/28 | 20% | $0.56 | **Unlikely** |
-| modernization | 3/28 | 17% | $0.60 | **Unlikely** |
+| ai / artificial intelligence | 2/28 | 14% | $0.58 | **Unlikely** |
+| consumer sentiment | 4/28 | 20% | $0.39 | **Unlikely** |
+| dividend | 12/28 | 45% | $0.74 | **Coin flip** |
+| dry dock | 24/28 | 79% | $0.73 | **Strong YES** |
+| headwind | 16/28 | 57% | $0.66 | **Likely YES** |
+| holland america | 16/28 | 57% | $0.77 | **Likely YES** |
+| inflation | 15/28 | 51% | $0.31 | **Likely YES** |
+| iran | 2/28 | 11% | $0.06 | **Unlikely** |
+| middle east | 4/28 | 20% | $0.47 | **Unlikely** |
+| modernization | 3/28 | 17% | $0.62 | **Unlikely** |
 | oil | 4/28 | 17% | $0.13 | **Unlikely** |
-| princess | 23/28 | 79% | $0.39 | **Strong YES** |
-| propel | 6/28 | 26% | $0.60 | **Unlikely** |
-| tailwind | 14/28 | 51% | $0.42 | **Likely YES** |
-| tariff | 2/28 | 14% | $0.17 | **Unlikely** |
+| princess | 23/28 | 79% | $0.45 | **Strong YES** |
+| propel | 6/28 | 26% | $0.66 | **Unlikely** |
+| tailwind | 14/28 | 51% | $0.46 | **Likely YES** |
+| tariff | 2/28 | 14% | $0.19 | **Unlikely** |
 
 ---
 
@@ -131,21 +131,21 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Word | Prior calls | Baseline P | Last YES | Verdict |
 |---|---|---|---|---|
-| ai / artificial intelligence | 8/63 | 14% | $0.46 | **Unlikely** |
-| andrew gregory | 2/63 | 7% | $0.26 | **Unlikely** |
-| closure | 55/63 | 84% | $0.58 | **Strong YES** |
-| doordash | 7/63 | 14% | $0.53 | **Unlikely** |
-| india | 35/63 | 56% | $0.44 | **Likely YES** |
-| inflation | 30/63 | 47% | $0.54 | **Likely YES** |
+| ai / artificial intelligence | 8/63 | 14% | $0.29 | **Unlikely** |
+| andrew gregory | 2/63 | 7% | $0.31 | **Unlikely** |
+| closure | 55/63 | 84% | $0.63 | **Strong YES** |
+| doordash | 7/63 | 14% | $0.51 | **Unlikely** |
+| india | 35/63 | 56% | $0.45 | **Likely YES** |
+| inflation | 30/63 | 47% | $0.49 | **Likely YES** |
 | insurance | 25/63 | 40% | $0.28 | **Coin flip** |
-| joe jordan | 1/63 | 5% | $0.68 | **Unlikely** |
-| parmesan | 12/63 | 21% | $0.53 | **Unlikely** |
-| same store | 7/63 | 13% | $0.95 | **Unlikely** |
-| signature | 2/63 | 7% | $0.23 | **Unlikely** |
-| stuffed crust | 5/63 | 11% | $0.51 | **Unlikely** |
+| joe jordan | 1/63 | 5% | $0.95 | **Unlikely** |
+| parmesan | 12/63 | 21% | $0.51 | **Unlikely** |
+| same store | 7/63 | 13% | $0.98 | **Unlikely** |
+| signature | 2/63 | 7% | $0.26 | **Unlikely** |
+| stuffed crust | 5/63 | 11% | $0.65 | **Unlikely** |
 | tailwind | 26/63 | 41% | $0.49 | **Coin flip** |
-| tariff | 2/63 | 5% | $0.17 | **Unlikely** |
-| world cup | 4/63 | 10% | $0.29 | **Unlikely** |
+| tariff | 2/63 | 5% | $0.19 | **Unlikely** |
+| world cup | 4/63 | 10% | $0.43 | **Unlikely** |
 
 ---
 
@@ -154,19 +154,19 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Word | Prior calls | Baseline P | Last YES | Verdict |
 |---|---|---|---|---|
-| aluminum | 13/44 | 30% | $0.53 | **Coin flip** |
+| aluminum | 13/44 | 30% | $0.39 | **Coin flip** |
 | depletion / depletions | 44/44 | 96% | $0.78 | **Strong YES** |
-| dividend | 37/44 | 80% | $0.44 | **Strong YES** |
-| especial | 41/44 | 90% | $0.72 | **Strong YES** |
-| ice | 1/44 | 5% | $0.06 | **Unlikely** |
-| inflation | 25/44 | 57% | $0.56 | **Likely YES** |
-| inventory | 39/44 | 84% | $0.71 | **Strong YES** |
-| mi campo | 9/44 | 24% | $0.66 | **Unlikely** |
-| oil / gas / gasoline | 12/44 | 30% | $0.41 | **Unlikely** |
-| pacifico | 38/44 | 84% | $0.59 | **Strong YES** |
-| tariff | 10/44 | 24% | $0.47 | **Unlikely** |
-| victoria | 7/44 | 18% | $0.49 | **Unlikely** |
-| wine | 42/44 | 92% | $0.64 | **Strong YES** |
+| dividend | 37/44 | 80% | $0.36 | **Strong YES** |
+| especial | 41/44 | 90% | $0.64 | **Strong YES** |
+| ice | 1/44 | 5% | $0.01 | **Unlikely** |
+| inflation | 25/44 | 57% | $0.52 | **Likely YES** |
+| inventory | 39/44 | 84% | $0.62 | **Strong YES** |
+| mi campo | 9/44 | 24% | $0.46 | **Unlikely** |
+| oil / gas / gasoline | 12/44 | 30% | $0.61 | **Unlikely** |
+| pacifico | 38/44 | 84% | $0.79 | **Strong YES** |
+| tariff | 10/44 | 24% | $0.44 | **Unlikely** |
+| victoria | 7/44 | 18% | $0.57 | **Unlikely** |
+| wine | 42/44 | 92% | $0.71 | **Strong YES** |
 
 ---
 
@@ -175,20 +175,20 @@ Sorted by gap descending — a positive gap means prior data says the word is mo
 
 | Word | Prior calls | Baseline P | Last YES | Verdict |
 |---|---|---|---|---|
-| a321xlr | 4/25 | 19% | $0.60 | **Unlikely** |
+| a321xlr | 4/25 | 19% | $0.61 | **Unlikely** |
 | american airlines | 3/25 | 16% | $0.13 | **Unlikely** |
 | atc / air traffic control | 11/25 | 43% | $0.35 | **Coin flip** |
-| chase | 10/25 | 43% | $0.62 | **Coin flip** |
-| coastliner | 1/25 | 12% | $0.61 | **Unlikely** |
-| crj450 | 0/25 | 5% | $0.39 | **Unlikely** |
-| holiday | 10/25 | 40% | $0.55 | **Coin flip** |
-| middle east | 8/25 | 36% | $0.66 | **Coin flip** |
-| newark | 19/25 | 74% | $0.73 | **Strong YES** |
-| nonstop / non stop | 9/25 | 36% | $0.24 | **Coin flip** |
-| oil | 4/25 | 22% | $0.77 | **Unlikely** |
-| relax row | 1/25 | 12% | $0.56 | **Unlikely** |
-| starlink | 7/25 | 32% | $0.89 | **Coin flip** |
-| tariff | 3/25 | 19% | $0.19 | **Unlikely** |
+| chase | 10/25 | 43% | $0.60 | **Coin flip** |
+| coastliner | 1/25 | 12% | $0.70 | **Unlikely** |
+| crj450 | 0/25 | 5% | $0.41 | **Unlikely** |
+| holiday | 10/25 | 40% | $0.53 | **Coin flip** |
+| middle east | 8/25 | 36% | $0.72 | **Coin flip** |
+| newark | 19/25 | 74% | $0.75 | **Strong YES** |
+| nonstop / non stop | 9/25 | 36% | $0.31 | **Coin flip** |
+| oil | 4/25 | 22% | $0.86 | **Unlikely** |
+| relax row | 1/25 | 12% | $0.55 | **Unlikely** |
+| starlink | 7/25 | 32% | $0.88 | **Coin flip** |
+| tariff | 3/25 | 19% | $0.15 | **Unlikely** |
 | weather | 16/25 | 60% | $0.54 | **Strong YES** |
 
 ---
