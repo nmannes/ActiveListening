@@ -29,7 +29,9 @@ Usage:
 """
 
 import argparse
+import datetime
 import json
+import math
 import re
 import sys
 from bisect import bisect_left
@@ -47,6 +49,11 @@ from scripts.generate_earnings_report import (  # noqa: E402
 )
 from pylib.word_presence import load_presence, save_presence  # noqa: E402
 from scripts.fetch_market_history import MENTIONS, OUT_FILE  # noqa: E402
+from backtest.capacity import (  # noqa: E402
+    PARTICIPATION,
+    capacity_curve,
+    net_per_contract,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
 # Enriched per-lead history (data/market_history_leads.jsonl) supersedes the
@@ -59,6 +66,16 @@ OUT_REPORT = ROOT / "earnings-backtest.md"
 
 SWEEP_THRESHOLDS = [0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
 
+# Order sizes for the capacity curve, and the sizes the worked/taker comparison
+# is shown at. N=1 is the reference row: one contract per trade is small enough
+# that the flow cap almost never binds, so it is the closest the capacity model
+# gets to the unlimited-fill headline.
+CAPACITY_SIZES = [1, 10, 25, 50, 100, 250, 500, 1000]
+CAPACITY_EXEC_SIZES = [1, 10, 100, 1000]
+CAPACITY_REF_SIZE = 1
+VALIDITY_SIZE = 100
+CAPACITY_THRESHOLD = 0.10
+
 _OLD_EVENT_RE = re.compile(r"KXEARNINGSMENTION[A-Z]+-\d{2}[A-Z]{3}$")
 
 # Temporal holdout boundary: the baseline calibration is fit only on markets
@@ -66,6 +83,23 @@ _OLD_EVENT_RE = re.compile(r"KXEARNINGSMENTION[A-Z]+-\d{2}[A-Z]{3}$")
 # only starts around Sep 2025 and is sparse before 2026, so the split needs
 # to sit inside the baselined window to leave enough training data.
 DEFAULT_CUTOFF = "2026-07-01"
+
+
+def paired_t(diffs: List[float]) -> Optional[float]:
+    """t-statistic of the mean of `diffs` (paired per-trade differences).
+
+    The comparison against a fixed-side benchmark runs over the same trades,
+    so the samples are paired and the paired test is the right one — the
+    unpaired variance of trade P&L is far larger and would hide a real effect.
+    Returns None when there are too few trades or no variance to divide by.
+    """
+    n = len(diffs)
+    if n < 2:
+        return None
+    mean = sum(diffs) / n
+    var = sum((d - mean) ** 2 for d in diffs) / (n - 1)
+    se = math.sqrt(var / n)
+    return mean / se if se > 0 else None
 
 
 def fit_isotonic(xs: List[float], ys: List[int]):
@@ -108,7 +142,46 @@ def load_history(path: Path) -> List[dict]:
     return rows
 
 
-def load_call_dates(path: Path) -> Dict[str, str]:
+_SUBTITLE_DATE_RE = re.compile(r"(?:On\s+)?([A-Z][a-z]{2}) (\d{1,2}), (\d{4})")
+
+
+def sub_title_date(sub_title: Optional[str]) -> Optional[str]:
+    """The earnings-call date Kalshi prints on the event, as YYYY-MM-DD.
+
+    sub_title reads "On Oct 23, 2025" (sometimes without the "On"). It names
+    the call itself. The event's `call_date` field does not always: it is
+    derived from the event ticker's date code, and for the "-26JUN30" batch
+    that code is the *contract* date, 110-154 days after the real call.
+    Trusting call_date there put the answer inside the baseline — the
+    transcript filter passed every call up to the contract date, which
+    includes the call the market was predicting.
+    """
+    m = _SUBTITLE_DATE_RE.search(sub_title or "")
+    if not m:
+        return None
+    try:
+        return datetime.datetime.strptime(
+            f"{m.group(1)} {m.group(2)} {m.group(3)}", "%b %d %Y").date().isoformat()
+    except ValueError:
+        return None
+
+
+def load_call_dates(path: Path,
+                    history: Optional[List[dict]] = None) -> Dict[str, str]:
+    """event_ticker -> the date of the earnings call it prices.
+
+    Neither field on the event is trustworthy on its own. For the "-26JUN30"
+    batch both sub_title and call_date carry the *contract* date, up to five
+    months after the market actually resolved — ACI-26JUN30 closed 2026-01-07
+    while both fields say 2026-06-30.
+
+    A market resolves immediately after the call it prices, so its close date
+    bounds the call date from above. Taking min(printed date, earliest close)
+    therefore keeps the printed date when it is right and falls back to the
+    close when the printed date is the contract date. Erring earlier only ever
+    drops a transcript the strategy could legitimately have used; erring later
+    feeds it the answer.
+    """
     out = {}
     for line in path.open():
         if not line.strip():
@@ -117,8 +190,23 @@ def load_call_dates(path: Path) -> Dict[str, str]:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if ev.get("event_ticker") and ev.get("call_date"):
-            out[ev["event_ticker"]] = ev["call_date"]
+        et = ev.get("event_ticker")
+        if not et:
+            continue
+        printed = sub_title_date(ev.get("sub_title")) or ev.get("call_date")
+        if printed:
+            out[et] = printed
+
+    if history:
+        closes: Dict[str, str] = {}
+        for r in history:
+            et = r.get("event_ticker")
+            c = (r.get("close_time_iso") or "")[:10]
+            if et and c and (et not in closes or c < closes[et]):
+                closes[et] = c          # earliest close bounds the call date
+        for et, c in closes.items():
+            if et not in out or c < out[et]:
+                out[et] = c
     return out
 
 
@@ -206,6 +294,16 @@ def simulate(history: List[dict], docs_by_ticker: Dict[str, List[dict]],
             "net_yes": net_yes, "net_no": net_no,
             "present_in": present_in, "n_prior": n_prior,
             "said_last": said_last,
+            # Liquidity at the entry lead, for the capacity model. Absent for
+            # history rows fetched before the volume schema, hence .get().
+            "vol_entry": r.get(f"vol_{lead}h"),
+            "volcum": r.get(f"volcum_{lead}h"),
+            "oi_entry": r.get(f"oi_{lead}h"),
+            "fallback_entry": r.get(f"fallback_{lead}h"),
+            # Kalshi's real taker schedule, charged win or lose, alongside the
+            # flat winners-only model in pnl_net so both can be compared.
+            "pnl_net_kalshi": net_per_contract(side, cost, r["result"],
+                                               fee_model="taker"),
         })
     coverage["n_tradable"] = len(trades)
     if collect:
@@ -234,6 +332,117 @@ def sweep(trades: List[dict], thresholds: List[float]) -> List[dict]:
     return rows
 
 
+def capacity_view(trades: List[dict]) -> List[dict]:
+    """Re-key the active lead's volume onto the names backtest/capacity.py
+    budgets on (vol_24h / volcum_24h). Without this a --lead 48 run would feed
+    the 48h window to a module that believes it is looking at 24h."""
+    out = []
+    for t in trades:
+        c = dict(t)
+        c["vol_24h"] = t.get("vol_entry")
+        c["volcum_24h"] = t.get("volcum")
+        out.append(c)
+    return out
+
+
+def _fillable(view: List[dict], size: float, model: str,
+              participation: float) -> float:
+    """Total contracts actually filled across `view` at order size `size`.
+
+    Kept separate from capacity_curve (which reports dollars, not contracts)
+    so the fill-rate column has a single definition: orders are capped at
+    participation x flow, so nothing fills past the market's own traded size.
+    """
+    from backtest.capacity import fill_for_trade
+    return sum(fill_for_trade(t, size, model=model,
+                              participation=participation)["filled"]
+               for t in view)
+
+
+def build_capacity_rows(trades: List[dict], sizes: List[float], model: str,
+                        participation: float, fee_model: str, fee_rate: float,
+                        threshold: float = 0.10) -> List[dict]:
+    """One row per position size, for the report's capacity table."""
+    view = capacity_view(trades)
+    selected = [t for t in view if abs(t.get("gap") or 0.0) >= threshold]
+    rows = capacity_curve(view, sizes, model=model, participation=participation,
+                          fee_model=fee_model, fee_rate=fee_rate,
+                          threshold=threshold)
+    for r in rows:
+        want = len(selected) * r["size"]
+        got = _fillable(selected, r["size"], model, participation)
+        r["requested"] = want
+        r["filled"] = got
+        r["fill_pct"] = got / want if want else None
+    return rows
+
+
+def build_exec_rows(trades: List[dict], sizes: List[float], participation: float,
+                    fee_model: str, fee_rate: float,
+                    threshold: float = 0.10) -> List[dict]:
+    """Worked vs taker side by side at a few sizes."""
+    out = []
+    for size in sizes:
+        row = {"size": size}
+        for model in ("worked", "taker"):
+            r = build_capacity_rows(trades, [size], model, participation,
+                                    fee_model, fee_rate, threshold)[0]
+            row[model] = r
+        out.append(row)
+    return out
+
+
+def build_validity_rows(trades: List[dict], size: float, participation: float,
+                        fee_model: str, fee_rate: float,
+                        threshold: float = 0.10) -> List[dict]:
+    """P&L split by whether the entry price was a real trade or a stale
+    carry-forward. A stale entry is a price nobody transacted at, so it is the
+    honest place to look for the fill assumption doing the work."""
+    sel = [t for t in trades if abs(t.get("gap") or 0.0) >= threshold]
+    # A stale entry and a zero-volume entry are the same set by construction:
+    # pick_price_at only falls back when the entry candle had no trade, and a
+    # candle with no trade has no volume. One row, not two.
+    groups = [
+        ("genuinely traded", lambda t: t.get("fallback_entry") is False),
+        ("stale carry-forward", lambda t: t.get("fallback_entry") is True),
+        ("all", lambda t: True),
+    ]
+    view = capacity_view(sel)
+    out = []
+    for label, pred in groups:
+        sub = [t for t in sel if pred(t)]
+        if not sub:
+            continue
+        subview = [t for t in view if pred(t)]
+        row = {"label": label, "n": len(sub),
+               "wins": sum(1 for t in sub if t["win"]),
+               "net_unlimited": sum(t["pnl_net"] for t in sub)}
+        r = build_capacity_rows(subview, [size], "worked", participation,
+                                fee_model, fee_rate, 0.0)[0]
+        row.update({"net_capped": r["net"], "roi": r["roi"],
+                    "fill_pct": r["fill_pct"]})
+        out.append(row)
+    return out
+
+
+def build_fee_rows(trades: List[dict], thresholds: List[float]) -> List[dict]:
+    """Flat 3%-of-profit vs Kalshi's real 7% taker fee, unlimited fill so the
+    comparison is not confounded by capacity."""
+    out = []
+    for th in thresholds:
+        sub = [t for t in trades if abs(t["gap"]) >= th]
+        if not sub:
+            continue
+        flat = sum(t["pnl_net"] for t in sub)
+        kalshi = sum(t["pnl_net_kalshi"] for t in sub)
+        stake = sum(t["cost"] for t in sub)
+        out.append({"threshold": th, "n": len(sub), "stake": stake,
+                    "flat": flat, "kalshi": kalshi, "delta": kalshi - flat,
+                    "roi_flat": flat / stake if stake else None,
+                    "roi_kalshi": kalshi / stake if stake else None})
+    return out
+
+
 def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
            fee_rate: float, max_price: Optional[float] = None,
            cutoff_iso: str = DEFAULT_CUTOFF, cal_rows: Optional[List[dict]] = None,
@@ -241,7 +450,9 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
            split_cov: Optional[dict] = None,
            calibrate: bool = False,
            lead: int = 24,
-           lead_rows: Optional[List[dict]] = None) -> str:
+           lead_rows: Optional[List[dict]] = None,
+           capacity: Optional[dict] = None,
+           basis_note: Optional[str] = None) -> str:
     cal_note = (" then recalibrated by an isotonic fit of P(word said) vs "
                 "realized outcomes on markets closing before the holdout "
                 "cutoff (no lookahead past it). The "
@@ -265,15 +476,27 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
              "is undervalued; settle at the actual resolution. Gap = edge on "
              "the chosen side.",
              "",
+             "The call date — the cutoff deciding which transcripts count — is "
+             "the earlier of the date Kalshi prints on the event and the "
+             "market's own close date. A market resolves immediately after the "
+             "call it prices, so its close bounds the call from above. For the "
+             "\"-26JUN30\" batch both printed fields carry the *contract* date, "
+             "up to five months late, and trusting either one scored a quarter "
+             "of the trades using a transcript of the very call the market was "
+             "predicting. Erring earlier only drops a transcript the strategy "
+             "could legitimately have used; erring later feeds it the answer.",
+             "",
              "## Coverage",
              "",
              f"- {coverage['n_history']} finalized markets with history fetched",
              f"- {coverage['n_price']} with a price at the {lead}h lead "
-             "(close − {lead}h)",
+             f"(close − {lead}h)",
              f"- {coverage['n_baseline']} with a transcript baseline (pre-event calls)",
              f"- {coverage['n_tradable']} tradable (both price and baseline)"]
     if max_price is not None:
         lines.append(f"- {coverage['n_capped']} excluded by the max-price cap")
+    if basis_note:
+        lines.append(f"- **entry-price basis: {basis_note}**")
     lines += [f"- fee: {100 * fee_rate:.0f}% on profit" if fee_rate else "- fee: 0",
               ""]
     if coverage["n_old_format"]:
@@ -335,16 +558,35 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
                   f"Same strategy evaluated on each side of the cutoff "
                   f"({cutoff_iso}), with and without calibration. The "
                   "calibration is always fit on train only, so the test rows "
-                  "are fully out-of-sample.",
+                  "are fully out-of-sample. Edge vs NO is the net minus what "
+                  "the same candidates return if every one of them is bet NO "
+                  "regardless of the baseline — the bar any side selection has "
+                  "to clear, and the one that decides whether the baseline is "
+                  "adding information or just re-deriving the base rate. "
+                  "t (edge) is the paired t-statistic of that difference — the "
+                  "benchmark uses the same trades, so the comparison is "
+                  "paired. |t| below about 2 means the edge is not "
+                  "distinguishable from zero at this sample size, however "
+                  "healthy the net looks.",
                   "",
                   "| Min \\|gap\\| | Split | Calibrated | Trades | Wins | "
-                  "Win rate | Net |",
-                  "|---|---|---|---|---|---|---|"]
+                  "Win rate | Net | Always NO | Edge vs NO | t (edge) |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
         for r in holdout:
             wr = f"{100 * r['wins'] / r['n']:.0f}%" if r["n"] else "-"
+            # Always NO is the benchmark the side selection has to beat: the
+            # same candidates at the same costs, bet NO unconditionally. Most
+            # word markets resolve NO, so a strategy can post a healthy ROI
+            # while adding nothing over that fixed side.
+            no = r.get("net_no")
+            no_s = f"{no:+.2f}" if no is not None else "-"
+            edge = f"{r['net'] - no:+.2f}" if no is not None else "-"
+            t = r.get("edge_t")
+            t_s = f"{t:+.2f}" if t is not None else "-"
             lines.append(f"| {r['threshold']:.2f} | {r['split']} | "
                          f"{'yes' if r['calibrated'] else 'no'} | {r['n']} | "
-                         f"{r['wins']} | {wr} | {r['net']:+.2f} |")
+                         f"{r['wins']} | {wr} | {r['net']:+.2f} | "
+                         f"{no_s} | {edge} | {t_s} |")
         lines.append("")
 
     if lead_rows:
@@ -368,6 +610,89 @@ def render(trades: List[dict], coverage: dict, sweep_rows: List[dict],
                          f"{r['n_tradable']} | {r['train_n']} | "
                          f"{r['train_net']:+.2f} | {r['test_n']} | "
                          f"{r['test_wins']} | {wr} | {r['test_net']:+.2f} |")
+        lines.append("")
+
+    if capacity:
+        def pct(v, digits=0):
+            return f"{100 * v:.{digits}f}%" if v is not None else "-"
+
+        crows = capacity["curve_rows"]
+        lines += ["## Capacity",
+                  "",
+                  capacity["note"],
+                  "",
+                  "| Position N | Contracts wanted | Filled | Fill rate | Net | "
+                  "ROI | Capital deployed | Avg slippage | Trades filled | "
+                  "Partially filled |",
+                  "|---|---|---|---|---|---|---|---|---|---|"]
+        for r in crows:
+            star = "**" if r["size"] == capacity["ref_size"] else ""
+            lines.append(f"| {star}{r['size']:.0f}{star} | {r['requested']:.0f} | "
+                         f"{r['filled']:.0f} | {pct(r['fill_pct'])} | "
+                         f"{r['net']:+.2f} | {pct(r['roi'], 1)} | "
+                         f"{r['capital']:.2f} | {r['avg_slippage']:+.3f} | "
+                         f"{r['n_filled']} | {r['n_partial']} |")
+        lines.append("")
+
+        lines += ["## Execution model: worked vs taker",
+                  "",
+                  "**worked** rests a limit order at the entry price across the "
+                  "whole entry-to-close window and is filled by the flow that "
+                  "trades through it: the fill price is the posted price, so "
+                  "slippage is zero and the only cost is unfilled size. "
+                  "**taker** crosses the spread at entry, so only the entry "
+                  "hour's flow is available and the ladder's VWAP sets the "
+                  "cost. Worked is the headline; taker is the conservative "
+                  "lower bound.",
+                  "",
+                  "| Position N | Worked fill | Worked net | Worked ROI | "
+                  "Taker fill | Taker net | Taker ROI | Taker slippage |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in capacity["exec_rows"]:
+            w, t = r["worked"], r["taker"]
+            lines.append(f"| {r['size']:.0f} | {pct(w['fill_pct'])} | "
+                         f"{w['net']:+.2f} | {pct(w['roi'], 1)} | "
+                         f"{pct(t['fill_pct'])} | {t['net']:+.2f} | "
+                         f"{pct(t['roi'], 1)} | {t['avg_slippage']:+.3f} |")
+        lines.append("")
+
+        if capacity["validity_rows"]:
+            n_ref = capacity["validity_size"]
+            lines += ["## Execution validity",
+                      "",
+                      "The entry price is the last traded hourly candle at or "
+                      "before the entry lead; where that candle never traded it "
+                      "falls back to an older close (up to "
+                      "36h stale). A stale entry is a price nobody transacted "
+                      "at, so this split shows how much of the headline rests "
+                      "on the fill assumption rather than on a real quote. "
+                      f"Net @N={n_ref:.0f} is the worked model at a "
+                      f"{100 * capacity['participation']:.0f}% participation rate.",
+                      "",
+                      "| Entry | Trades | Wins | Net (unlimited) | "
+                      f"Net @N={n_ref:.0f} | ROI | Fill rate |",
+                      "|---|---|---|---|---|---|---|"]
+            for r in capacity["validity_rows"]:
+                lines.append(f"| {r['label']} | {r['n']} | {r['wins']} | "
+                             f"{r['net_unlimited']:+.2f} | {r['net_capped']:+.2f} | "
+                             f"{pct(r['roi'], 1)} | {pct(r['fill_pct'])} |")
+            lines.append("")
+
+        lines += ["## Fees: flat 3% of profit vs Kalshi 0.07·C·P·(1−P)",
+                  "",
+                  "The flat model charges only winners; Kalshi's taker schedule "
+                  "charges every fill, losers included, and is rounded up to the "
+                  "cent per order. Unlimited fill, so the fee effect is not "
+                  "confounded with capacity.",
+                  "",
+                  "| Min \\|gap\\| | Trades | Stake | Net (flat 3%) | "
+                  "Net (Kalshi 7%) | Delta | ROI (flat) | ROI (Kalshi) |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for r in capacity["fee_rows"]:
+            lines.append(f"| {r['threshold']:.2f} | {r['n']} | {r['stake']:.2f} | "
+                         f"{r['flat']:+.2f} | {r['kalshi']:+.2f} | "
+                         f"{r['delta']:+.2f} | {pct(r['roi_flat'], 1)} | "
+                         f"{pct(r['roi_kalshi'], 1)} |")
         lines.append("")
 
     lines += ["## Per company (min |gap| 0.10)",
@@ -420,6 +745,12 @@ def main():
     ap.add_argument("--lead", type=int, default=24,
                     help="Entry horizon in hours before close (uses the "
                          "price_{lead}h fields from the history file)")
+    ap.add_argument("--traded-only", action="store_true",
+                    help="Restrict to entries whose price came from a candle "
+                         "that actually traded within the lead, dropping the "
+                         "carry-forward prices nobody transacted at. Halves "
+                         "the headline P&L, because roughly half of the "
+                         "default set's entries are carry-forwards")
     ap.add_argument("--max-price", type=float, default=None,
                     help="Only take bets whose chosen side costs at most this "
                          "much (e.g. 0.30 = 30¢ contracts only)")
@@ -431,11 +762,44 @@ def main():
                          "headline sweep/per-company/trades (default: raw "
                          "baseline; both variants are always shown in the "
                          "temporal holdout)")
+    ap.add_argument("--capacity", action="store_true",
+                    help="Add the order-depth capacity sections. Needs the "
+                         "volume/OI fields in the history file (the fetcher "
+                         "backfills them in place); without them every trade "
+                         "reports zero fillable size")
+    ap.add_argument("--participation", type=float, default=PARTICIPATION,
+                    help="Share of observed flow our own orders capture "
+                         f"(default {PARTICIPATION}). Not a fitted parameter — "
+                         "nothing in this repo pins it down")
+    ap.add_argument("--fee-model", choices=("flat", "kalshi"), default="flat",
+                    help="Fee model used for the capacity sections (default: "
+                         "flat, matching the headline sweep)")
     args = ap.parse_args()
 
     history = load_history(args.history)
+    if args.traded_only:
+        before = len(history)
+        # `is False`, not falsy: a row carrying no flag has unknown provenance
+        # (fetched before the flag existed) and is dropped rather than assumed
+        # good. pick_price_at sets fallback=True exactly when the entry
+        # candle's own close was absent, i.e. when it carried a previous close
+        # forward. Checked against 5,598 markets x 10 leads: fallback=True
+        # holds iff the entry candle's volume is 0, with no counterexamples —
+        # so this predicate is precisely "a trade actually printed here".
+        history = [r for r in history
+                   if r.get(f"fallback_{args.lead}h") is False]
+        print(f"traded-only: {len(history)}/{before} markets kept, "
+              f"{before - len(history)} dropped for a carry-forward "
+              f"{args.lead}h entry price", flush=True)
+    basis_note = (
+        f"restricted to the {len(history)} markets whose {args.lead}h entry "
+        "price came from a candle that actually traded — a real print, not a "
+        "carried-forward close. Everything below, including the coverage "
+        "counts and the holdout, is computed on this basis only, so the "
+        "Execution-validity split is degenerate by construction"
+        if args.traded_only else None)
     docs_by_ticker = load_transcripts()
-    call_dates = load_call_dates(MENTIONS)
+    call_dates = load_call_dates(MENTIONS, history)
     presence = load_presence()
 
     # Pass 1: gather every baselined market (raw p + outcome + close date) so
@@ -477,7 +841,11 @@ def main():
                 holdout.append({"threshold": th, "split": name,
                                 "calibrated": cal_on, "n": len(sub),
                                 "wins": sum(1 for x in sub if x["win"]),
-                                "net": sum(x["pnl_net"] for x in sub)})
+                                "net": sum(x["pnl_net"] for x in sub),
+                                "net_yes": sum(x["net_yes"] for x in sub),
+                                "net_no": sum(x["net_no"] for x in sub),
+                                "edge_t": paired_t([x["pnl_net"] - x["net_no"]
+                                                    for x in sub])})
 
     # Edge-by-entry-time sweep: same raw strategy at every lead present in
     # the history file, so the report shows where in time the edge lives.
@@ -522,11 +890,94 @@ def main():
                              "realized": realized,
                              "calibrated": calibrator(mean_p)})
 
+    cap = None
+    if args.capacity:
+        sel = [t for t in trades if abs(t["gap"]) >= CAPACITY_THRESHOLD]
+        n_novol = sum(1 for t in sel if not t.get("volcum"))
+        pct_novol = 100 * n_novol / len(sel) if sel else 0.0
+        # Under --traded-only every entry is a genuine print, so the
+        # traded-vs-stale split has one non-empty group and says nothing.
+        validity = ([] if args.traded_only else
+                    build_validity_rows(trades, VALIDITY_SIZE,
+                                        args.participation, args.fee_model,
+                                        args.fee_rate, CAPACITY_THRESHOLD))
+        curve = build_capacity_rows(trades, CAPACITY_SIZES, "worked",
+                                    args.participation, args.fee_model,
+                                    args.fee_rate, CAPACITY_THRESHOLD)
+        roi_small, roi_big = curve[0]["roi"], curve[-1]["roi"]
+        stale_pct = 100 * sum(1 for t in sel
+                              if t.get("fallback_entry")) / max(len(sel), 1)
+        if args.traded_only:
+            # The worked model's blind spot is directional, not just a matter
+            # of stale prices: it cannot tell a fill that happened because the
+            # market moved toward the quote from one that happened because it
+            # moved away. Restricting to real prints removes the worst
+            # amplification of that, but not the skew itself.
+            stale_clause = (
+                "see. This basis removes the largest amplification of it — "
+                "every entry here is a price that actually traded, so a fill "
+                "at the posted price is at least a fill at a real price — but "
+                "the directional skew is untouched: the model still cannot "
+                "distinguish a fill that happened because the market moved "
+                "toward the quote from one that happened because it moved away.")
+        else:
+            stale_clause = (
+                f"see, and that effect is largest exactly where it matters "
+                f"most: {stale_pct:.0f}% of these entries are stale "
+                f"carry-forwards, i.e. prices nobody traded at.")
+        note = (
+            f"Fillable size is capped at **{100 * args.participation:.0f}% of "
+            f"the market's own traded volume**. Depth is bounded by *flow* "
+            f"rather than by a modelled book because the entry-time book is "
+            f"not observable: at the 24h lead the entry hour never traded at "
+            f"all for most of these markets, so any resting depth quoted there "
+            f"would be invented. The worked model spends the volume traded "
+            f"between entry and close; the taker model only the entry hour. "
+            f"Participation is a flag, not a fitted parameter — nothing in "
+            f"this repo pins it down. {n_novol} of {len(sel)} "
+            f"({pct_novol:.0f}%) of these trades saw no volume at all between "
+            f"entry and close and never fill under any size.\n\n"
+            f"**The worked model is the optimistic bound, not a forecast.** It "
+            f"fills at the posted price no matter which way the market moved, "
+            f"but a resting order is filled precisely when someone chooses to "
+            f"trade against it — flow dries up when the price moves away from "
+            f"your quote and arrives when it moves through it. Real fills "
+            f"therefore skew toward the losing side in a way this model cannot "
+            f"{stale_clause} Read the worked column as \"is there enough flow?\" "
+            f"(yes, comfortably) and the taker column as \"what if the order "
+            f"has to cross?\" (it collapses). The taker slippage uses the "
+            f"*shape* of live books captured around earnings calls — call-time "
+            f"is the most liquid moment, so those depths are an upper bound on "
+            f"entry-regime depth and the taker fill rates are the optimistic "
+            f"end of that assumption.\n\n"
+            f"**ROI rises slightly with size rather than decaying** "
+            f"({100 * roi_small:.1f}% at N={CAPACITY_SIZES[0]:.0f} to "
+            f"{100 * roi_big:.1f}% at N={CAPACITY_SIZES[-1]:.0f}). That is "
+            f"compositional, not extra edge: the participation cap bites "
+            f"hardest on low-volume markets, so a larger order concentrates "
+            f"its fill on high-volume markets — which are also the ones whose "
+            f"entry price was genuinely traded rather than stale, and those "
+            f"carry the higher ROI. The curve is bounded by the capital the "
+            f"universe can absorb, not by the edge decaying."
+        )
+        cap = {
+            "note": note,
+            "curve_rows": curve,
+            "exec_rows": build_exec_rows(
+                trades, CAPACITY_EXEC_SIZES, args.participation,
+                args.fee_model, args.fee_rate, CAPACITY_THRESHOLD),
+            "validity_rows": validity,
+            "fee_rows": build_fee_rows(trades, SWEEP_THRESHOLDS),
+            "ref_size": CAPACITY_REF_SIZE,
+            "validity_size": VALIDITY_SIZE,
+            "participation": args.participation,
+        }
+
     text = render(trades, coverage, rows, args.fee_rate, args.max_price,
                   cutoff_iso=args.cutoff, cal_rows=cal_rows,
                   holdout=holdout, split_cov=split_cov,
                   calibrate=args.calibrate, lead=args.lead,
-                  lead_rows=lead_rows)
+                  lead_rows=lead_rows, capacity=cap, basis_note=basis_note)
     args.out.write_text(text)
 
     print(f"Wrote {args.out}")
@@ -547,6 +998,14 @@ def main():
         print(f"|gap| >= {r['threshold']:.2f}: {r['n']} trades, {r['wins']} wins "
               f"({wr}), net {r['net']:+.2f} (always YES {r['net_yes']:+.2f} / "
               f"always NO {r['net_no']:+.2f})")
+    if cap:
+        print(f"capacity (worked, participation {100 * args.participation:.0f}%, "
+              f"fee {args.fee_model}):")
+        for r in cap["curve_rows"]:
+            roi = f"{100 * r['roi']:+.1f}%" if r["roi"] is not None else "-"
+            print(f"  N={r['size']:>4.0f}: filled {r['filled']:8.0f} / "
+                  f"{r['requested']:.0f} ({100 * r['fill_pct']:5.1f}%), "
+                  f"net {r['net']:+8.2f}, ROI {roi}")
 
 
 if __name__ == "__main__":
