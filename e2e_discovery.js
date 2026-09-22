@@ -77,7 +77,7 @@ async function main() {
       "baseball",
       "saturday night live",
       "survivor",
-      "footbal",
+      "football",
       "meet the press",
       "the last word",
       "cbs sunday morning",
@@ -123,13 +123,26 @@ async function main() {
     logger.info(`Kalshi market discovery complete: ${marketsResults.length} markets`);
 
     logger.info("Starting remaining parallel data fetching...");
+    // One dead source must not discard the whole run: on 2026-08-25 a stale
+    // MSNBC selector rejected this Promise.all, so every discovery loop threw
+    // "Fatal execution error" before the cache writes below and wrote nothing
+    // for a month. Each scraper now fails alone and yields an empty schedule.
+    const settle = (name, promise) =>
+      promise.then(
+        (result) => result || [],
+        (err) => {
+          logger.error(`Scraper ${name} failed: ${err.message}`);
+          return [];
+        },
+      );
+
     const [espnResults, amazonResults, cspanSchedule, foxnewsSchedule, msnbcSchedule, youtubeUpcoming] = await Promise.all([
-      scrapeESPNMatchups(browser),
-      scrapeAmazonNBA(browser),
-      scrapeCspanSchedule(browser),
-      scrapeFoxNewsSchedule(browser),
-      scrapeMsnbcSchedule(browser),
-      scrapeAllYoutubeUpcoming(browser),
+      settle("espn", scrapeESPNMatchups(browser)),
+      settle("amazon", scrapeAmazonNBA(browser)),
+      settle("cspan", scrapeCspanSchedule(browser)),
+      settle("foxnews", scrapeFoxNewsSchedule(browser)),
+      settle("msnbc", scrapeMsnbcSchedule(browser)),
+      settle("youtube_upcoming", scrapeAllYoutubeUpcoming(browser)),
     ]);
 
 
