@@ -153,6 +153,8 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   const matchedMatches = allResults.filter(
     (m) => m.mediaSources && m.mediaSources.length > 0,
   );
+  // (configuredMarkets is returned for the sample-generation sweep, which
+  // deliberately covers unmatched markets too.)
   const unmatchedMarkets = allResults.filter(
     (m) => !m.mediaSources || m.mediaSources.length === 0,
   );
@@ -190,7 +192,7 @@ function runMatching(CACHE_DIR, DATA_DIR) {
   });
   fs.writeFileSync(speakersPath, tableHeader + tableRows.join("\n"));
 
-  return { matchedMatches, unmatchedMarkets };
+  return { matchedMatches, unmatchedMarkets, configuredMarkets };
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────
@@ -205,27 +207,53 @@ function slugify(name) {
 }
 
 const MIN_SAMPLES = 5;
+// The scheduler runs hourly; without a cooldown a speaker whose samples can't
+// be found would re-enqueue a yt-dlp download every hour forever.
+const SAMPLE_REQUEST_COOLDOWN_SEC = 24 * 60 * 60;
 const os = require("os");
 const AUDIO_LIB = path.join(os.homedir(), "audio-library");
 
-async function enqueueMissingSamples(matches) {
+// Placeholder / non-person entities the discovery pipeline emits alongside
+// real names; nothing to search YouTube for.
+const SKIP_ENTITIES = new Set(["announcer", "panelist", "cast", "reporters"]);
+const SKIP_ENTITY_SUBSTRINGS = [
+  "employee", "contestant", "houseguest", "__witnesses", "__candidates",
+];
+
+function isGeneratableSpeaker(name) {
+  const lower = (name || "").toLowerCase().trim();
+  if (!lower) return false;
+  if (SKIP_ENTITIES.has(lower)) return false;
+  return !SKIP_ENTITY_SUBSTRINGS.some((s) => lower.includes(s));
+}
+
+// Entries reaching this function come in two shapes: flat market objects
+// (discovery output, scheduling candidates) and {market} match wrappers.
+function speakerEntitiesOf(entry) {
+  const entities = entry?.speakerEntities || entry?.market?.speakerEntities;
+  return Array.isArray(entities) ? entities : [];
+}
+
+/**
+ * Enqueues voice sample generation for every speaker entity in the discovery
+ * output we don't already have samples for. Runs over all of latest_markets —
+ * unmatched markets included, since a speaker is worth having samples for even
+ * if no stream has been matched for them yet.
+ */
+async function enqueueMissingSamples(markets, { dryRun = false } = {}) {
   if (!fs.existsSync(AUDIO_LIB)) return;
 
   const speakers = new Set();
-  for (const m of matches) {
-    const entities = m.market?.speakerEntities;
-    if (!entities) continue;
-    for (const name of entities) {
-      const lower = name ? name.toLowerCase() : "";
-      if (lower && lower !== "announcer" && lower !== "panelist" && lower !== "cast" && lower !== "reporters" && !lower.includes("employee") && !lower.includes("contestant") && !lower.includes("houseguest") && !lower.includes("__witnesses") && !lower.includes("__candidates")) {
-        speakers.add(name);
-      }
+  for (const m of markets) {
+    for (const name of speakerEntitiesOf(m)) {
+      if (isGeneratableSpeaker(name)) speakers.add(name);
     }
   }
 
+  const files = fs.readdirSync(AUDIO_LIB);
+
   for (const name of speakers) {
     const slug = slugify(name);
-    const files = fs.readdirSync(AUDIO_LIB);
     const wavs = files.filter((f) => f.startsWith(slug) && f.endsWith(".wav"));
     if (wavs.length >= MIN_SAMPLES) continue;
 
@@ -233,6 +261,25 @@ async function enqueueMissingSamples(matches) {
     const pendingCount = await connection.hlen(`verify:${slug}`);
     if (pendingCount >= 20) {
       console.log(`Skipping sample generation for "${name}": ${pendingCount} pending verifications (>= 20)`);
+      continue;
+    }
+
+    if (dryRun) {
+      console.log(`[dry-run] Would enqueue sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
+      continue;
+    }
+
+    // Claim the speaker before enqueuing so concurrent/repeated runs don't
+    // stack duplicate jobs (NX: only one winner per cooldown window).
+    const claimed = await connection.set(
+      `sample_req:${slug}`,
+      String(Date.now()),
+      "EX",
+      SAMPLE_REQUEST_COOLDOWN_SEC,
+      "NX",
+    );
+    if (!claimed) {
+      console.log(`Skipping sample generation for "${name}": requested within the last ${SAMPLE_REQUEST_COOLDOWN_SEC / 3600}h`);
       continue;
     }
 
@@ -253,7 +300,7 @@ async function main() {
   cleanupOldScheduledFiles(scheduledDir, homeScheduledDir);
 
   // 2. Run market-to-media matching
-  const { matchedMatches } = runMatching(CACHE_DIR, DATA_DIR);
+  const { matchedMatches, configuredMarkets } = runMatching(CACHE_DIR, DATA_DIR);
 
   // 3. Load manual matches
   const manualMatches = loadManualMatches(CACHE_DIR);
@@ -273,9 +320,17 @@ async function main() {
     now,
   });
 
-  // 5. Enqueue sample generation for speakers with fewer than 5 embeddings
-  //    (only for speakers who actually have a scheduled event)
-  await enqueueMissingSamples(candidates);
+  // 5. Enqueue sample generation for every speaker entity in the latest
+  //    discovery output that we don't have samples for — unmatched markets
+  //    included, so speakers are ready before a stream is matched to them.
+  let sampleMarkets = [
+    ...configuredMarkets,
+    ...manualMatches.map((m) => m.market).filter(Boolean),
+  ];
+  if (opts.targetSlug) {
+    sampleMarkets = sampleMarkets.filter((m) => m.slug === opts.targetSlug);
+  }
+  await enqueueMissingSamples(sampleMarkets, { dryRun: opts.dryRun });
 
   // 6. Schedule (or dry-run)
   await processCandidates(candidates, matches, {
