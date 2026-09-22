@@ -132,6 +132,15 @@ puppeteer:
   waitForSelectorTimeoutMs: 15000
   waitForSelectorShortTimeoutMs: 10000
 
+# ── Earnings call source finder ──────────────────────────────────────────
+# Claude-based URL picking/verification in lib/scrapers/earnings_source.js.
+# When false the finder still searches and scrapes IR pages and matches known
+# stream-provider URLs deterministically — it just skips _askClaude, the
+# Claude link picks, and verifyUrl.
+# Env override: ENABLE_EARNINGS_FINDER_AI=true|false
+earnings:
+  aiEnabled: false
+
 # ── Provider retry / respawn defaults ────────────────────────────────────
 providers:
   ffmpegRespawnDelayMs: 3000

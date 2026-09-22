@@ -1,6 +1,6 @@
 # Earnings Backtest — Fillable Prices
 
-Generated 2026-09-20
+Generated 2026-09-21
 
 ## What this tests
 
@@ -37,7 +37,7 @@ Net at the executable price. The YES and NO columns split it by side; **Always N
 
 ## Is YES overpriced?
 
-Realized resolution rate against the quoted price, by price band, on the headline basis at this lead. If the mid equalled the realized rate the two fixed-side benchmarks below would be equal and opposite; where the mid runs above realized, YES is rich and a NO bet starts with a tailwind it did not earn from the transcript. This is a property of the *price*, not of the strategy, and it is why the headline table needs the Always-NO column.
+Realized resolution rate against the quoted price, by price band, on the headline basis at this lead. If the mid equalled the realized rate the two fixed-side benchmarks below would each sit at minus their own half of the spread — you pay the quote going in and it is worth its mid going out — so both would be negative, equal, and driven only by the spread and the fee. Where the mid runs above realized, YES is rich by that margin and a NO bet starts with a tailwind it did not earn from the transcript: the gap between the two benchmark columns below is exactly 2 × (mid − realized). This is a property of the *price*, not of the strategy, and it is why the headline table needs the Always-NO column.
 
 | Mid band | n | Realized YES | Mean ask | Mean bid | Mean mid | Mid − realized |
 |---|---|---|---|---|---|---|
@@ -47,7 +47,7 @@ Realized resolution rate against the quoted price, by price band, on the headlin
 | 0.60–0.80 | 485 | 63.3% | 0.724 | 0.678 | 0.701 | +6.8¢ |
 | 0.80–1.00 | 610 | 90.2% | 0.924 | 0.893 | 0.909 | +0.7¢ |
 
-Same fix, priced as a trade: buy YES at the ask on every market, or buy NO at 1 − bid on every market, with no baseline and no side selection. Per contract, Kalshi taker fee included. This is what the quote alone pays, and it is the number the strategy's net has to beat by more than noise to have found anything the price had not already put there.
+The same price-level question asked as a trade rather than as a table: buy YES at the ask on every market, or buy NO at 1 − bid on every market, with no baseline and no side selection. Per contract, Kalshi taker fee included. This is what the quote alone pays, and it is the number the strategy's net has to beat by more than noise to have found anything the price had not already put there.
 
 | Lead | n | Realized YES | Mean ask | Mean mid | Always YES (net/contract) | Always NO (net/contract) |
 |---|---|---|---|---|---|---|
@@ -78,7 +78,7 @@ The same sweep without the traded-candle requirement: 5427 markets instead of 21
 
 ## Entry time
 
-The same strategy entered at each horizon, on the traded-candle basis, at min |gap| 0.10. Deeper leads have fewer markets with a traded candle to enter on, which is why the trade count falls with the lead: the quote is there, the evidence is not. Edge vs NO stays flat across every horizon — the strategy's net at each lead is the price level, not the entry timing.
+The same strategy entered at each horizon, on the traded-candle basis, at min |gap| 0.10. The trade count falls with the lead because fewer markets have a traded candle to enter on: the quote is there at every horizon, but the evidence is not. The edge over Always-NO is **not** flat across them, and its shape is the useful part. An hour before close the strategy is significantly *worse* than doing nothing but betting NO: by then the call has happened, the price has absorbed what was said, and the baseline is built only from prior calls, so the widest gaps are exactly where the market knows something the transcript cannot (t = −4.24). Entered 3–12 hours out it beats the benchmark by 12–23¢ a trade, but at |t| ≈ 1.2 that is not significant at this sample size. From 18 hours out the gap is indistinguishable from zero at every horizon, and the net is the price level and nothing else. So mid-depth leads are the only ones where side selection adds anything at all — and even there the evidence is weak.
 
 | Lead | Live quotes | Traded | Trades | Wins | Win rate | Net | Always NO | Edge vs NO | t |
 |---|---|---|---|---|---|---|---|---|---|
@@ -104,20 +104,20 @@ Markets closing before 2026-07-01 (train) against those closing on or after it (
 
 ## Capital
 
-Fillable size is capped at **10% of the entry hour's traded volume** — a taker order can only take what someone else traded in the hour it crosses. Below that cap the fill is at the quoted ask; past it the order walks a depth ladder whose shape is measured from live earnings-call books and stepped 1/2/3/5/10¢ off the top, so the average price paid (and the slippage column) rises with size. Participation is a flag, not a fitted parameter — nothing in this repo pins it down.
+Fillable size is capped at **10% of the entry hour's traded volume** — a taker order can only take what someone else traded in the hour it crosses. Everything up to the cap fills at the quoted ask, which is the price this report already assumes; everything past it goes **unfilled** rather than filled worse. So this table is an upper bound on size, not a cost estimate: it does not know how much was actually resting at the ask, and a real order past the cap would either miss or walk deeper and pay more. Participation is a flag, not a fitted parameter — nothing in this repo pins it down.
 
-Sizes are per trade, over the min |gap| 0.10 selection. Net and ROI are at the executable price including the ladder slippage; the unlimited-size net for the same selection is in the headline table.
+Sizes are per trade, over the min |gap| 0.10 selection. Net, ROI and capital are at the executable price, so the per-contract average matches the headline table and the only thing size changes is how much of each bet you get.
 
 | Position N | Contracts wanted | Filled | Fill rate | Net | ROI | Capital | Avg slippage | Trades filled | Partially filled |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | 1407 | 1176 | 84% | -6.14 | -1.4% | 442.60 | +0.031 | 1407 | 381 |
-| 10 | 14070 | 6738 | 48% | -139.66 | -5.3% | 2622.13 | +0.052 | 1407 | 980 |
-| 25 | 35175 | 11130 | 32% | -307.04 | -7.0% | 4386.68 | +0.057 | 1407 | 1199 |
-| 50 | 70350 | 14820 | 21% | -583.13 | -10.1% | 5778.27 | +0.059 | 1407 | 1299 |
-| 100 | 140700 | 18228 | 13% | -785.00 | -11.3% | 6956.01 | +0.061 | 1407 | 1365 |
-| 250 | 351750 | 21766 | 6% | -704.23 | -9.1% | 7765.86 | +0.061 | 1407 | 1393 |
-| 500 | 703500 | 24005 | 3% | -669.68 | -8.2% | 8175.78 | +0.061 | 1407 | 1403 |
-| 1000 | 1407000 | 24868 | 2% | -748.79 | -9.1% | 8269.73 | +0.061 | 1407 | 1406 |
+| 1 | 1407 | 1176 | 84% | +23.22 | 5.6% | 413.49 | +0.000 | 1407 | 381 |
+| 10 | 14070 | 6738 | 48% | +139.55 | 5.9% | 2347.60 | +0.000 | 1407 | 980 |
+| 25 | 35175 | 11130 | 32% | +232.07 | 6.0% | 3855.94 | +0.000 | 1407 | 1199 |
+| 50 | 70350 | 14820 | 21% | +200.90 | 4.0% | 5006.99 | +0.000 | 1407 | 1299 |
+| 100 | 140700 | 18228 | 13% | +242.15 | 4.1% | 5946.63 | +0.000 | 1407 | 1365 |
+| 250 | 351750 | 21766 | 6% | +575.01 | 8.8% | 6513.94 | +0.000 | 1407 | 1393 |
+| 500 | 703500 | 24005 | 3% | +807.51 | 12.0% | 6735.31 | +0.000 | 1407 | 1403 |
+| 1000 | 1407000 | 24868 | 2% | +798.41 | 11.8% | 6763.21 | +0.000 | 1407 | 1406 |
 
 ## Per company (min |gap| 0.10)
 

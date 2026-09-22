@@ -11,3 +11,4 @@ boto3==1.42.77
 nemo_toolkit[asr]
 huggingface_hub<0.22.0
 twscrape>=0.18.0
+typesafe-sdk==0.7.1
