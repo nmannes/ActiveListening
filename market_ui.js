@@ -514,6 +514,7 @@ app.get("/voice", (req, res) => {
 const EARNINGS_REPORTS = [
     { file: "earnings-report-report.md", label: "Earnings Report" },
     { file: "earnings-backtest.md", label: "Earnings Backtest" },
+    { file: "earnings-backtest-fills.md", label: "Earnings Backtest (fillable prices)" },
 ];
 
 app.get("/reports", (req, res) => {

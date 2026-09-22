@@ -190,6 +190,16 @@ def fill_for_trade(trade: dict, size: float, model: str = "worked",
       only available size is the entry-hour flow. Budget =
       participation * vol_24h. Slippage: walk a synthetic_book(cost, budget)
       and take the VWAP of what is actually filled; slippage = avg_cost - cost.
+    model="cross": you cross the spread at `trade["cost"]`, and that cost is
+      ALREADY the quoted ask rather than a last-traded price. Budget =
+      participation * vol_24h, the same entry-hour flow "taker" uses, but the
+      fill is at the quote itself: the first cent "taker" charges is the
+      spread this model is already paying, so walking the ladder on top of an
+      ask would bill it twice. Slippage 0.0, and size beyond the flow cap
+      simply goes unfilled — top-of-book depth is not in the historical
+      candles, so what else was resting at the ask is not modelled. Requires
+      `cost` to be an executable price; used by
+      scripts/backtest_earnings_fills.py.
 
     Returns a dict with keys:
       "budget"     float  contracts available
@@ -205,6 +215,12 @@ def fill_for_trade(trade: dict, size: float, model: str = "worked",
     if model == "taker":
         budget = max_fillable(trade.get("vol_24h"), participation)
         filled, avg, _ = walk_book(synthetic_book(cost, budget), size)
+    elif model == "cross":
+        budget = max_fillable(trade.get("vol_24h"), participation)
+        # A taker order at the quote pays the quote; any size past the flow cap
+        # is unfilled rather than filled worse.
+        filled = min(size, budget) if budget > 0 else 0.0
+        avg = cost if filled > 0 else None
     else:
         budget = max_fillable(trade.get("volcum_24h"), participation)
         # A resting order fills at the posted price, so any budget beyond the

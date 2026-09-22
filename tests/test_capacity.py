@@ -238,9 +238,36 @@ def test_fill_taker_slippage_positive_and_monotone_in_size():
     assert fills[-1]["shortfall"] == pytest.approx(4_500.0)
 
 
+def test_fill_cross_pays_the_quote_with_no_slippage():
+    # `cost` here is the quoted ask, not a last-traded price, so the fill is at
+    # the quote: charging the taker ladder's first cent on top would bill the
+    # spread twice.
+    t = ctrade(0.30, vol=5_000, volcum=1_000_000)
+    fill = cap.fill_for_trade(t, 100, model="cross")
+    assert fill["model"] == "cross"
+    assert fill["budget"] == pytest.approx(500.0)   # entry-hour flow, like taker
+    assert fill["filled"] == 100
+    assert fill["fill_cost"] == 0.30
+    assert fill["slippage"] == 0.0
+    assert fill["shortfall"] == 0.0
+
+
+def test_fill_cross_caps_size_at_the_flow_and_does_not_walk_past_it():
+    t = ctrade(0.30, vol=5_000)
+    fill = cap.fill_for_trade(t, 900, model="cross")
+    assert fill["filled"] == pytest.approx(500.0)
+    assert fill["fill_cost"] == 0.30   # unfilled size is not filled worse
+    assert fill["slippage"] == 0.0
+    assert fill["shortfall"] == pytest.approx(400.0)
+    # Same size under the ladder model both overpays and fills more, which is
+    # why the two are not interchangeable when cost is already executable.
+    taker = cap.fill_for_trade(t, 900, model="taker")
+    assert taker["slippage"] > 0
+
+
 def test_fill_trade_without_volume_keys_does_not_raise():
     t = {"cost": 0.42}  # exactly the keys simulate() rows may lack
-    for model in ("worked", "taker"):
+    for model in ("worked", "taker", "cross"):
         fill = cap.fill_for_trade(t, 50, model=model)
         assert fill["budget"] == 0.0
         assert fill["filled"] == 0.0
@@ -256,6 +283,7 @@ def test_fill_trade_with_null_volume_fills_nothing():
     t["vol_24h"] = None
     assert cap.fill_for_trade(t, 50)["filled"] == 0.0
     assert cap.fill_for_trade(t, 50, model="taker")["filled"] == 0.0
+    assert cap.fill_for_trade(t, 50, model="cross")["filled"] == 0.0
 
 
 # ── capacity_curve ─────────────────────────────────────────────────────

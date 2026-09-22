@@ -61,16 +61,18 @@ STEPS = {
                 "data/market_history_leads.jsonl"],
     "report": ["scripts/generate_earnings_report.py"],
     "backtest": ["scripts/backtest_earnings_report.py"],
+    "backtest-fills": ["scripts/backtest_earnings_fills.py"],
 }
 
-FULL_STEPS = ["from-markets", "watchlist", "history", "report", "backtest"]
+FULL_STEPS = ["from-markets", "watchlist", "history", "report", "backtest",
+              "backtest-fills"]
 
 # Beat budget for the progress bar. Weights are expected cost, not counts, so
 # the bar advances at a roughly even rate over a full chain: the watchlist
 # sweep (S&P 500, every step resumable) dwarfs everything else on a cold run
 # and still dominates on a warm one.
 BEATS = {"mentions": 100, "from-markets": 100, "watchlist": 600,
-         "history": 150, "report": 25, "backtest": 25}
+         "history": 150, "report": 25, "backtest": 25, "backtest-fills": 25}
 TOTAL_BEATS = sum(BEATS.values())
 
 # Child progress lines that fill each step's slice of the budget.
@@ -79,6 +81,7 @@ STEP_PROGRESS = {
     "from-markets": re.compile(r"^\[transcripts\] \[(\d+)/(\d+)\]"),
     "watchlist": re.compile(r"^\[transcripts\] \[(\d+)/(\d+)\]"),
     "history": re.compile(r"^\s+(\d+)/(\d+) \("),
+    "backtest-fills": re.compile(r"^\[fills\] \[(\d+)/(\d+)\]"),
 }
 
 

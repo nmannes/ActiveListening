@@ -84,6 +84,7 @@ def main():
     sub.add_parser("report", help="Generate human-readable earnings report (earnings-report-report.md)")
     sub.add_parser("market-history", help="Fetch historical prices 24h before resolution for finalized markets")
     sub.add_parser("backtest-report", help="Backtest the earnings-report gap strategy (earnings-backtest.md)")
+    sub.add_parser("backtest-fills", help="Backtest it at prices a taker would have filled at (earnings-backtest-fills.md)")
     sub.add_parser("social", add_help=False,
                    help="Fetch social media post history (X/Twitter) — see `kalshi social --help`")
     sub.add_parser("mention-markets", help="Fetch Kalshi appearance mention-market history (data/mention_markets.jsonl)")
@@ -174,6 +175,9 @@ def main():
 
     elif cmd == "backtest-report":
         sys.exit(python("scripts/backtest_earnings_report.py", *extra))
+
+    elif cmd == "backtest-fills":
+        sys.exit(python("scripts/backtest_earnings_fills.py", *extra))
 
     elif cmd == "social":
         sys.exit(python("scripts/fetch_social.py", *extra))
