@@ -36,6 +36,9 @@ market_tracking/
 *.lock
 
 speakers.md
+earnings-backtest.md
+earnings-backtest-fills.md
+earnings-report-report.md
 
 s3/*
 
