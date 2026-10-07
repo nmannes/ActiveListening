@@ -667,7 +667,7 @@
                     }
 
                     const sourceLink = seg.sourceUrl
-                        ? `<span class="segment-source">Source: <a href="${seg.sourceUrl}" target="_blank">${seg.sourceUrl}</a></span>`
+                        ? `<span class="segment-source">Source: <a href="${seg.sourceUrl}${seg.start > 0 ? `&t=${Math.floor(seg.start)}s` : ''}" target="_blank">${seg.sourceUrl}</a></span>`
                         : '';
 
                     html += `
@@ -681,6 +681,7 @@
                                     <span>Score: <strong>${seg.score?.toFixed(3)}</strong></span>
                                     ${seg.refScore != null ? `<span>Ref: <strong style="color:#60a5fa;">${seg.refScore.toFixed(3)}</strong></span>` : ''}
                                     <span>Duration: ${formatDuration(seg.duration || 0)}</span>
+                                    ${seg.start != null ? `<span>Start: ${formatDuration(seg.start)}</span>` : ''}
                                 </div>
                                 ${sourceLink}
                             </div>

@@ -662,6 +662,7 @@ class SampleGenerator:
                         raw_segments.append({
                             "audio": chunk,
                             "duration": round(duration, 2),
+                            "start": round(start_s, 2),
                             "source": wav_path.name,
                         })
                 del audio
@@ -1162,6 +1163,7 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
             "target": target,
             "score": score,
             "duration": seg["duration"],
+            "start": seg.get("start"),
             "source": seg.get("source", ""),
             "ogg_path": str(seg["ogg_path"]),
             "wav_path": str(wav_path),

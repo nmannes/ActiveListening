@@ -218,6 +218,7 @@ async def _process_sample_generation(job, job_token, progress=None):
                             raw_segments.append({
                                 "audio": audio[start_sample:end_sample],
                                 "duration": round(duration, 2),
+                                "start": round(start_s, 2),
                                 "source": wav_path.name,
                             })
                 except Exception as e:
@@ -345,6 +346,7 @@ async def _process_sample_generation(job, job_token, progress=None):
                 "target": target,
                 "score": score,
                 "duration": seg["duration"],
+                "start": seg.get("start"),
                 "job_id": job_id,
                 "source": seg.get("source", ""),
                 "ogg_path": seg["ogg_path"],

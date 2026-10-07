@@ -1415,6 +1415,7 @@ app.get("/api/voice/verification/:slug", async (req, res) => {
                 score: data.score,
                 refScore: data.ref_score ?? null,
                 duration: data.duration,
+                start: data.start ?? null,
                 jobId: data.job_id || null,
                 approved: data.approved,
                 sourceUrl: vidId ? `https://youtube.com/watch?v=${vidId}` : null,
