@@ -1830,6 +1830,35 @@ createBullBoard({
 });
 app.use("/admin/queues", serverAdapter.getRouter());
 
+// ── run-client pause switch ────────────────────────────────────────────
+// Global toggle read by worker.js: while set, run-client jobs are recorded
+// to data/skipped_run_client.jsonl instead of launching EC2 instances.
+const RUN_CLIENT_PAUSED_KEY = "kalshi:run_client_paused";
+
+app.get("/api/run-client/pause", async (req, res) => {
+    try {
+        const paused = (await connection.get(RUN_CLIENT_PAUSED_KEY)) !== null;
+        res.json({ paused });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post("/api/run-client/pause", async (req, res) => {
+    try {
+        const paused = !!req.body.paused;
+        if (paused) {
+            await connection.set(RUN_CLIENT_PAUSED_KEY, "1");
+        } else {
+            await connection.del(RUN_CLIENT_PAUSED_KEY);
+        }
+        console.log(`[ui] run-client ${paused ? "paused" : "resumed"} via dashboard`);
+        res.json({ paused });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Market Manager UI running at http://localhost:${PORT}`);
     console.log(`Bull Board running at http://localhost:${PORT}/admin/queues`);

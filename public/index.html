@@ -281,6 +281,27 @@
             background: rgba(239, 68, 68, 0.3);
         }
 
+        #pause-toggle {
+            margin: 0.5rem 0.75rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+
+        #pause-toggle.paused {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fbbf24;
+        }
+
+        #pause-toggle.paused:hover {
+            background: rgba(245, 158, 11, 0.3);
+        }
+
+        #pause-toggle:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
         .badge {
             font-size: 0.7rem;
             padding: 0.1rem 0.4rem;
@@ -329,6 +350,7 @@
         <a href="/voice" target="_blank">🎙️ Voice &amp; Data</a>
         <a href="/admin/queues" target="_blank">📊 Queues</a>
         <a href="/reports">📈 Reports</a>
+        <button id="pause-toggle" onclick="toggleRunClientPause()" disabled>…</button>
         <div class="status-text" id="status">Loading data...</div>
     </nav>
 
@@ -973,8 +995,59 @@
         document.getElementById("modal-time").addEventListener("input", updateModalRelativeTime);
         document.getElementById("modal-time").addEventListener("change", updateModalRelativeTime);
 
+        // ── run-client pause toggle ──────────────────────────────────────
+        let runClientPaused = null;
+
+        function renderPauseToggle() {
+            const btn = document.getElementById("pause-toggle");
+            if (runClientPaused === null) return;
+            btn.disabled = false;
+            if (runClientPaused) {
+                btn.textContent = "▶ Resume Listening";
+                btn.title = "Listening paused — matches are recorded but no clients are launched";
+                btn.classList.add("paused");
+            } else {
+                btn.textContent = "⏸ Pause Listening";
+                btn.title = "Listening active — pausing records matches without launching clients";
+                btn.classList.remove("paused");
+            }
+        }
+
+        async function fetchRunClientPause() {
+            try {
+                const res = await fetch("/api/run-client/pause");
+                const data = await res.json();
+                runClientPaused = !!data.paused;
+                renderPauseToggle();
+            } catch (e) {
+                console.error("Failed to fetch run-client pause state:", e);
+            }
+        }
+
+        async function toggleRunClientPause() {
+            if (runClientPaused === null) return;
+            if (!runClientPaused && !confirm("Pause listening? Scheduled matches will be recorded but no clients will launch.")) return;
+            const btn = document.getElementById("pause-toggle");
+            btn.disabled = true;
+            try {
+                const res = await fetch("/api/run-client/pause", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ paused: !runClientPaused }),
+                });
+                const data = await res.json();
+                runClientPaused = !!data.paused;
+            } catch (e) {
+                alert("Failed to toggle listening: " + e.message);
+            } finally {
+                renderPauseToggle();
+            }
+        }
+
         fetchMarkets();
         setInterval(fetchMarkets, 30000);
+        fetchRunClientPause();
+        setInterval(fetchRunClientPause, 30000);
     </script>
 </body>
 
