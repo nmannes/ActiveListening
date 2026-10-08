@@ -254,8 +254,10 @@ async function enqueueMissingSamples(markets, { dryRun = false } = {}) {
 
   for (const name of speakers) {
     const slug = slugify(name);
-    const wavs = files.filter((f) => f.startsWith(slug) && f.endsWith(".wav"));
-    if (wavs.length >= MIN_SAMPLES) continue;
+    // Embeddings are the canonical samples (runtime identification only loads
+    // those; .wav files are optional side artifacts and may be purged).
+    const embeddings = files.filter((f) => f.startsWith(slug) && f.endsWith(".embedding"));
+    if (embeddings.length >= MIN_SAMPLES) continue;
 
     // Skip if this speaker already has many pending verification samples
     const pendingCount = await connection.hlen(`verify:${slug}`);
@@ -265,7 +267,7 @@ async function enqueueMissingSamples(markets, { dryRun = false } = {}) {
     }
 
     if (dryRun) {
-      console.log(`[dry-run] Would enqueue sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
+      console.log(`[dry-run] Would enqueue sample generation for "${name}" (${embeddings.length} samples, need ${MIN_SAMPLES})`);
       continue;
     }
 
@@ -283,7 +285,7 @@ async function enqueueMissingSamples(markets, { dryRun = false } = {}) {
       continue;
     }
 
-    console.log(`Enqueuing sample generation for "${name}" (${wavs.length} samples, need ${MIN_SAMPLES})`);
+    console.log(`Enqueuing sample generation for "${name}" (${embeddings.length} samples, need ${MIN_SAMPLES})`);
     await sampleGenQueue.add("generate_samples", { target: name });
   }
 }

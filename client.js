@@ -22,6 +22,12 @@ const baseLogger = require("./lib/logger");
 const { applyWordConfigurations } = require("./lib/word_configurations");
 const { waitIfNecessary, waitUntilEnded } = require("./lib/event_started_yet");
 const { sendTelegram } = require("./lib/telegram");
+const {
+  startSpeakerConfirmations,
+  writeSampleFiles,
+  hasUnsampledEntity,
+} = require("./lib/speaker_confirmations");
+const { startVideoGif } = require("./lib/video_gif");
 const config = require("./lib/config");
 
 // ── CLI args ─────────────────────────────────────────────────────────
@@ -251,6 +257,19 @@ let transcriptCheckInterval = null;
 let reconnectStartTime = null;
 let lastTranscriptTime = Date.now();
 let providerStarted = false;
+let speakerConfirmations = null;
+let videoGif = null;
+
+/** All speaker entities across the session's markets (deduped). */
+function collectSpeakerEntities(m) {
+  const set = new Set();
+  const push = (list) => {
+    for (const entity of list || []) if (entity) set.add(entity);
+  };
+  push(m.speakerEntities);
+  for (const sub of m.markets || []) push(sub && sub.speakerEntities);
+  return [...set];
+}
 
 // ── WebSocket connection with auto-reconnect ─────────────────────────
 function connectWebSocket() {
@@ -277,6 +296,16 @@ function connectWebSocket() {
 
     // Update provider's ws reference
     if (provider.updateWs) provider.updateWs(ws);
+
+    // Relay operator answers to speaker asks (Redis -> WS). Started once and
+    // kept across reconnects — getWs resolves the live socket each time.
+    if (!speakerConfirmations) {
+      speakerConfirmations = startSpeakerConfirmations({
+        slug: sessionId,
+        getWs: () => ws,
+        logger,
+      });
+    }
 
     // Start heartbeat
     heartbeatInterval = setInterval(() => {
@@ -318,6 +347,25 @@ function connectWebSocket() {
           logger.info(`SPEAKER IDENTIFIED: speaker ${msg.speaker_id} → ${msg.entity} \n${topScores} `);
         } else {
           logger.info(`SPEAKER SCORES: speaker ${msg.speaker_id} (no match above threshold) \n${topScores} `);
+        }
+      } else if (msg.type === "sample_saved") {
+        const written = writeSampleFiles(msg.files, logger);
+        logger.info(
+          `[samples] ${written} voice sample(s) from speaker ask written to ~/audio-library`,
+        );
+      } else if (msg.type === "request_gif") {
+        if (videoGif) {
+          videoGif
+            .handleRequest(msg)
+            .catch((e) => logger.warn(`[gif] request failed: ${e.message || String(e)}`));
+        } else {
+          ws.send(
+            JSON.stringify({
+              type: "gif_unavailable",
+              req_id: msg.req_id,
+              reason: "capture not running",
+            }),
+          );
         }
       } else if (msg.type === "pong") {
         const rtt = Date.now() - msg.ts;
@@ -372,6 +420,8 @@ async function shutdown(reason, exitCode = 0) {
     logger.error(`[client] Error stopping provider: ${e.message || String(e)} `);
   }
 
+  if (videoGif) videoGif.stop();
+  if (speakerConfirmations) speakerConfirmations.stop();
   if (ws) ws.close();
   if (orderbook && orderbook.stop) orderbook.stop();
 
@@ -428,6 +478,27 @@ setTimeout(async () => {
 
     // Only now is the stream actually running — acquire the lockfile
     acquireLockfile();
+
+    // Speaker-ask GIF capture: a low-res in-memory frame ring so the server
+    // can show the operator who's on screen. Only worth the extra yt-dlp +
+    // ffmpeg when a session entity still lacks a library sample (the state
+    // where an ask is likely) and the source is capturable.
+    const askCfg = config.speakerAsk || {};
+    const gifCfg = askCfg.gif || {};
+    if (askCfg.enabled !== false && gifCfg.enabled !== false
+        && hasUnsampledEntity(collectSpeakerEntities(market))) {
+      videoGif = startVideoGif({
+        streamUrl: STREAM_URL,
+        logger,
+        cfg: gifCfg,
+        getWs: () => ws,
+      });
+      logger.info(
+        videoGif
+          ? `[gif] video ring started (${videoGif.strategy})`
+          : "[gif] source not capturable — speaker asks will go out without video",
+      );
+    }
 
     connectWebSocket();
     // Reset transcript timeout now that the provider is actually streaming

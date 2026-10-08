@@ -59,6 +59,21 @@ from pylib.verification_state import (
     get_all_verification_states,
     clear_verification_state,
 )
+from pylib.sample_library import (
+    AUDIO_LIBRARY,
+    MAX_SAMPLES_PER_IDENTITY,
+    slugify,
+    count_samples,
+    next_sample_index,
+)
+# Review-batch policy lives in pylib so queue_worker.py and the tests share it.
+from pylib.sample_review import (
+    MAX_REVIEW_PER_VIDEO,
+    MAX_REVIEW_PER_BATCH,
+    MAX_PERSIST_PER_VIDEO,
+    select_review_subset,
+    select_persist_subset,
+)
 
 _logs_dir = Path(__file__).resolve().parent.parent / "logs"
 _logs_dir.mkdir(parents=True, exist_ok=True)
@@ -72,7 +87,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("generate_samples")
 
-AUDIO_LIBRARY = Path("~/audio-library").expanduser()
 NEGATIVE_AUDIO_LIBRARY = Path("~/negative-audio-library").expanduser()
 PENDING_DIR = Path("~/pending-identifications").expanduser()
 TRUST_FILE = AUDIO_LIBRARY / "trust.json"
@@ -82,14 +96,6 @@ LOCK_FILE = Path("/tmp/generate_samples.lock")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def slugify(name: str) -> str:
-    slug = name.lower().strip()
-    slug = re.sub(r"[^a-z0-9\s-]", "", slug)
-    slug = re.sub(r"[\s]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug)
-    return slug.strip("-")
-
 
 def extract_video_id(url_or_id: str) -> str:
     """Extract YouTube video ID from a URL or return the ID as-is."""
@@ -607,7 +613,7 @@ async def download_from_urls(urls: list, work_dir: Path, target: str | None = No
 class SampleGenerator:
     def __init__(self, target: str, num_videos: int = 5,
                  auto_threshold: float | None = None, skip_verify: bool = False,
-                 max_per_video: int = 3, max_total: int = 30):
+                 max_per_video: int = 3, max_total: int = MAX_SAMPLES_PER_IDENTITY):
         self.target = target
         self.slug = slugify(target)
         self.num_videos = num_videos
@@ -1083,7 +1089,7 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
 
     # Scale review batch down as library grows: fewer sources and fewer
     # per-video segments needed once we have a solid reference to rank against.
-    existing_count = len(sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav")))
+    existing_count = count_samples(slug)
     if existing_count >= 5:
         max_per_video = 1
         min_sources = 2
@@ -1097,58 +1103,37 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
     # Load existing embeddings for dedup checks (only when library exists)
     existing_individuals = generator._load_existing_individuals() if existing_count > 0 else []
 
-    # Select a diverse subset for human review: up to max_per_video segments
-    # per source video, sorted by score. Guarantee at least min_sources
-    # distinct sources by pulling in the best segment from additional sources.
-    # All segments remain on generator.segments for reference-centroid use;
-    # only the diverse subset is sent for verification.
-    by_source = {}
-    for i, s in enumerate(segments):
-        src = s.get("source", "unknown")
-        by_source.setdefault(src, []).append((i, s))
-    diverse = []
-    for src, entries in by_source.items():
-        entries.sort(key=lambda x: x[1]["score"], reverse=True)
-        diverse.extend(entries[:max_per_video])
-    diverse.sort(key=lambda x: x[1]["score"], reverse=True)
+    # Select a diverse subset for human review (per-source cap, source
+    # diversity guarantee, batch cap) — see select_review_subset.
+    review_indices, _diverse, seen_sources = select_review_subset(
+        segments, max_per_video=max_per_video, min_sources=min_sources
+    )
+    review_set_indices = set(review_indices)
 
-    # Ensure at least min_sources distinct sources
-    seen_sources = {segments[idx].get("source") for idx, _ in diverse}
-    if len(seen_sources) < min_sources:
-        remaining_sources = [src for src in sorted(by_source) if src not in seen_sources]
-        for src in remaining_sources:
-            if len(seen_sources) >= min_sources:
-                break
-            entries = by_source[src]
-            entries.sort(key=lambda x: x[1]["score"], reverse=True)
-            for idx, s in entries:
-                if idx not in {i for i, _ in diverse}:
-                    diverse.append((idx, s))
-                    seen_sources.add(src)
-                    break
-        diverse.sort(key=lambda x: x[1]["score"], reverse=True)
+    # Only the review set plus a bounded spare pool per video is persisted.
+    persist_set = select_persist_subset(segments, review_indices)
 
-    review_indices = [idx for idx, _ in diverse]
-    review_set = [(j, segments[idx]) for j, (idx, _) in enumerate(diverse)]
-
-    if len(segments) > len(review_set):
+    if len(review_indices) < len(segments):
         logger.info(
-            f"Diverse review: {len(review_set)}/{len(segments)} segments "
-            f"from {len(seen_sources)} video(s) (max {max_per_video}/video, min {min_sources} sources)"
+            f"Diverse review: {len(review_indices)}/{len(segments)} segments "
+            f"from {len(seen_sources)} video(s) (max {min(max_per_video, MAX_REVIEW_PER_VIDEO)}/video, "
+            f"min {min_sources} sources, batch cap {MAX_REVIEW_PER_BATCH}); "
+            f"persisting {len(persist_set)}"
         )
 
     # Persist segments to disk so they survive past this process.
     segments_dir = work_dir / "segments"
     segments_dir.mkdir(exist_ok=True)
 
-    review_set_indices = set(review_indices)
     pre_approved_idxs = []
     needs_approval = 0
     sent_count = 0
 
-    # Persist ALL segments and register in Redis. Only the diverse
-    # review set is sent to Telegram for manual approval.
+    # Persist the review set + bounded spare pool and register those in Redis.
+    # Trimmed segments are dropped entirely (no files, no verification state).
     for i, seg in enumerate(segments):
+        if i not in persist_set:
+            continue
         score = seg["score"]
         in_review = i in review_set_indices
         is_pre_approved = False
@@ -1255,7 +1240,8 @@ async def verify_via_telegram(generator: SampleGenerator, work_dir: Path):
 # Save to library
 # ---------------------------------------------------------------------------
 
-def save_to_library(generator: SampleGenerator, approved_indices: list, max_total: int = 30):
+def save_to_library(generator: SampleGenerator, approved_indices: list,
+                    max_total: int = MAX_SAMPLES_PER_IDENTITY):
     """Save approved segments to ~/audio-library/ as WAV + compute .embedding.
     Enforces max_total cap across all runs for this speaker."""
     slug = generator.slug
@@ -1265,8 +1251,7 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
 
     # Count existing samples for this slug
-    existing = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
-    existing_count = len(existing)
+    existing_count = count_samples(slug)
     remaining = max(0, max_total - existing_count)
 
     if remaining <= 0:
@@ -1287,18 +1272,7 @@ def save_to_library(generator: SampleGenerator, approved_indices: list, max_tota
         logger.info(f"Capping at {max_total} total: saving {len(to_save)}, skipping {skipped} (already have {existing_count})")
 
     # Find next available suffix
-    next_idx = 0
-    if existing:
-        for p in existing:
-            stem = p.stem
-            if stem == slug:
-                next_idx = max(next_idx, 1)
-            elif stem.startswith(slug + "-"):
-                try:
-                    n = int(stem[len(slug) + 1:])
-                    next_idx = max(next_idx, n + 1)
-                except ValueError:
-                    pass
+    next_idx = next_sample_index(slug)
 
     saved = 0
     for i in to_save:
@@ -1390,8 +1364,10 @@ async def main():
                         help="Auto-approve segments above this confidence score (0.0-1.0)")
     parser.add_argument("--skip-verify", action="store_true", help="Skip Telegram verification entirely")
     parser.add_argument("--dry-run", action="store_true", help="Download and cluster but don't save")
-    parser.add_argument("--max-per-video", type=int, default=3, help="Max samples to keep per source video (default: 3)")
-    parser.add_argument("--max-total", type=int, default=30, help="Max total samples per speaker across all runs (default: 30)")
+    parser.add_argument("--max-per-video", type=int, default=3,
+                        help="Max samples to keep per source video (default: 3, hard max 4)")
+    parser.add_argument("--max-total", type=int, default=MAX_SAMPLES_PER_IDENTITY,
+                        help=f"Max total samples per speaker across all runs (default: {MAX_SAMPLES_PER_IDENTITY})")
     parser.add_argument("--video-url", action="append", default=None,
                         help="YouTube URL or video ID to download (repeatable, skips search)")
     parser.add_argument("--videos-file", type=str, default=None,
@@ -1424,7 +1400,7 @@ async def main():
         num_videos=args.num_videos,
         auto_threshold=args.auto_threshold,
         skip_verify=args.skip_verify,
-        max_per_video=args.max_per_video,
+        max_per_video=min(args.max_per_video, MAX_REVIEW_PER_VIDEO),
         max_total=args.max_total,
     )
 
@@ -1433,12 +1409,12 @@ async def main():
     work_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Working directory: {work_dir}")
 
-    # Check if we already have enough samples for this person
-    existing_samples = sorted(AUDIO_LIBRARY.glob(f"{generator.slug}*.wav"))
-    if len(existing_samples) > 10:
-        logger.info(f"'{args.target}' already has {len(existing_samples)} samples (>10). Skipping generation.")
+    # Stop generating once the identity is at the sample limit
+    existing_count = count_samples(generator.slug)
+    if existing_count >= MAX_SAMPLES_PER_IDENTITY:
+        logger.info(f"'{args.target}' already has {existing_count} samples (limit: {MAX_SAMPLES_PER_IDENTITY}). Skipping generation.")
         send_telegram(
-            f"📦 *{args.target}* already has {len(existing_samples)} samples in library. Skipping generation.",
+            f"📦 *{args.target}* already has {existing_count} samples (limit: {MAX_SAMPLES_PER_IDENTITY}). Skipping generation.",
             "voice",
         )
         return

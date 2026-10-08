@@ -118,6 +118,34 @@ wordPrediction:
 speakerRecognition:
   modelId: "us.amazon.nova-lite-v1:0"
   region: "us-east-1"
+  maxEmbeddingsPerIdentity: 20    # refs loaded per identity (deterministic selection)
+
+# ── Live speaker ask (unknown speaker → Telegram → human confirms) ───────
+speakerAsk:
+  enabled: true
+  minAudioSecs: 10              # new audio needed before asking about a speaker
+  minWords: 8                   # transcript words needed before asking
+  perSpeakerCooldownSecs: 300   # don't re-ask about the same speaker
+  minGapSecs: 45                # minimum gap between asks in a session
+  maxAsksPerSession: 10
+  maxCandidates: 8
+  askAudioSecs: 10              # OGG clip length sent to Telegram
+  retainAudioSecs: 30           # PCM kept in RAM for confirm-time sample curation
+  samplesPerConfirm: 3          # max samples saved per human confirmation
+  chunkSecs: [3, 6]             # curation chunk length range
+  chunkFloor: 0.60              # min cosine to the ask embedding for a chunk
+  nearDuplicateCeiling: 0.95    # skip chunks this close to existing library refs
+  gif:
+    enabled: true
+    fps: 4
+    width: 320
+    bufferSecs: 120             # client-side ring buffer span
+    maxSpanSecs: 20             # max video span per GIF
+    timeoutSecs: 12             # server wait for the client's GIF
+    maxBytes: 5000000
+  photos:
+    enabled: true
+    maxPerAsk: 8
 
 # ── Paths ────────────────────────────────────────────────────────────────
 paths:

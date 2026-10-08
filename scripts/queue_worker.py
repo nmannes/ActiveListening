@@ -47,6 +47,11 @@ from scripts.generate_samples import (
     AUDIO_LIBRARY,
     PENDING_DIR,
     CALLBACK_PREFIX,
+    MAX_SAMPLES_PER_IDENTITY,
+    count_samples,
+    next_sample_index,
+    select_review_subset,
+    select_persist_subset,
 )
 
 logging.basicConfig(
@@ -155,13 +160,13 @@ async def _process_sample_generation(job, job_token, progress=None):
             await _reschedule_job(job, job_token)
             return
 
-    # Check if we already have enough samples for this person
-    existing_samples = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
-    if len(existing_samples) > 10:
-        logger.info(f"[{job_id}] '{target}' already has {len(existing_samples)} samples (>10). Skipping generation.")
+    # Stop generating once the identity is at the sample limit
+    existing_count = count_samples(slug)
+    if existing_count >= MAX_SAMPLES_PER_IDENTITY:
+        logger.info(f"[{job_id}] '{target}' already has {existing_count} samples (limit: {MAX_SAMPLES_PER_IDENTITY}). Skipping generation.")
         await run_blocking(
             send_telegram,
-            f"📦 *{target}* already has {len(existing_samples)} samples in library. Skipping generation.",
+            f"📦 *{target}* already has {existing_count} samples (limit: {MAX_SAMPLES_PER_IDENTITY}). Skipping generation.",
             "voice",
         )
         return
@@ -271,7 +276,23 @@ async def _process_sample_generation(job, job_token, progress=None):
             )
             return
 
-        # 6. Save WAVs + embeddings to disk, convert to OGG
+        # 6. Select the review subset first, then persist only that plus a
+        # bounded spare pool per video — trimmed segments never touch disk
+        # or Redis. Caps: <=4 per source video, <=10 per batch, min 5 sources.
+        max_per_video = 3
+        min_sources = 5
+        review_indices, _diverse, seen_sources = select_review_subset(
+            segments, max_per_video=max_per_video, min_sources=min_sources
+        )
+        review_set = set(review_indices)
+        persist_set = select_persist_subset(segments, review_indices)
+        if len(persist_set) < len(segments):
+            logger.info(
+                f"[{job_id}] Review subset: {len(review_indices)}/{len(segments)} segments "
+                f"from {len(seen_sources)} source(s); persisting {len(persist_set)}"
+            )
+
+        # Save WAVs + embeddings to disk, convert to OGG
         progress.update({"stage": "converting"})
         segments_dir = work_dir / "segments"
         segments_dir.mkdir(exist_ok=True)
@@ -280,6 +301,8 @@ async def _process_sample_generation(job, job_token, progress=None):
 
         def run_conversion():
             for i, seg in enumerate(segments):
+                if i not in persist_set:
+                    continue
                 wav_path = segments_dir / f"{slug}_{i}.wav"
                 emb_path = segments_dir / f"{slug}_{i}.embedding"
                 sf.write(str(wav_path), seg["audio"], 16000)
@@ -301,42 +324,12 @@ async def _process_sample_generation(job, job_token, progress=None):
         # 7. Send for verification
         progress.update({"stage": "verification", "segment_count": len(segments)})
 
-        # Select a diverse review subset: up to 3 segments per source video,
-        # with a minimum of 5 distinct sources.
-        max_per_video = 3
-        min_sources = 5
-        by_source = {}
-        for i, s in enumerate(segments):
-            src = s.get("source", "unknown")
-            by_source.setdefault(src, []).append((i, s))
-        diverse = []
-        for src, entries in by_source.items():
-            entries.sort(key=lambda x: x[1]["score"], reverse=True)
-            diverse.extend(entries[:max_per_video])
-        diverse.sort(key=lambda x: x[1]["score"], reverse=True)
-
-        # Ensure at least min_sources distinct sources
-        seen_sources = {segments[idx].get("source") for idx, _ in diverse}
-        if len(seen_sources) < min_sources:
-            remaining_sources = [src for src in sorted(by_source) if src not in seen_sources]
-            for src in remaining_sources:
-                if len(seen_sources) >= min_sources:
-                    break
-                entries = by_source[src]
-                entries.sort(key=lambda x: x[1]["score"], reverse=True)
-                for idx, s in entries:
-                    if idx not in {i for i, _ in diverse}:
-                        diverse.append((idx, s))
-                        seen_sources.add(src)
-                        break
-            diverse.sort(key=lambda x: x[1]["score"], reverse=True)
-
-        review_set = {idx for idx, _ in diverse}
-
         pre_approved_idxs = []
         sent_count = 0
 
         for i, seg in enumerate(segments):
+            if i not in persist_set:
+                continue
             score = seg["score"]
             in_review = i in review_set
             is_pre_approved = False
@@ -366,8 +359,9 @@ async def _process_sample_generation(job, job_token, progress=None):
             source = seg.get("source", "").replace(".wav", "")
             vid_id = source.split("_", 1)[1] if "_" in source else source
             source_url = f"https://youtube.com/watch?v={vid_id}" if vid_id else "unknown"
+            display_num = review_indices.index(i) + 1
             caption = (
-                f"\U0001f399️ {target} — sample {i + 1}/{len(segments)}\n"
+                f"\U0001f399️ {target} — sample {display_num}/{len(review_indices)}\n"
                 f"Confidence: {score:.3f} | Duration: {seg['duration']:.1f}s\n"
                 f"Source: {source_url}"
             )
@@ -444,13 +438,13 @@ async def process_sample_generation(job, job_token):
         raise
 
 
-def save_to_library_from_segments(segments, approved_idxs, slug, target, max_total=30):
+def save_to_library_from_segments(segments, approved_idxs, slug, target,
+                                  max_total=MAX_SAMPLES_PER_IDENTITY):
     """Save approved segments directly to audio-library (sync, called via run_blocking).
     Enforces max_total cap across all runs for this speaker."""
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
 
-    existing = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
-    existing_count = len(existing)
+    existing_count = count_samples(slug)
     remaining = max(0, max_total - existing_count)
 
     if remaining <= 0:
@@ -470,18 +464,7 @@ def save_to_library_from_segments(segments, approved_idxs, slug, target, max_tot
     if skipped > 0:
         logger.info(f"Capping at {max_total} total: saving {len(to_save)}, skipping {skipped} (already have {existing_count})")
 
-    next_idx = 0
-    if existing:
-        for p in existing:
-            stem = p.stem
-            if stem == slug:
-                next_idx = max(next_idx, 1)
-            elif stem.startswith(slug + "-"):
-                try:
-                    n = int(stem[len(slug) + 1:])
-                    next_idx = max(next_idx, n + 1)
-                except ValueError:
-                    pass
+    next_idx = next_sample_index(slug)
 
     saved = 0
     for i in to_save:
@@ -531,19 +514,31 @@ async def process_save_samples(job, job_token):
 
     AUDIO_LIBRARY.mkdir(parents=True, exist_ok=True)
 
-    existing = sorted(AUDIO_LIBRARY.glob(f"{slug}*.wav"))
-    next_idx = 0
-    if existing:
-        for p in existing:
-            stem = p.stem
-            if stem == slug:
-                next_idx = max(next_idx, 1)
-            elif stem.startswith(slug + "-"):
-                try:
-                    n = int(stem[len(slug) + 1:])
-                    next_idx = max(next_idx, n + 1)
-                except ValueError:
-                    pass
+    # Enforce the per-identity sample limit — keep the highest-scoring
+    # approved segments up to the remaining slots.
+    total_approved = len(approved_idxs)
+    existing_count = count_samples(slug)
+    remaining = max(0, MAX_SAMPLES_PER_IDENTITY - existing_count)
+    if total_approved > remaining:
+        ranked = sorted(
+            approved_idxs,
+            key=lambda i: (states.get(i) or {}).get("score", 0.0),
+            reverse=True,
+        )
+        dropped = total_approved - remaining
+        approved_idxs = ranked[:remaining]
+        logger.info(
+            f"[{job_id}] '{target}' at {existing_count}/{MAX_SAMPLES_PER_IDENTITY} samples — "
+            f"saving top {len(approved_idxs)}, skipping {dropped} approved segment(s)"
+        )
+        await run_blocking(
+            send_telegram,
+            f"⚠️ *{target}* is at the sample limit ({MAX_SAMPLES_PER_IDENTITY} samples). "
+            f"{dropped} approved segment(s) not saved.",
+            "voice",
+        )
+
+    next_idx = next_sample_index(slug)
 
     saved = 0
     for idx in sorted(approved_idxs):
@@ -590,8 +585,9 @@ async def process_save_samples(job, job_token):
     if not all_resolved:
         return
 
-    # Cleanup work directory
-    first_state = states.get(approved_idxs[0]) if approved_idxs else None
+    # Cleanup work directory (fall back to any state when the cap dropped
+    # every approved segment, so the work dir still gets removed)
+    first_state = states.get(approved_idxs[0]) if approved_idxs else next(iter(states.values()), None)
     if first_state:
         work_dir = first_state.get("work_dir")
         if work_dir and Path(work_dir).exists():
@@ -603,7 +599,7 @@ async def process_save_samples(job, job_token):
     await run_blocking(
         send_telegram,
         f"\U0001f4e6 Samples saved for *{target}*\n"
-        f"Saved {saved}/{len(approved_idxs)} segment(s) to `{AUDIO_LIBRARY}`",
+        f"Saved {saved}/{total_approved} segment(s) to `{AUDIO_LIBRARY}`",
         "voice",
     )
 

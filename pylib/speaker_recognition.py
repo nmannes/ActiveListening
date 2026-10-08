@@ -251,6 +251,9 @@ class SpeakerRecognitionSession:
 
         # Session-specific profile labels (e.g., "voice_profile_1": "advertisement")
         self.profile_labels = {}
+        # Speakers labeled by the operator via a Telegram ask.  Human labels
+        # are sticky — machine re-checks must not overwrite them.
+        self.human_labels: set = set()
         # Track WAV byte offset of the last identification per speaker, so each
         # cycle embeds only the audio appended since then (recent audio rather
         # than the full accumulated file).
@@ -311,7 +314,14 @@ class SpeakerRecognitionSession:
         except ValueError:
             return fallback_secs
 
-    def set_profile_label(self, voice_profile_id: str, label: str):
+    def set_profile_label(self, voice_profile_id: str, label: str, force: bool = False):
+        if not force and voice_profile_id in self.human_labels:
+            logger.info(
+                f"[{self.session_id}] Ignoring machine label '{label}' for "
+                f"human-labeled speaker {voice_profile_id} "
+                f"('{self.profile_labels.get(voice_profile_id)}')"
+            )
+            return
         self.profile_labels[voice_profile_id] = label
 
     def map_voice_profile_to_entity(self, voice_profile_id: str) -> Optional[str]:
@@ -331,12 +341,28 @@ class SpeakerRecognitionSession:
 
     async def run_identity_inference(self) -> bool:
         """
-        Aggregates session transcripts and runs LLM-based identity inference.
+        Runs one identity-inference pass, then offers any still-unknown
+        speakers to the operator via Telegram (the ask pass runs after every
+        branch — audio ID, earnings auto-allowlist, and Bedrock — because the
+        build-from-scratch case goes through Bedrock and would otherwise
+        never ask).
 
         Returns True once audio has arrived (PCM flowing through the audio
         processor) so the inference loop can start its duration window from
         first audio rather than session start.
         """
+        result = await self._run_identity_inference()
+
+        ask_manager = getattr(self.listening_session, "speaker_ask", None)
+        if ask_manager is not None:
+            try:
+                await ask_manager.maybe_ask()
+            except Exception:
+                logger.exception(f"[{self.session_id}] speaker-ask pass failed")
+        return result
+
+    async def _run_identity_inference(self) -> bool:
+        """One inference pass; see run_identity_inference for the contract."""
         logger.info(f"Running identity inference for session {self.session_id}")
         audio_processor = getattr(self.listening_session, "audio_processor", None)
         total_sent = getattr(audio_processor, "total_bytes_sent", 0)
@@ -502,6 +528,10 @@ class SpeakerRecognitionSession:
 
             # Extract speaker ID from filename: "speaker_0.wav" -> "0"
             speaker_id = wav_path.stem.replace("speaker_", "")
+
+            # Operator-confirmed labels are authoritative — never re-check them.
+            if speaker_id in self.human_labels:
+                continue
 
             # Identify on the most recent audio only.  Each cycle embeds the
             # bytes appended since the last identification (bounded to the

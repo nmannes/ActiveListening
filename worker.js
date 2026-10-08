@@ -7,9 +7,11 @@ const { promisify } = require("util");
 const execAsync = promisify(exec);
 const { connection } = require("./lib/queues");
 const { worker: workerConfig } = require("./lib/config");
+const { STALE_THRESHOLD_MINUTES } = require("./lib/constants");
 
 const CPU_THRESHOLD = workerConfig.cpuThreshold;
 const RESCHEDULE_DELAY_MS = workerConfig.rescheduleDelayMinutes * 60 * 1000;
+const STALE_THRESHOLD_MS = STALE_THRESHOLD_MINUTES * 60 * 1000;
 
 const SCRIPT_DIR = __dirname;
 const MAX_BUFFER = 10 * 1024 * 1024; // 10 MB
@@ -133,10 +135,24 @@ const runClientWorker = new Worker(
 
     const { marketFile, duration, browser, slug, shutdownMinutes } = job.data;
 
-    // Verify the event date matches today's date in Eastern time
+    // Verify the event hasn't gone stale. Delayed jobs whose delay elapsed
+    // while the worker was down (machine off/asleep, crash loop) are promoted
+    // on the next worker start and would otherwise run hours late. The
+    // scheduler drops stale events at enqueue time with the same threshold
+    // (lib/scheduling.js collectCandidates), but jobs already sitting in
+    // Redis bypass that check.
     const market = JSON.parse(fs.readFileSync(marketFile, "utf8"));
     const eventStartTime = market.eventStartTime;
     if (eventStartTime) {
+      const lateMs = Date.now() - new Date(eventStartTime).getTime();
+      if (lateMs > STALE_THRESHOLD_MS) {
+        const msg = `Skipping "${slug}" — event started ${Math.round(lateMs / 60000)}m ago (> ${STALE_THRESHOLD_MINUTES}m staleness threshold)`;
+        console.log(`[worker] ${msg}`);
+        job.log(msg);
+        return;
+      }
+
+      // Verify the event date matches today's date in Eastern time
       const eventDateET = new Date(eventStartTime).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       const todayET = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
       if (eventDateET < todayET) {
