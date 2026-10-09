@@ -82,18 +82,36 @@ cp ../.env .
 uv venv .venv --python 3.10.19
 source .venv/bin/activate
 
-# Force CPU-only versions of torch, torchvision, and torchaudio first to prevent download of GPU wheels
 echo "[5/5] Installing dependencies via uv..."
-uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 
 # Fix for youtokentome: install build dependencies manually and disable isolation
 uv pip install Cython setuptools
 uv pip install youtokentome --no-build-isolation
 
-# Install open-clip-torch and other requirements
-uv pip install open-clip-torch --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
 # pyyaml 5.4.1 is forced by nemo_toolkit[asr]'s pyyaml<6 pin and has no cp310 wheel, so it
 # builds from source. Its build env pulls an unpinned Cython, and Cython >=3.3 dropped the
 # build_ext.cython_sources method pyyaml's setup.py calls, so the build dies. Pin Cython 0.29.
 echo 'Cython<3' > /tmp/build-constraints.txt
-uv pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt
+# Resolve the whole graph first, then install exactly those pins. uv's install-time solver prefers
+# the newest torch/torchvision and pays for it by silently dropping nemo_toolkit to 1.5.1 and
+# setuptools to 84 (which no longer ships pkg_resources, so librosa 0.9.2 dies on import); its
+# compile-time solver, targeting 3.10 explicitly, keeps the production set: nemo 1.19.1 on the
+# torch 2.12.1+cpu / torchvision 0.27.1+cpu pair that nemo's pytorch-lightning<=1.9.4 pin expects.
+# Installing the compiled pins makes that choice deterministic, and keeping the trio in the resolve
+# guarantees a matching CPU-only set -- installing the newest CPU trio up front left torch
+# downgraded next to a stale torchvision, which killed the server at startup with
+# "operator torchvision::nms does not exist".
+cat requirements.txt > /tmp/dl-roots.txt
+printf 'open-clip-torch\ntorch\ntorchvision\ntorchaudio\n' >> /tmp/dl-roots.txt
+uv pip compile /tmp/dl-roots.txt --python-version 3.10 --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt -o /tmp/requirements.lock
+grep -E '^(torch|torchvision|torchaudio|nemo-toolkit|setuptools)==' /tmp/requirements.lock
+uv pip install -r /tmp/requirements.lock --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt
+
+# Fail fast if a GPU build or an ABI-mismatched pair slipped through, instead of letting the service
+# crash later with a cryptic traceback. (Single line on purpose: the template indents every line
+# after the first, which would break a heredoc's column-0 terminator.)
+.venv/bin/python -c "import torch, torchvision; assert torch.version.cuda is None, 'CUDA torch installed: ' + torch.__version__; print('torch ' + torch.__version__ + ' | torchvision ' + torchvision.__version__)"
+
+# The exact import chain server.py starts with (nemo -> pytorch-lightning -> torchmetrics ->
+# torchvision). Log-only: a failure here means the service will flap, but the box stays up to debug.
+.venv/bin/python -c "from nemo.collections.asr.models import EncDecSpeakerLabelModel; print('nemo import OK')" || echo "WARNING: nemo import failed -- the kalshi service will not start"
