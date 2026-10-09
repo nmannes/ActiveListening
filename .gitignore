@@ -12,6 +12,7 @@ __pycache__/
 *.db
 *.log
 *.xml
+locks/*.lock
 
 *.wav
 *.jpg
