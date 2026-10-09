@@ -33,8 +33,6 @@ backtest_data/
 
 market_tracking/
 
-*.lock
-
 speakers.md
 earnings-backtest.md
 earnings-backtest-fills.md

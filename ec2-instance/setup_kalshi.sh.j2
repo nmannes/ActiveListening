@@ -92,20 +92,22 @@ uv pip install youtokentome --no-build-isolation
 # builds from source. Its build env pulls an unpinned Cython, and Cython >=3.3 dropped the
 # build_ext.cython_sources method pyyaml's setup.py calls, so the build dies. Pin Cython 0.29.
 echo 'Cython<3' > /tmp/build-constraints.txt
-# Resolve the whole graph first, then install exactly those pins. uv's install-time solver prefers
-# the newest torch/torchvision and pays for it by silently dropping nemo_toolkit to 1.5.1 and
-# setuptools to 84 (which no longer ships pkg_resources, so librosa 0.9.2 dies on import); its
-# compile-time solver, targeting 3.10 explicitly, keeps the production set: nemo 1.19.1 on the
-# torch 2.12.1+cpu / torchvision 0.27.1+cpu pair that nemo's pytorch-lightning<=1.9.4 pin expects.
-# Installing the compiled pins makes that choice deterministic, and keeping the trio in the resolve
-# guarantees a matching CPU-only set -- installing the newest CPU trio up front left torch
-# downgraded next to a stale torchvision, which killed the server at startup with
+# Install the committed lock (ec2-instance/requirements.lock) instead of resolving live. The lock
+# holds the verified CPU-only set: nemo 1.19.1 on the torch 2.12.1+cpu / torchvision 0.27.1+cpu
+# pair that nemo's pytorch-lightning<=1.9.4 pin expects, plus setuptools 65.5.1 (84 dropped
+# pkg_resources, which librosa 0.9.2 imports). Live resolution is unsafe here -- uv's install-time
+# solver prefers the newest torch/torchvision, and one such resolve shipped a newer torch beside a
+# stale torchvision, which killed the server at startup with
 # "operator torchvision::nms does not exist".
-cat requirements.txt > /tmp/dl-roots.txt
-printf 'open-clip-torch\ntorch\ntorchvision\ntorchaudio\n' >> /tmp/dl-roots.txt
-uv pip compile /tmp/dl-roots.txt --python-version 3.10 --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt -o /tmp/requirements.lock
-grep -E '^(torch|torchvision|torchaudio|nemo-toolkit|setuptools)==' /tmp/requirements.lock
-uv pip install -r /tmp/requirements.lock --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt
+# After editing requirements.txt, regenerate the lock from the repo root and commit it
+# (roots = requirements.txt + the torch stack + open-clip; tv/ta stay in the resolve so torch,
+# torchvision and torchaudio always move as a matching trio):
+#   echo 'Cython<3' > /tmp/build-constraints.txt
+#   cat requirements.txt > /tmp/dl-roots.txt
+#   printf 'open-clip-torch\ntorch\ntorchvision\ntorchaudio\n' >> /tmp/dl-roots.txt
+#   uv pip compile /tmp/dl-roots.txt --python-version 3.10 --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt -o ec2-instance/requirements.lock
+grep -E '^(torch|torchvision|torchaudio|nemo-toolkit|setuptools)==' ec2-instance/requirements.lock
+uv pip install -r ec2-instance/requirements.lock --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match --build-constraint /tmp/build-constraints.txt
 
 # Fail fast if a GPU build or an ABI-mismatched pair slipped through, instead of letting the service
 # crash later with a cryptic traceback. (Single line on purpose: the template indents every line
