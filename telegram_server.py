@@ -45,8 +45,15 @@ for i, arg in enumerate(sys.argv):
         _env = arg.split("=", 1)[1]
 load_dotenv(dotenv_path=ROOT / f".env.{_env}")
 
-from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, ForceReply
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from bullmq import Queue
 
@@ -57,6 +64,9 @@ from pylib.verification_state import (
     clear_verification_state,
     pending_verifications,
 )
+from pylib.ask_callbacks import parse_ask_callback
+from pylib.sample_library import slugify
+from pylib.speaker_confirmations import push_confirmation
 
 _logs_dir = Path(__file__).resolve().parent / "logs"
 _logs_dir.mkdir(parents=True, exist_ok=True)
@@ -604,9 +614,91 @@ async def _recompute_and_update_captions(slug: str, context: ContextTypes.DEFAUL
     )
 
 
+async def _handle_speaker_ask(update: Update, context: ContextTypes.DEFAULT_TYPE, ask: dict):
+    """Relay an operator's answer to a live speaker ask.
+
+    The answer goes onto the local Redis list `speaker_confirm:<slug>`; the
+    session's client.js picks it up and forwards it to the GPU server, which
+    applies the label / whitelist / sample save. This process never contacts
+    the GPU server directly.
+    """
+    query = update.callback_query
+    slug, spk, action = ask["slug"], ask["spk"], ask["action"]
+
+    # answerCallbackQuery first — Telegram gives us 10s before the button
+    # spinner times out for the operator.
+    await query.answer({
+        "confirm": "Confirmed ✅",
+        "ignore": "Ignored 🚫",
+        "other": "Type the name ✏️",
+    }.get(action, "OK"))
+
+    if query.message is not None:
+        try:
+            await context.bot.edit_message_reply_markup(
+                chat_id=query.message.chat.id,
+                message_id=query.message.message_id,
+                reply_markup=None,
+            )
+        except Exception as exc:
+            logger.warning(f"speaker ask: could not drop keyboard: {exc}")
+
+    if action == "other":
+        if query.message is None:
+            return
+        prompt = await context.bot.send_message(
+            chat_id=query.message.chat.id,
+            text=f"✏️ Who is speaker {spk}? Reply with their name.",
+            reply_markup=ForceReply(selective=True),
+        )
+        prompts = context.bot_data.setdefault("ask_other_prompts", {})
+        prompts[prompt.message_id] = {"slug": slug, "spk": spk}
+        # Bound the map — unanswered prompts shouldn't accumulate.
+        while len(prompts) > 50:
+            prompts.pop(next(iter(prompts)))
+        return
+
+    payload = {"action": action, "spk": spk}
+    if action == "confirm":
+        payload["idx"] = ask.get("idx")
+    push_confirmation(slug, payload)
+    logger.info(f"speaker ask: {action} for speaker {spk} ({slug})")
+
+
+async def handle_ask_other_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Resolve a typed name for the ForceReply prompt started by ✏️ Other."""
+    msg = update.message
+    if msg is None or msg.reply_to_message is None:
+        return
+    prompts = context.bot_data.get("ask_other_prompts") or {}
+    info = prompts.pop(msg.reply_to_message.message_id, None)
+    if info is None:
+        return  # not a reply to one of our prompts
+
+    name = (msg.text or "").strip()
+    if len(slugify(name)) < 3:
+        await msg.reply_text("Name too short — not recorded. Send the full name.")
+        return
+
+    push_confirmation(info["slug"], {
+        "action": "other",
+        "spk": info["spk"],
+        "entity": name,
+    })
+    logger.info(f"speaker ask: other → '{name}' for speaker {info['spk']} ({info['slug']})")
+    await msg.reply_text(f"Recorded ✅ — {name}.")
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
+
+    # Live speaker asks (sent by the GPU server) use their own prefix and are
+    # relayed to the session's client via Redis — see _handle_speaker_ask.
+    ask = parse_ask_callback(data)
+    if ask is not None:
+        await _handle_speaker_ask(update, context, ask)
+        return
 
     if not data.startswith(CALLBACK_PREFIX + ":"):
         await query.answer("Unknown action")
@@ -759,6 +851,11 @@ def main():
 
     # Callback query handler
     app.add_handler(CallbackQueryHandler(handle_callback))
+
+    # Typed "Other" replies for live speaker asks
+    app.add_handler(
+        MessageHandler(filters.REPLY & filters.TEXT & ~filters.COMMAND, handle_ask_other_reply)
+    )
 
     logger.info("Starting Telegram bot (polling) …")
     app.run_polling(allowed_updates=["message", "callback_query"])

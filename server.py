@@ -43,6 +43,7 @@ from pylib.orderbook_tracker import OrderbookTracker
 
 from pylib.log_config import setup_logging, run_uuid_var, set_run_uuid
 from pylib.telegram import send_telegram
+from pylib.ws_framing import FRAME_MAGIC, GIF_MAGIC, classify_binary, parse_gif_message
 
 # ── Config ────────────────────────────────────────────────────────────
 
@@ -64,6 +65,10 @@ _ws = _config["server"]
 AUDIO_INBOX_CAP_SECS = _ws["audioInboxCapSecs"]
 
 LOCK_PATH = Path(tempfile.gettempdir()) / "kalshi-server.lock"
+
+# Client->server binary layouts (FRAME_MAGIC / GIF_MAGIC / classify_binary /
+# parse_gif_message) live in pylib/ws_framing.py — imported above so the
+# classification is unit-testable without importing the whole server.
 
 
 def acquire_singleton_lock() -> int:
@@ -124,6 +129,11 @@ class Config:
         ws_config = _config["server"]
         self.speaker_recognition_interval_secs = ws_config.get("speakerRecognitionIntervalSecs", 10)
         self.speaker_recognition_max_duration_secs = ws_config.get("speakerRecognitionMaxDurationSecs", 1200)
+        self.speaker_recognition_max_embeddings = (
+            _config.get("speakerRecognition", {}).get("maxEmbeddingsPerIdentity", 20)
+        )
+        # Live speaker-ask (unknown speaker -> Telegram -> human confirms)
+        self.speaker_ask = _config.get("speakerAsk", {}) or {}
 
 
 class ClientSession:
@@ -148,6 +158,11 @@ class ClientSession:
 
         self.speaker_task = None
         self.speaker_recognition_session = None
+
+        # Live speaker-ask (Telegram human-in-the-loop identification)
+        self.speaker_ask = None
+        self.gif_seq = 0            # request ids for request_gif
+        self.gif_waiters = {}       # req_id -> asyncio.Future[bytes]
 
         # Simple audio buffer — receives PCM from WebSocket binary messages
         self.audio_inbox = bytearray()
@@ -194,6 +209,26 @@ class ClientSession:
 
             if msg.get("type") == "hello" and "market" in msg:
                 await self.start_session(msg)
+                return
+
+            if msg.get("type") == "speaker_confirmed":
+                if self.speaker_ask is not None:
+                    await self.speaker_ask.handle_confirmation(msg)
+                else:
+                    logger.warning(f"[{self.session_id}] speaker_confirmed received but speaker ask is disabled")
+                return
+
+            if msg.get("type") == "gif_unavailable":
+                # Client can't produce a GIF (unsupported source / empty
+                # window) — release the ask immediately instead of waiting
+                # out the request timeout.
+                fut = self.gif_waiters.get(msg.get("req_id"))
+                if fut is not None and not fut.done():
+                    logger.info(
+                        f"[{self.session_id}] GIF unavailable for request "
+                        f"{msg.get('req_id')}: {msg.get('reason', 'unspecified')}"
+                    )
+                    fut.set_result(None)
         except Exception as e:
             logger.error(f"Handshake parse error: {e}")
 
@@ -307,6 +342,13 @@ class ClientSession:
                 max_duration_secs=self.server.config.speaker_recognition_max_duration_secs,
             )
             logger.info(f"[{self.session_id}] Speaker recognition session created (interval={self.speaker_recognition_session.policy.interval_secs}s, max_duration={self.speaker_recognition_session.policy.max_duration_secs}s)")
+            if self.server.config.speaker_ask.get("enabled", True):
+                from pylib.speaker_ask import SpeakerAskManager
+                self.speaker_ask = SpeakerAskManager(
+                    self.speaker_recognition_session,
+                    self.server.config.speaker_ask,
+                )
+                logger.info(f"[{self.session_id}] Speaker ask enabled (maxAsksPerSession={self.server.config.speaker_ask.get('maxAsksPerSession')})")
             from pylib.speaker_policy import SpeakerRecognitionLoop
             loop = SpeakerRecognitionLoop(
                 self.speaker_recognition_session.policy,
@@ -360,15 +402,41 @@ class ClientSession:
             f"[{self.session_id}] Session ready — receiving audio over WebSocket"
         )
 
+    async def request_gif(self, *, age_newest, age_oldest, timeout, fps=4, width=320):
+        """Ask the client for a GIF of the video `age_oldest`..`age_newest`
+        seconds ago (audio-clock ages).  Returns GIF bytes or None on timeout
+        / unsupported client — callers send the ask without the GIF."""
+        if self.websocket is None or getattr(self.websocket, "closed", False):
+            return None
+        loop = asyncio.get_running_loop()
+        self.gif_seq += 1
+        req_id = self.gif_seq
+        fut = loop.create_future()
+        self.gif_waiters[req_id] = fut
+        try:
+            await self.websocket.send(json.dumps({
+                "type": "request_gif",
+                "req_id": req_id,
+                "age_newest": float(age_newest),
+                "age_oldest": float(age_oldest),
+                "fps": int(fps),
+                "width": int(width),
+            }))
+            return await asyncio.wait_for(fut, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.info(f"[{self.session_id}] GIF request {req_id} timed out after {timeout}s")
+            return None
+        except Exception as e:
+            logger.warning(f"[{self.session_id}] GIF request {req_id} failed: {e}")
+            return None
+        finally:
+            self.gif_waiters.pop(req_id, None)
+
     async def handle_binary_message(self, message):
+        kind = classify_binary(message)
+
         # Video frames are tagged with 0x01 prefix + JPEG data (starts with FF D8)
-        if (
-            len(message) > 3
-            and message[0] == 0x01
-            and message[1] == 0xFF
-            and message[2] == 0xD8
-        ):
-            # Video frame (JPEG) — confirmed by SOI marker
+        if kind == "frame":
             frame_data = message[1:]
             logger.info(f"[{self.session_id}] frame received ({len(frame_data)} bytes)")
 
@@ -378,6 +446,14 @@ class ClientSession:
                 debug_dir.mkdir(exist_ok=True)
                 if self.session_id:
                     (debug_dir / f"frame-{self.session_id}.jpg").write_bytes(frame_data)
+        elif kind == "gif":
+            req_id, gif_bytes = parse_gif_message(message)
+            fut = self.gif_waiters.get(req_id)
+            if fut is not None and not fut.done():
+                logger.info(f"[{self.session_id}] GIF reply for request {req_id} ({len(gif_bytes)} bytes)")
+                fut.set_result(gif_bytes)
+            else:
+                logger.warning(f"[{self.session_id}] GIF reply for unknown/expired request {req_id} dropped")
         else:
             # Audio PCM data
             with self.audio_inbox_lock:
@@ -393,6 +469,14 @@ class ClientSession:
 
 
     def cleanup(self):
+        # Fail any in-flight GIF requests and stop pending ask tasks before
+        # the socket goes away (tasks send Telegram replies on completion).
+        for fut in self.gif_waiters.values():
+            if not fut.done():
+                fut.cancel()
+        self.gif_waiters.clear()
+        if self.speaker_ask is not None:
+            self.speaker_ask.close()
         if self.audio_task:
             self.audio_task.cancel()
         # if self.frame_task:  # CLIP disabled
@@ -492,7 +576,8 @@ class TradingServer:
             start_time = time.time()
             self.speaker_identifier = SpeakerIdentifier(
                 audio_library_path=self.config.audio_library_path,
-                device=self.config.device
+                device=self.config.device,
+                max_embeddings_per_identity=self.config.speaker_recognition_max_embeddings,
             )
             await self.speaker_identifier.initialize()
             load_time = time.time() - start_time

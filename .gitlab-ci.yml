@@ -1,8 +1,8 @@
 server-tests:
   image: python:3.10
   script:
-    - pip install pytest pytest-asyncio pytest-cov requests python-dotenv websockets
-    - PYTHONPATH=. python -m pytest tests/test_bedrock_inference.py tests/test_replay_session.py tests/test_signal_handler.py -v --cov=pylib --cov-report=term-missing
+    - pip install pytest pytest-asyncio pytest-cov requests python-dotenv websockets numpy
+    - PYTHONPATH=. python -m pytest tests/test_bedrock_inference.py tests/test_replay_session.py tests/test_signal_handler.py tests/test_speaker_ask.py -v --cov=pylib --cov-report=term-missing
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_MERGE_REQUEST_IID
@@ -11,7 +11,7 @@ client-tests:
   image: oven/bun:1
   script:
     - bun install
-    - bun test tests/matching.test.js tests/e2e_discovery.test.js tests/speaker_identification.test.js
+    - bun test tests/matching.test.js tests/e2e_discovery.test.js tests/speaker_identification.test.js tests/video_gif.test.js tests/speaker_confirmations.test.js
   rules:
     - if: $CI_PIPELINE_SOURCE == "push"
     - if: $CI_MERGE_REQUEST_IID

@@ -39,12 +39,15 @@ All commands dispatch through the unified CLI (`./bin/kalshi`), which routes to 
 # Python tests
 PYTHONPATH=. python -m pytest tests/test_signal_handler.py -v
 PYTHONPATH=. python -m pytest tests/test_replay_session.py -v
+PYTHONPATH=. python -m pytest tests/test_speaker_ask.py -v
 PYTHONPATH=. python -m pytest tests/ -k "test_name" -v
 
 # Node.js tests (Bun)
 bun test tests/matching.test.js
 bun test tests/e2e_discovery.test.js
 bun test tests/speaker_identification.test.js
+bun test tests/video_gif.test.js
+bun test tests/speaker_confirmations.test.js
 ```
 
 **Backtest (signal simulation):**
@@ -90,9 +93,11 @@ Discovery (Node)  →  Scheduling (Node)  →  Listening (Python server + Node c
 
 **Speaker identification** (`pylib/speaker_recognition.py`, `pylib/speaker_identifier.py`): Two-stage identification. Audio-based: TitaNet-Large computes 192-dim speaker embeddings, compared to a reference library via cosine similarity (threshold 0.65, fallback 0.40). Transcript-based: Falls back to Bedrock LLM (Nova Lite) inference on the transcript when no voice sample exists.
 
+**Speaker ask** (`pylib/speaker_ask.py`, `lib/video_gif.js`, `lib/speaker_confirmations.js`): Live human-in-the-loop fallback when the session can't confidently identify a speaker. The EC2 server (config `speakerAsk:`) sends a Telegram ask on the `voice` channel — speaker voice clip, a GIF of the video at that moment (client-side rolling frame ring in `lib/video_gif.js`), and a Wikipedia photo per candidate — with candidate / Other / Ignore buttons. Confirming labels the speaker for the session (trading whitelist) **and** saves quality-gated samples (label ≠ save: similarity + diversity gates, ~3 per confirm, 100/identity cap). Answers flow telegram_server (local) → Redis → `lib/speaker_confirmations.js` → WS → EC2; curated samples flow back over the WS and are written to `~/audio-library` only on the local box (the library of record).
+
 **Signal detection & trading** (`pylib/signal_detector.py`, `pylib/trade_processor.py`): Per-speaker word buffers fed through a keyword phrase index (`pylib/keyword_matching.py`). When a whitelisted speaker says a trigger phrase, `SignalHandler` evaluates trading gates (confidence threshold, YES ask price floor, session loss cap) and places fill-or-kill orders on Kalshi.
 
-**Voice sample generation** (`scripts/generate_samples.py`): Searches YouTube, downloads audio, runs Silero VAD for speech segments, computes TitaNet embeddings, clusters to isolate the target speaker's voice, sends candidates to Telegram for human verification. Capped at 5 segments per video, 30 total per speaker.
+**Voice sample generation** (`scripts/generate_samples.py`): Searches YouTube, downloads audio, runs Silero VAD for speech segments, computes TitaNet embeddings, clusters to isolate the target speaker's voice, sends candidates to Telegram for human verification. Review batches are capped at ≤4 segments per source video and ≤10 per batch; only the review set plus a bounded spare pool per video is persisted (disk/Redis). 100 total per speaker (`MAX_SAMPLES_PER_IDENTITY`, counted as `.embedding` files in `~/audio-library` — generation is skipped once an identity is at the cap).
 
 **Backtest system** (`backtest/`): Replays saved Deepgram responses and orderbook snapshots through the exact same signal detection and trading gates to compute simulated P&L. `backtest/simulate.py` reads `signals.jsonl` and `market_tracking/*.db` to replay trades with realistic fills.
 
@@ -140,5 +145,5 @@ The `main_loop.js` supervisor spawns `market_ui.js`, `worker.js`, `telegram_serv
 ### CI
 
 `.gitlab-ci.yml` defines two jobs:
-- `server-tests`: Python 3.10, runs pytest on `test_bedrock_inference.py`, `test_replay_session.py`, `test_signal_handler.py` with coverage
-- `client-tests`: Bun, runs `tests/matching.test.js`, `tests/e2e_discovery.test.js`, `tests/speaker_identification.test.js`
+- `server-tests`: Python 3.10, runs pytest on `test_bedrock_inference.py`, `test_replay_session.py`, `test_signal_handler.py`, `test_speaker_ask.py` with coverage
+- `client-tests`: Bun, runs `tests/matching.test.js`, `tests/e2e_discovery.test.js`, `tests/speaker_identification.test.js`, `tests/video_gif.test.js`, `tests/speaker_confirmations.test.js`

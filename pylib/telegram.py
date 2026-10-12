@@ -1,5 +1,6 @@
 import os
 import sys
+import io
 import atexit
 import logging
 import requests
@@ -124,18 +125,33 @@ atexit.register(flush_telegram, "debug")
 
 def send_telegram_photo(photo, caption=None, channel="info"):
     token, chat_id = get_bot(channel)
+    if not token or not chat_id:
+        logger.error(f"[telegram] Missing token or chat_id for '{channel}' channel — photo not sent: {photo[:80]}")
+        return {"ok": False, "description": "Missing token or chat_id"}
+
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    if caption:
+        caption = caption[:1024]
 
-    if photo.startswith("http"):
-        data = {"chat_id": chat_id, "photo": photo, "caption": caption}
-        response = requests.post(url, json=data)
-    else:
-        data = {"chat_id": chat_id, "caption": caption}
-        with open(photo, "rb") as f:
-            files = {"photo": f}
-            response = requests.post(url, data=data, files=files)
-
-    return response.json()
+    try:
+        if photo.startswith("http"):
+            data = {"chat_id": chat_id, "photo": photo, "caption": caption}
+            response = requests.post(url, json=data, timeout=30)
+        else:
+            data = {"chat_id": chat_id, "caption": caption}
+            with open(photo, "rb") as f:
+                files = {"photo": f}
+                response = requests.post(url, data=data, files=files, timeout=60)
+        result = response.json()
+        if not result.get("ok"):
+            logger.error(f"[telegram] sendPhoto API error ({channel}): {result.get('description', 'unknown')} — photo: {photo[:80]}")
+        return result
+    except requests.RequestException as e:
+        logger.error(f"[telegram] sendPhoto request failed ({channel}): {e} — photo: {photo[:80]}")
+        return {"ok": False, "description": str(e)}
+    except Exception:
+        logger.exception(f"[telegram] sendPhoto unexpected error — photo: {photo[:80]}")
+        return {"ok": False, "description": "unexpected error"}
 
 
 def build_inline_keyboard(buttons):
@@ -189,22 +205,90 @@ def send_telegram_audio(audio_path, caption=None, reply_markup=None, channel="in
         return {"ok": False, "description": "unexpected error"}
 
 
+def _short(value, limit=80):
+    """Bytes-safe short description for log lines (path or raw payload)."""
+    if isinstance(value, (bytes, bytearray)):
+        return f"<{len(value)} bytes>"
+    return str(value)[:limit]
+
+
 def send_telegram_voice(voice_path, caption=None, reply_markup=None, channel="info"):
-    """Send a voice message (OGG OPUS) via Telegram sendVoice endpoint."""
+    """Send a voice message (OGG OPUS) via Telegram sendVoice.
+
+    `voice_path` may be a filesystem path or raw OGG bytes — the live
+    speaker-ask flow encodes with ffmpeg to stdout and sends from memory.
+    """
     token, chat_id = get_bot(channel)
+    if not token or not chat_id:
+        logger.error(f"[telegram] Missing token or chat_id for '{channel}' channel — voice not sent: {_short(voice_path)}")
+        return {"ok": False, "description": "Missing token or chat_id"}
+
     url = f"https://api.telegram.org/bot{token}/sendVoice"
 
     data = {"chat_id": chat_id}
     if caption:
-        data["caption"] = caption
+        data["caption"] = caption[:1024]
     if reply_markup:
         data["reply_markup"] = json.dumps(reply_markup)
 
-    with open(voice_path, "rb") as f:
-        files = {"voice": f}
-        response = requests.post(url, data=data, files=files)
+    try:
+        if isinstance(voice_path, (bytes, bytearray)):
+            files = {"voice": ("speaker.ogg", io.BytesIO(bytes(voice_path)), "audio/ogg")}
+            response = requests.post(url, data=data, files=files, timeout=60)
+        else:
+            with open(voice_path, "rb") as f:
+                files = {"voice": f}
+                response = requests.post(url, data=data, files=files, timeout=60)
+        result = response.json()
+        if not result.get("ok"):
+            logger.error(f"[telegram] sendVoice API error ({channel}): {result.get('description', 'unknown')} — path: {_short(voice_path)}")
+        return result
+    except requests.RequestException as e:
+        logger.error(f"[telegram] sendVoice request failed ({channel}): {e} — path: {_short(voice_path)}")
+        return {"ok": False, "description": str(e)}
+    except Exception:
+        logger.exception(f"[telegram] sendVoice unexpected error — path: {_short(voice_path)}")
+        return {"ok": False, "description": "unexpected error"}
 
-    return response.json()
+
+def send_telegram_animation(animation, caption=None, reply_markup=None, channel="info"):
+    """Send an animation (GIF) via Telegram sendAnimation.
+
+    `animation` may be a filesystem path or raw bytes — the live speaker-ask
+    flow receives GIF bytes over the WebSocket and sends them straight from
+    memory (no temp files).
+    """
+    token, chat_id = get_bot(channel)
+    if not token or not chat_id:
+        logger.error(f"[telegram] Missing token or chat_id for '{channel}' channel — animation not sent")
+        return {"ok": False, "description": "Missing token or chat_id"}
+
+    url = f"https://api.telegram.org/bot{token}/sendAnimation"
+
+    data = {"chat_id": chat_id}
+    if caption:
+        data["caption"] = caption[:1024]
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+
+    try:
+        if isinstance(animation, (bytes, bytearray)):
+            files = {"animation": ("speaker.gif", io.BytesIO(bytes(animation)), "image/gif")}
+            response = requests.post(url, data=data, files=files, timeout=60)
+        else:
+            with open(animation, "rb") as f:
+                files = {"animation": f}
+                response = requests.post(url, data=data, files=files, timeout=60)
+        result = response.json()
+        if not result.get("ok"):
+            logger.error(f"[telegram] sendAnimation API error ({channel}): {result.get('description', 'unknown')}")
+        return result
+    except requests.RequestException as e:
+        logger.error(f"[telegram] sendAnimation request failed ({channel}): {e}")
+        return {"ok": False, "description": str(e)}
+    except Exception:
+        logger.exception("[telegram] sendAnimation unexpected error")
+        return {"ok": False, "description": "unexpected error"}
 
 
 def answer_callback_query(callback_query_id, text=None, channel="info"):

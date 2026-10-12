@@ -60,6 +60,12 @@ class AudioProcessor:
         self.total_results_received = 0
         self.last_stats_time = time.time()
 
+        # Incremented on every (re)connection to Deepgram.  Speaker IDs and
+        # word timestamps reset per connection, so anything that correlates
+        # audio across time (e.g. pending human speaker-confirmations) records
+        # the epoch it was created under and is rejected if it changed.
+        self.dg_epoch = 0
+
     async def run(self):
         async with self.session.transcript_lock:
             self.session.transcript.clear()
@@ -184,8 +190,9 @@ class AudioProcessor:
         async with websockets.connect(
             self.dg_url, additional_headers=headers
         ) as dg_ws:
+            self.dg_epoch += 1
             logger.info(
-                f"[{self.session.session_id}] Deepgram WebSocket connected successfully"
+                f"[{self.session.session_id}] Deepgram WebSocket connected successfully (epoch={self.dg_epoch})"
             )
 
             send_task = asyncio.create_task(self.send_audio(dg_ws))
